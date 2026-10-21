@@ -3,6 +3,7 @@ import type { KeyValueStorage } from "../infra/storage";
 export interface SearchPreset {
   name: string;
   url: string;
+  letter?: string;
 }
 
 export interface AppConfig {
