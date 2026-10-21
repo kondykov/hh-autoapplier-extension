@@ -65,6 +65,7 @@ export class Panel implements LogSink {
     return `
       <div id="hh-autoapply-header"><span>HH AutoApply</span><button id="hh-btn-minimize" title="Свернуть">_</button></div>
       <div id="hh-autoapply-body">
+        <div id="hh-captcha-banner" hidden>⚠ Капча! Авто-режим на паузе. Введите текст с картинки</div>
         <div class="hh-stats">
           ${stat("applied", "Отклики")}${stat("outline", "Аутлайн")}${stat("unclear", "Непонятное")}
           ${stat("questions", "Вопросы")}${stat("total", "Всего")}${stat("daily", "За день")}
@@ -213,6 +214,11 @@ export class Panel implements LogSink {
     line.textContent = `[${new Date().toLocaleTimeString("ru-RU")}] ${message}`;
     log.append(line);
     log.scrollTop = log.scrollHeight;
+  }
+
+  setCaptcha(shown: boolean): void {
+    this.el("hh-captcha-banner").hidden = !shown;
+    this.root.classList.toggle("hh-captcha", shown);
   }
 
   setStep(text: string): void {
