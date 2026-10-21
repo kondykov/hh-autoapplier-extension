@@ -1,0 +1,77 @@
+import type { KeyValueStorage } from "../infra/storage";
+
+export interface VacancyItem {
+  title: string;
+  link: string;
+  company: string;
+}
+
+export interface Vacancy extends VacancyItem {
+  card: Element | null;
+  applyBtn: HTMLElement | null;
+}
+
+interface PersistedState {
+  outline: VacancyItem[];
+  unclear: VacancyItem[];
+  skippedUrls: string[];
+  applied: number;
+  skipped: number;
+}
+
+const vacancyId = (url: string) => url.match(/\/vacancy\/(\d+)|vacancyId=(\d+)/)?.slice(1).find(Boolean);
+
+export class AppState {
+  vacancies: Vacancy[] = [];
+  index = 0;
+  outline: VacancyItem[] = [];
+  unclear: VacancyItem[] = [];
+  skippedUrls: string[] = [];
+  applied = 0;
+  skipped = 0;
+
+  isSkipped(link: string): boolean {
+    if (!link) return false;
+    const id = vacancyId(link);
+    return this.skippedUrls.some((u) => u === link || (id !== undefined && vacancyId(u) === id));
+  }
+
+  // true, если вакансия добавлена впервые
+  addOutline(item: VacancyItem): boolean {
+    if (this.outline.some((o) => o.link === item.link)) return false;
+    this.outline.push(item);
+    if (item.link && !this.skippedUrls.includes(item.link)) this.skippedUrls.push(item.link);
+    return true;
+  }
+
+  addUnclear(item: VacancyItem): void {
+    if (!this.unclear.some((u) => u.link === item.link)) this.unclear.push(item);
+    this.addOutline(item);
+  }
+
+  clearOutline(): void {
+    this.outline = [];
+    this.unclear = [];
+    this.skippedUrls = [];
+  }
+
+  toJSON(): PersistedState {
+    const { outline, unclear, skippedUrls, applied, skipped } = this;
+    return { outline, unclear, skippedUrls, applied, skipped };
+  }
+}
+
+const KEY = "hh_autoapply_state";
+
+export class StateRepository {
+  constructor(private storage: KeyValueStorage) {}
+
+  async load(): Promise<AppState> {
+    const saved = await this.storage.get<Partial<PersistedState>>(KEY, {});
+    return Object.assign(new AppState(), saved);
+  }
+
+  save(state: AppState): Promise<void> {
+    return this.storage.set(KEY, state.toJSON());
+  }
+}

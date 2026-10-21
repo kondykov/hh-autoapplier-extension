@@ -18,6 +18,12 @@ Chrome MV3 расширение: TypeScript-модули, сборка esbuild �
 | `dom/query.ts` | `qs/qsa/firstMatch/isAlreadyResponded` | DOM-утилиты |
 | `dom/cover-letter.ts` | `fillTextarea`, `ensureCoverLetterFieldVisible` | работа с письмом |
 | `content/main.ts` | `init` (1819) | composition root |
+| `core/state.ts` | `STATE`, outline/unclear | модель и репозиторий состояния |
+| `infra/logger.ts` | `log` | Logger + sinks (console, panel) |
+| `apply/outcome-detector.ts`, `apply/submit.ts`, `apply/pipeline.ts` | 351-650 | пайплайн отклика |
+| `search/vacancy-collector.ts` | `collectVacancies` | сбор карточек |
+| `ui/panel.ts`, `ui/modal.ts`, `ui/styles.ts` | 658-972 | оверлей |
+| `core/controller.ts` | `executeNextStep`, auto | оркестратор (Next/Авто) |
 
 ## План (что ещё вынести)
 
@@ -52,3 +58,4 @@ npm install
 npm run typecheck && npm test
 npm run build     # dist/ -> chrome://extensions -> Load unpacked
 ```
+

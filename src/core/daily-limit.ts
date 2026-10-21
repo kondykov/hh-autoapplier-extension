@@ -10,7 +10,7 @@ const KEY = "hh_daily_counter";
 export class DailyLimit {
   constructor(
     private storage: KeyValueStorage,
-    private limit: number,
+    public limit: number,
     private today: () => string = () => new Date().toISOString().split("T")[0],
   ) {}
 
