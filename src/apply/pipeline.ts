@@ -4,6 +4,7 @@ import type { AppState, Vacancy } from "../core/state";
 import { detectPageType } from "../dom/page-type";
 import { qs } from "../dom/query";
 import type { Logger } from "../infra/logger";
+import type { ResumeSelector } from "../resume/selector";
 import type { LetterProvider } from "../letters/letter-provider";
 import { waitForApplyOutcome, type ApplyOutcome } from "./outcome-detector";
 import { attachLetterAndSubmit } from "./submit";
@@ -14,6 +15,7 @@ export interface PipelineDeps {
   state: AppState;
   logger: Logger;
   letters: LetterProvider;
+  resumes: ResumeSelector;
   searchUrl: () => string;
   onApplied: (vacancy: Vacancy) => Promise<void>;
   onOutline: (vacancy: Vacancy) => Promise<void>;
@@ -76,6 +78,13 @@ export class ApplyPipeline {
       return "skipped";
     }
 
+    const chosen = await this.deps.resumes.choose(vacancy);
+    if (chosen.failed) {
+      qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
+      state.skipped++;
+      return "failed";
+    }
+    if (chosen.profile) vacancy.resume = chosen.profile.name;
     const letter = await this.deps.letters.getLetter(vacancy);
     const result = await attachLetterAndSubmit(vacancy, letter, logger);
     switch (result) {

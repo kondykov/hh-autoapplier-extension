@@ -7,6 +7,7 @@ export interface VacancyItem {
   salary?: string;
   format?: string;
   stack?: string[];
+  resume?: string;
 }
 
 export interface Vacancy extends VacancyItem {

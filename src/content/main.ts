@@ -7,6 +7,7 @@ import { ChromeStorage } from "../infra/storage";
 import { StaticTemplateProvider } from "../letters/letter-provider";
 import { QuestionStore } from "../questions/store";
 import { ApplicationStore } from "../report/applications";
+import { ResumeSelector } from "../resume/selector";
 import { Panel } from "../ui/panel";
 
 // Composition root: единственное место, где собираются зависимости
@@ -20,7 +21,11 @@ async function bootstrap() {
   const limit = new DailyLimit(storage, config.dailyLimit);
   const logger = new Logger();
   logger.addSink(new ConsoleSink());
-  const letters = new StaticTemplateProvider(() => config.coverLetterTemplate);
+  // Письмо профиля резюме приоритетнее универсального
+  const letters = new StaticTemplateProvider(
+    (v) => config.resumes.find((r) => r.name === v?.resume)?.letter?.trim() || config.coverLetterTemplate,
+  );
+  const resumes = new ResumeSelector(() => config.resumes, logger);
   const questions = new QuestionStore(storage);
   const applications = new ApplicationStore(storage);
 
@@ -40,6 +45,7 @@ async function bootstrap() {
       onAutoReject: () => void controller.toggleAutoReject(),
       onUrlChange: (url) => void controller.setUrl(url),
       onLimitChange: (value) => void controller.setLimit(value),
+      onResumesChange: (profiles) => void controller.setResumes(profiles),
       onRulesChange: (rules) => void controller.setRules(rules),
       onLetterChange: (text) => void controller.setLetter(text),
       onPresetSave: (name) => void controller.savePreset(name),
@@ -52,12 +58,13 @@ async function bootstrap() {
       letter: config.coverLetterTemplate,
       presets: config.presets.map((p) => p.name),
       rules: config.rules,
+      resumes: config.resumes,
     },
   );
   logger.addSink(panel);
   await panel.mount();
 
-  controller = new Controller({ storage, config, state, repo, limit, logger, panel, letters, questions, applications });
+  controller = new Controller({ storage, config, state, repo, limit, logger, panel, letters, questions, applications, resumes });
   await controller.init();
   logger.log("Панель загружена");
 }

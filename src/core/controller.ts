@@ -11,7 +11,9 @@ import type { Logger } from "../infra/logger";
 import type { LetterProvider } from "../letters/letter-provider";
 import { extractVacancyInfo } from "../pages/vacancy-info";
 import { downloadJson, QuestionStore } from "../questions/store";
+import type { ResumeProfile } from "../resume/profiles";
 import type { FilterRules } from "../filter/rules";
+import type { ResumeSelector } from "../resume/selector";
 import { ApplicationStore, downloadCsv, toCsv } from "../report/applications";
 import { extractQuestions } from "../questions/extract";
 import { openNextRejection } from "../rejects/runner";
@@ -31,6 +33,7 @@ interface ControllerDeps {
   letters: LetterProvider;
   questions: QuestionStore;
   applications: ApplicationStore;
+  resumes: ResumeSelector;
 }
 
 export class Controller {
@@ -43,6 +46,7 @@ export class Controller {
       state: d.state,
       logger: d.logger,
       letters: d.letters,
+      resumes: d.resumes,
       searchUrl: () => d.config.searchRedirectUrl,
       onApplied: async (vacancy) => {
         await d.limit.increment();
@@ -53,6 +57,7 @@ export class Controller {
           company: vacancy.company,
           salary: vacancy.salary ?? "",
           format: vacancy.format ?? "",
+          resume: vacancy.resume ?? "",
           link: vacancy.link || location.href,
           appliedAt: new Date().toISOString(),
         });
@@ -352,6 +357,11 @@ export class Controller {
 
   async setLetter(text: string) {
     this.d.config.coverLetterTemplate = text;
+    await saveConfig(this.d.storage, this.d.config);
+  }
+
+  async setResumes(resumes: ResumeProfile[]) {
+    this.d.config.resumes = resumes;
     await saveConfig(this.d.storage, this.d.config);
   }
 

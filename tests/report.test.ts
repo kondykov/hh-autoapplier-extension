@@ -26,6 +26,6 @@ describe("report extractors", () => {
       { title: 'A "b"', stack: "C#", company: "X", salary: "", format: "", link: "l", appliedAt: "2026-10-21T10:00:00Z" },
     ]);
     expect(csv.startsWith("\uFEFF")).toBe(true);
-    expect(csv).toContain('"A ""b""";"C#";"X";"не указана";"не указан";"l";"2026-10-21"');
+    expect(csv).toContain('"A ""b""";"C#";"X";"не указана";"не указан";"l";"2026-10-21";""');
   });
 });
