@@ -11,6 +11,7 @@ import type { Logger } from "../infra/logger";
 import type { LetterProvider } from "../letters/letter-provider";
 import { extractVacancyInfo } from "../pages/vacancy-info";
 import { downloadJson, QuestionStore } from "../questions/store";
+import { ApplicationStore, downloadCsv, toCsv } from "../report/applications";
 import { extractQuestions } from "../questions/extract";
 import { openNextRejection } from "../rejects/runner";
 import { collectVacancies } from "../search/vacancy-collector";
@@ -28,6 +29,7 @@ interface ControllerDeps {
   panel: Panel;
   letters: LetterProvider;
   questions: QuestionStore;
+  applications: ApplicationStore;
 }
 
 export class Controller {
@@ -41,10 +43,19 @@ export class Controller {
       logger: d.logger,
       letters: d.letters,
       searchUrl: () => d.config.searchRedirectUrl,
-      onApplied: async (title) => {
+      onApplied: async (vacancy) => {
         await d.limit.increment();
         d.state.applied++;
-        d.logger.log(`Отклик зарегистрирован: "${title}"`, "success");
+        await d.applications.add({
+          title: vacancy.title,
+          stack: (vacancy.stack ?? []).join(", "),
+          company: vacancy.company,
+          salary: vacancy.salary ?? "",
+          format: vacancy.format ?? "",
+          link: vacancy.link || location.href,
+          appliedAt: new Date().toISOString(),
+        });
+        d.logger.log(`Отклик зарегистрирован: "${vacancy.title}"`, "success");
       },
       onOutline: (vacancy) => this.saveQuestions(vacancy),
       onChange: () => this.persist(),
@@ -106,6 +117,16 @@ export class Controller {
     this.d.logger.log(`Скачано анкет: ${all.length}`, "success");
   }
 
+  async downloadReport(): Promise<void> {
+    const all = await this.d.applications.list();
+    if (!all.length) {
+      this.d.logger.log("Откликов для отчёта пока нет", "warn");
+      return;
+    }
+    downloadCsv(`applications_${new Date().toISOString().slice(0, 10)}.csv`, toCsv(all));
+    this.d.logger.log(`Отчёт: ${all.length} откликов`, "success");
+  }
+
   async collect(): Promise<boolean> {
     const { state, logger, panel, config, storage } = this.d;
     if (detectPageType() !== "search") {
@@ -121,6 +142,9 @@ export class Controller {
     state.index = 0;
     await this.persist();
     logger.log(`Найдено вакансий: ${state.vacancies.length}`, "success");
+    for (const v of state.vacancies.slice(0, 5)) {
+      logger.log(`${v.title} | ${v.company} | ${v.salary || "—"} | ${v.format || "—"} | ${(v.stack ?? []).join(", ") || "—"}`);
+    }
     panel.setNextEnabled(state.vacancies.length > 0);
     panel.setStep(
       state.vacancies.length ? `Найдено ${state.vacancies.length}. Нажмите Next` : "Подходящих вакансий нет",

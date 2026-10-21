@@ -4,6 +4,9 @@ export interface VacancyItem {
   title: string;
   link: string;
   company: string;
+  salary?: string;
+  format?: string;
+  stack?: string[];
 }
 
 export interface Vacancy extends VacancyItem {

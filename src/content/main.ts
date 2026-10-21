@@ -6,6 +6,7 @@ import { ConsoleSink, Logger } from "../infra/logger";
 import { ChromeStorage } from "../infra/storage";
 import { StaticTemplateProvider } from "../letters/letter-provider";
 import { QuestionStore } from "../questions/store";
+import { ApplicationStore } from "../report/applications";
 import { Panel } from "../ui/panel";
 
 // Composition root: единственное место, где собираются зависимости
@@ -21,6 +22,7 @@ async function bootstrap() {
   logger.addSink(new ConsoleSink());
   const letters = new StaticTemplateProvider(() => config.coverLetterTemplate);
   const questions = new QuestionStore(storage);
+  const applications = new ApplicationStore(storage);
 
   let controller!: Controller;
   const panel = new Panel(
@@ -33,6 +35,7 @@ async function bootstrap() {
       onShowUnclear: () => controller.showUnclear(),
       onClear: () => void controller.clear(),
       onDownloadQuestions: () => void controller.downloadQuestions(),
+      onDownloadReport: () => void controller.downloadReport(),
       onRejectNext: () => void controller.rejectNext(),
       onAutoReject: () => void controller.toggleAutoReject(),
       onUrlChange: (url) => void controller.setUrl(url),
@@ -52,7 +55,7 @@ async function bootstrap() {
   logger.addSink(panel);
   await panel.mount();
 
-  controller = new Controller({ storage, config, state, repo, limit, logger, panel, letters, questions });
+  controller = new Controller({ storage, config, state, repo, limit, logger, panel, letters, questions, applications });
   await controller.init();
   logger.log("Панель загружена");
 }
