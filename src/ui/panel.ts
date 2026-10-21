@@ -6,6 +6,7 @@ export interface PanelStats {
   applied: number;
   outline: number;
   unclear: number;
+  questions: number;
   total: number;
   daily: number;
   dailyLimit: number;
@@ -18,6 +19,13 @@ export interface PanelHandlers {
   onShowOutline(): void;
   onShowUnclear(): void;
   onClear(): void;
+  onDownloadQuestions(): void;
+  onRejectNext(): void;
+  onAutoReject(): void;
+  onLetterChange(text: string): void;
+  onPresetSave(name: string): void;
+  onPresetDelete(name: string): void;
+  onPresetApply(name: string): void;
   onUrlChange(url: string): void;
   onLimitChange(limit: number): void;
 }
@@ -30,7 +38,7 @@ export class Panel implements LogSink {
   constructor(
     private storage: KeyValueStorage,
     private handlers: PanelHandlers,
-    private initial: { url: string; limit: number },
+    private initial: { url: string; limit: number; letter: string; presets: string[] },
   ) {}
 
   async mount(): Promise<void> {
@@ -54,7 +62,7 @@ export class Panel implements LogSink {
       <div id="hh-autoapply-body">
         <div class="hh-stats">
           ${stat("applied", "Отклики")}${stat("outline", "Аутлайн")}${stat("unclear", "Непонятное")}
-          ${stat("total", "Всего")}${stat("daily", "За день")}
+          ${stat("questions", "Вопросы")}${stat("total", "Всего")}${stat("daily", "За день")}
         </div>
         <div class="hh-input-group"><label for="hh-input-url">URL поиска (редирект)</label><input id="hh-input-url" class="hh-input" /></div>
         <div class="hh-input-group"><label for="hh-input-limit">Дневной лимит</label><input id="hh-input-limit" type="number" min="1" class="hh-input" /></div>
@@ -69,6 +77,20 @@ export class Panel implements LogSink {
           <button class="hh-btn hh-btn-warn" id="hh-btn-unclear">Непонятное</button>
           <button class="hh-btn" id="hh-btn-clear">Очистить</button>
         </div>
+        <div class="hh-btn-row">
+          <button class="hh-btn hh-btn-secondary" id="hh-btn-dlq">Скачать вопросы</button>
+          <button class="hh-btn hh-btn-warn" id="hh-btn-rej">Next Отказ</button>
+          <button class="hh-btn hh-btn-secondary" id="hh-btn-autorej">Авто-отказ</button>
+        </div>
+        <div class="hh-input-group"><label for="hh-input-preset">Сохранённые поиски</label>
+          <div class="hh-btn-row">
+            <select id="hh-input-preset" class="hh-input"></select>
+            <button class="hh-btn hh-btn-secondary" id="hh-btn-preset-go">Открыть</button>
+            <button class="hh-btn" id="hh-btn-preset-save">Сохранить текущий</button>
+            <button class="hh-btn" id="hh-btn-preset-del">Удалить</button>
+          </div>
+        </div>
+        <div class="hh-input-group"><label for="hh-input-letter">Сопроводительное письмо</label><textarea id="hh-input-letter" class="hh-input" rows="5"></textarea></div>
         <div id="hh-autoapply-log"></div>
       </div>`;
   }
@@ -85,6 +107,22 @@ export class Panel implements LogSink {
     this.el("hh-btn-outline").onclick = () => this.handlers.onShowOutline();
     this.el("hh-btn-unclear").onclick = () => this.handlers.onShowUnclear();
     this.el("hh-btn-clear").onclick = () => this.handlers.onClear();
+    this.el("hh-btn-dlq").onclick = () => this.handlers.onDownloadQuestions();
+    this.el("hh-btn-rej").onclick = () => this.handlers.onRejectNext();
+    this.el("hh-btn-autorej").onclick = () => this.handlers.onAutoReject();
+
+    const letter = this.el<HTMLTextAreaElement>("hh-input-letter");
+    letter.value = this.initial.letter;
+    letter.onchange = () => this.handlers.onLetterChange(letter.value);
+
+    this.setPresets(this.initial.presets);
+    const preset = this.el<HTMLSelectElement>("hh-input-preset");
+    this.el("hh-btn-preset-go").onclick = () => preset.value && this.handlers.onPresetApply(preset.value);
+    this.el("hh-btn-preset-del").onclick = () => preset.value && this.handlers.onPresetDelete(preset.value);
+    this.el("hh-btn-preset-save").onclick = () => {
+      const name = prompt("Название поиска");
+      if (name?.trim()) this.handlers.onPresetSave(name.trim());
+    };
 
     const url = this.el<HTMLInputElement>("hh-input-url");
     url.value = this.initial.url;
@@ -151,6 +189,17 @@ export class Panel implements LogSink {
     btn.classList.toggle("hh-btn-primary", active);
   }
 
+  setRejectActive(active: boolean): void {
+    const btn = this.el("hh-btn-autorej");
+    btn.textContent = active ? "Стоп отказ" : "Авто-отказ";
+    btn.classList.toggle("hh-btn-primary", active);
+  }
+
+  setPresets(names: string[]): void {
+    const select = this.el<HTMLSelectElement>("hh-input-preset");
+    select.replaceChildren(...names.map((n) => new Option(n, n)));
+  }
+
   setUrl(url: string): void {
     this.el<HTMLInputElement>("hh-input-url").value = url;
   }
@@ -160,7 +209,9 @@ export class Panel implements LogSink {
     set("applied", s.applied);
     set("outline", s.outline);
     set("unclear", s.unclear);
+    set("questions", s.questions);
     set("total", s.total || "-");
     set("daily", `${s.daily} / ${s.dailyLimit}`);
   }
 }
+

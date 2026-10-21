@@ -17,6 +17,11 @@ interface PersistedState {
   skippedUrls: string[];
   applied: number;
   skipped: number;
+  running: boolean;
+  resumeAfterRedirect: boolean;
+  retryDelay: number;
+  emptyPageRetries: number;
+  emptyPageRestarts: number;
 }
 
 const vacancyId = (url: string) => url.match(/\/vacancy\/(\d+)|vacancyId=(\d+)/)?.slice(1).find(Boolean);
@@ -29,6 +34,12 @@ export class AppState {
   skippedUrls: string[] = [];
   applied = 0;
   skipped = 0;
+  // Авто-режим переживает перезагрузки страницы
+  running = false;
+  resumeAfterRedirect = false;
+  retryDelay = 0;
+  emptyPageRetries = 0;
+  emptyPageRestarts = 0;
 
   isSkipped(link: string): boolean {
     if (!link) return false;
@@ -55,9 +66,25 @@ export class AppState {
     this.skippedUrls = [];
   }
 
+  resetEmptyCounters(): void {
+    this.retryDelay = 0;
+    this.emptyPageRetries = 0;
+    this.emptyPageRestarts = 0;
+  }
+
   toJSON(): PersistedState {
-    const { outline, unclear, skippedUrls, applied, skipped } = this;
-    return { outline, unclear, skippedUrls, applied, skipped };
+    return {
+      outline: this.outline,
+      unclear: this.unclear,
+      skippedUrls: this.skippedUrls,
+      applied: this.applied,
+      skipped: this.skipped,
+      running: this.running,
+      resumeAfterRedirect: this.resumeAfterRedirect,
+      retryDelay: this.retryDelay,
+      emptyPageRetries: this.emptyPageRetries,
+      emptyPageRestarts: this.emptyPageRestarts,
+    };
   }
 }
 

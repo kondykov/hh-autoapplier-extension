@@ -59,3 +59,15 @@ npm run typecheck && npm test
 npm run build     # dist/ -> chrome://extensions -> Load unpacked
 ```
 
+
+## Статус портирования (v0.5)
+
+Перенесено: персистентный авто-режим и возобновление после редиректа (`core/controller.ts`, `core/state.ts`),
+политика пустой выдачи (`core/retry-policy.ts`), сбор и скачивание вопросов (`questions/`),
+автоотказ (`rejects/matcher.ts`, `rejects/runner.ts`), страницы отклика/вакансии (`pages/vacancy-info.ts`, `ApplyPipeline.applyOnPage`),
+`LetterProvider` (`letters/`) со статическим шаблоном, редактор письма и сохранённые поиски в панели.
+
+Хранение: письмо — `AppConfig.coverLetterTemplate`, сохранённые поиски — `AppConfig.presets` (`chrome.storage.local`, ключ `hh_autoapply_config`).
+
+Осталось: автозаполнение анкет из JSON с ответами (legacy `hh-autoresponder.user.js`), `LlmLetterProvider` (письмо по тексту вакансии + шаблон),
+выделение `PageStep` как отдельных классов, Telegram-уведомления (режим без присмотра).
