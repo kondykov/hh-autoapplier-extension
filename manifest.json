@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "HH AutoApplier",
+  "version": "0.4.0",
+  "description": "Полуавтоматические отклики на hh.ru",
+  "permissions": ["storage"],
+  "host_permissions": ["https://*.hh.ru/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://*.hh.ru/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
