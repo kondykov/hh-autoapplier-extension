@@ -15,7 +15,7 @@ export interface PipelineDeps {
   logger: Logger;
   letters: LetterProvider;
   searchUrl: () => string;
-  onApplied: (title: string) => Promise<void>;
+  onApplied: (vacancy: Vacancy) => Promise<void>;
   onOutline: (vacancy: Vacancy) => Promise<void>;
   onChange: () => Promise<void>;
 }
@@ -67,7 +67,7 @@ export class ApplyPipeline {
 
     if (outcome === "outline") return this.saveOutline(vacancy);
     if (outcome === "responded") {
-      await this.deps.onApplied(vacancy.title);
+      await this.deps.onApplied(vacancy);
       return "success";
     }
     if (outcome === "none") {
@@ -82,7 +82,7 @@ export class ApplyPipeline {
       case "outline":
         return this.saveOutline(vacancy);
       case "success":
-        await this.deps.onApplied(vacancy.title);
+        await this.deps.onApplied(vacancy);
         return "success";
       case "disabled":
         return "disabled";

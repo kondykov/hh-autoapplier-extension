@@ -20,6 +20,7 @@ export interface PanelHandlers {
   onShowUnclear(): void;
   onClear(): void;
   onDownloadQuestions(): void;
+  onDownloadReport(): void;
   onRejectNext(): void;
   onAutoReject(): void;
   onLetterChange(text: string): void;
@@ -79,6 +80,7 @@ export class Panel implements LogSink {
         </div>
         <div class="hh-btn-row">
           <button class="hh-btn hh-btn-secondary" id="hh-btn-dlq">Скачать вопросы</button>
+          <button class="hh-btn hh-btn-success" id="hh-btn-report">Отчёт (CSV)</button>
           <button class="hh-btn hh-btn-warn" id="hh-btn-rej">Next Отказ</button>
           <button class="hh-btn hh-btn-secondary" id="hh-btn-autorej">Авто-отказ</button>
         </div>
@@ -108,6 +110,7 @@ export class Panel implements LogSink {
     this.el("hh-btn-unclear").onclick = () => this.handlers.onShowUnclear();
     this.el("hh-btn-clear").onclick = () => this.handlers.onClear();
     this.el("hh-btn-dlq").onclick = () => this.handlers.onDownloadQuestions();
+    this.el("hh-btn-report").onclick = () => this.handlers.onDownloadReport();
     this.el("hh-btn-rej").onclick = () => this.handlers.onRejectNext();
     this.el("hh-btn-autorej").onclick = () => this.handlers.onAutoReject();
 

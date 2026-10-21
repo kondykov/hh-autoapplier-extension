@@ -35,6 +35,12 @@ export const SELECTORS = {
   titleDescription: '[data-qa="title-description"]',
 
   responseCredsTitle: '[data-qa="vacancy-credentials"] [data-qa="cell-text-content"]',
+  snippets: '[data-qa^="vacancy-serp__vacancy_snippet"]',
+  cardFormatLabels: '[data-qa^="vacancy-label-work-schedule"], [data-qa*="work-format"]',
+  pageSalary: '[data-qa="vacancy-salary"]',
+  pageWorkFormat: '[data-qa="work-formats-text"], [data-qa="common-employment-text"]',
+  pageSkills: '[data-qa="skills-element"]',
+  pageDescription: '[data-qa="vacancy-description"]',
   responseMainTitle: 'h1[data-qa="title"]',
   responseCompanyAvatar: '[aria-label][class*="magritte-avatar"]',
   taskTextarea: "textarea",

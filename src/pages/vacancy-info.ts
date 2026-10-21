@@ -1,10 +1,14 @@
 import { SELECTORS } from "../core/selectors";
 import { firstMatch } from "../dom/query";
+import { extractSalary, extractStack, extractWorkFormat } from "../report/extractors";
 import { detectPageType } from "../dom/page-type";
 
 export interface VacancyInfo {
   title: string;
   company: string;
+  salary: string;
+  format: string;
+  stack: string[];
 }
 
 const UNKNOWN_TITLE = "Неизвестная вакансия";
@@ -26,5 +30,14 @@ export function extractVacancyInfo(): VacancyInfo {
   if (title === UNKNOWN_TITLE && document.title) {
     title = document.title.replace(/\s*[—-]\s*hh\.ru$/i, "").trim() || title;
   }
-  return { title, company };
+  const text = (sel: string) => document.querySelector(sel)?.textContent ?? "";
+  const skills = Array.from(document.querySelectorAll(SELECTORS.pageSkills)).map((e) => e.textContent ?? "");
+  const stack = extractStack(title, skills.join(" "), text(SELECTORS.pageDescription));
+  return {
+    title,
+    company,
+    salary: extractSalary(text(SELECTORS.pageSalary)),
+    format: extractWorkFormat(text(SELECTORS.pageWorkFormat)),
+    stack: skills.length ? [...new Set([...skills.map((s) => s.trim()), ...stack])] : stack,
+  };
 }
