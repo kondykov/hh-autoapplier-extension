@@ -10,6 +10,7 @@ export interface VacancyItem {
 }
 
 export interface Vacancy extends VacancyItem {
+  text?: string;
   card: Element | null;
   applyBtn: HTMLElement | null;
 }

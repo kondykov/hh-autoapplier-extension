@@ -1,9 +1,11 @@
+import { EMPTY_RULES, type FilterRules } from "../filter/rules";
 import type { KeyValueStorage } from "../infra/storage";
 
 export interface SearchPreset {
   name: string;
   url: string;
   letter?: string;
+  rules?: FilterRules;
 }
 
 export interface AppConfig {
@@ -11,6 +13,7 @@ export interface AppConfig {
   searchRedirectUrl: string;
   dailyLimit: number;
   presets: SearchPreset[];
+  rules: FilterRules;
 }
 
 declare const __DEFAULT_LETTER__: string | undefined;
@@ -22,13 +25,14 @@ export const DEFAULT_CONFIG: AppConfig = {
   searchRedirectUrl: "https://hh.ru/search/vacancy?text=QA",
   dailyLimit: 150,
   presets: [],
+  rules: EMPTY_RULES,
 };
 
 const KEY = "hh_autoapply_config";
 
 export async function loadConfig(storage: KeyValueStorage): Promise<AppConfig> {
   const saved = await storage.get<Partial<AppConfig>>(KEY, {});
-  return { ...DEFAULT_CONFIG, ...saved };
+  return { ...DEFAULT_CONFIG, ...saved, rules: { ...EMPTY_RULES, ...saved.rules } };
 }
 
 export function saveConfig(storage: KeyValueStorage, config: AppConfig): Promise<void> {
