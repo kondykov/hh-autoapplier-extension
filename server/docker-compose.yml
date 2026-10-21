@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hhapplier
+      POSTGRES_USER: hhapplier
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hhapplier}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hhapplier -d hhapplier"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Default: Host=db;Port=5432;Database=hhapplier;Username=hhapplier;Password=${POSTGRES_PASSWORD:-hhapplier}
+      Api__Key: ${API_KEY:-}
+      Hh__UserAgent: ${HH_USER_AGENT:-HhAutoApplier/1.0 (set-your-email@example.com)}
+      Hh__AccessToken: ${HH_ACCESS_TOKEN:-}
+      Hh__CollectIntervalMinutes: ${COLLECT_INTERVAL_MINUTES:-60}
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  pgdata:
