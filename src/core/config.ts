@@ -12,9 +12,12 @@ export interface AppConfig {
   presets: SearchPreset[];
 }
 
+declare const __DEFAULT_LETTER__: string | undefined;
+const LOCAL_LETTER = typeof __DEFAULT_LETTER__ === "string" ? __DEFAULT_LETTER__ : "";
+
 // Личные данные (имя, контакты) задаются пользователем в настройках, а не хранятся в коде
 export const DEFAULT_CONFIG: AppConfig = {
-  coverLetterTemplate: "Здравствуйте.\nМеня заинтересовала ваша вакансия.\n\nС уважением,",
+  coverLetterTemplate: LOCAL_LETTER || "Здравствуйте.\nМеня заинтересовала ваша вакансия.\n\nС уважением,",
   searchRedirectUrl: "https://hh.ru/search/vacancy?text=QA",
   dailyLimit: 150,
   presets: [],
@@ -30,3 +33,4 @@ export async function loadConfig(storage: KeyValueStorage): Promise<AppConfig> {
 export function saveConfig(storage: KeyValueStorage, config: AppConfig): Promise<void> {
   return storage.set(KEY, config);
 }
+

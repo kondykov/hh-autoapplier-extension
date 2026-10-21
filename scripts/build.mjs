@@ -1,10 +1,14 @@
 import { build, context } from "esbuild";
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 
 mkdirSync("dist", { recursive: true });
 copyFileSync("manifest.json", "dist/manifest.json");
 
+// Личное письмо лежит в gitignored letter.local.txt и вшивается только в локальную сборку
+const defaultLetter = existsSync("letter.local.txt") ? readFileSync("letter.local.txt", "utf8").trim() : "";
+
 const options = {
+  define: { __DEFAULT_LETTER__: JSON.stringify(defaultLetter) },
   entryPoints: { content: "src/content/main.ts" },
   outdir: "dist",
   bundle: true,
@@ -19,3 +23,4 @@ if (process.argv.includes("--watch")) {
 } else {
   await build(options);
 }
+
