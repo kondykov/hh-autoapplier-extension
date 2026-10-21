@@ -189,6 +189,10 @@ export class Panel implements LogSink {
     btn.classList.toggle("hh-btn-primary", active);
   }
 
+  setLetter(text: string): void {
+    this.el<HTMLTextAreaElement>("hh-input-letter").value = text;
+  }
+
   setRejectActive(active: boolean): void {
     const btn = this.el("hh-btn-autorej");
     btn.textContent = active ? "Стоп отказ" : "Авто-отказ";

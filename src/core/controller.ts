@@ -333,7 +333,7 @@ export class Controller {
   async savePreset(name: string) {
     const { config, storage } = this.d;
     const url = config.searchRedirectUrl;
-    config.presets = [...config.presets.filter((p) => p.name !== name), { name, url }];
+    config.presets = [...config.presets.filter((p) => p.name !== name), { name, url, letter: config.coverLetterTemplate }];
     await saveConfig(storage, config);
     this.d.panel.setPresets(config.presets.map((p) => p.name));
   }
@@ -348,6 +348,10 @@ export class Controller {
     const preset = this.d.config.presets.find((p) => p.name === name);
     if (!preset) return;
     await this.setUrl(preset.url);
+    if (preset.letter) {
+      await this.setLetter(preset.letter);
+      this.d.panel.setLetter(preset.letter);
+    }
     this.d.panel.setUrl(preset.url);
     if (detectPageType() === "search" || confirm(`Перейти на поиск "${name}"?`)) location.href = preset.url;
   }
