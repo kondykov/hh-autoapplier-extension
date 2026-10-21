@@ -36,6 +36,9 @@ export const SELECTORS = {
 
   responseCredsTitle: '[data-qa="vacancy-credentials"] [data-qa="cell-text-content"]',
   responseMainTitle: 'h1[data-qa="title"]',
+  responseCompanyAvatar: '[aria-label][class*="magritte-avatar"]',
+  taskTextarea: "textarea",
+  chatUnreadFilter: '[data-qa="chatik-filter-unread"], [data-qa*="unread"]',
 
   vacancyApplyTop: '[data-qa="vacancy-response-link-top"]',
   vacancyApplyBottom: '[data-qa="vacancy-response-link-bottom"]',

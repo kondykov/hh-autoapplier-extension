@@ -1,9 +1,15 @@
 import type { KeyValueStorage } from "../infra/storage";
 
+export interface SearchPreset {
+  name: string;
+  url: string;
+}
+
 export interface AppConfig {
   coverLetterTemplate: string;
   searchRedirectUrl: string;
   dailyLimit: number;
+  presets: SearchPreset[];
 }
 
 // Личные данные (имя, контакты) задаются пользователем в настройках, а не хранятся в коде
@@ -11,6 +17,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   coverLetterTemplate: "Здравствуйте.\nМеня заинтересовала ваша вакансия.\n\nС уважением,",
   searchRedirectUrl: "https://hh.ru/search/vacancy?text=QA",
   dailyLimit: 150,
+  presets: [],
 };
 
 const KEY = "hh_autoapply_config";

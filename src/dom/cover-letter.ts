@@ -1,3 +1,4 @@
+import { setNativeValue } from "./input";
 import { DELAYS, wait } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
 import { qs } from "./query";
@@ -6,14 +7,11 @@ export const getCoverLetterField = () =>
   qs<HTMLTextAreaElement>(SELECTORS.coverLetterInput) ??
   qs<HTMLTextAreaElement>(SELECTORS.coverLetterInputAlt);
 
-// Нативный setter нужен, чтобы React-форма hh.ru увидела изменение значения
 export function fillTextarea(textarea: HTMLTextAreaElement, text: string): void {
   textarea.focus();
-  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
-  setter.call(textarea, text);
-  for (const type of ["input", "change", "blur"]) {
-    textarea.dispatchEvent(new Event(type, { bubbles: true }));
-  }
+  setNativeValue(textarea, text);
+  textarea.dispatchEvent(new Event("blur", { bubbles: true }));
+  // Визуальный клон magritte
   const wrapper = textarea.closest('[data-qa="textarea-native-wrapper"]') ?? textarea.parentElement;
   const clone = wrapper?.querySelector("pre");
   if (clone) clone.textContent = text;

@@ -4,6 +4,7 @@ import type { AppState, Vacancy } from "../core/state";
 import { detectPageType } from "../dom/page-type";
 import { qs } from "../dom/query";
 import type { Logger } from "../infra/logger";
+import type { LetterProvider } from "../letters/letter-provider";
 import { waitForApplyOutcome, type ApplyOutcome } from "./outcome-detector";
 import { attachLetterAndSubmit } from "./submit";
 
@@ -12,9 +13,10 @@ export type ApplyResult = "success" | "outline" | "skipped" | "disabled" | "uncl
 export interface PipelineDeps {
   state: AppState;
   logger: Logger;
-  letter: () => string;
+  letters: LetterProvider;
   searchUrl: () => string;
   onApplied: (title: string) => Promise<void>;
+  onOutline: (vacancy: Vacancy) => Promise<void>;
   onChange: () => Promise<void>;
 }
 
@@ -53,6 +55,12 @@ export class ApplyPipeline {
     return this.resolve(vacancy, outcome, 0);
   }
 
+  // Для страниц /applicant/vacancy_response и /vacancy/: форма уже открыта
+  async applyOnPage(vacancy: Vacancy): Promise<ApplyResult> {
+    const outcome = await waitForApplyOutcome(vacancy);
+    return this.resolve(vacancy, outcome, 0);
+  }
+
   private async resolve(vacancy: Vacancy, outcome: ApplyOutcome, depth: number): Promise<ApplyResult> {
     const { state, logger } = this.deps;
     logger.log(`Исход отклика: ${outcome}`);
@@ -68,7 +76,8 @@ export class ApplyPipeline {
       return "skipped";
     }
 
-    const result = await attachLetterAndSubmit(vacancy, this.deps.letter(), logger);
+    const letter = await this.deps.letters.getLetter(vacancy);
+    const result = await attachLetterAndSubmit(vacancy, letter, logger);
     switch (result) {
       case "outline":
         return this.saveOutline(vacancy);
@@ -98,11 +107,14 @@ export class ApplyPipeline {
   private async saveOutline(vacancy: Vacancy): Promise<ApplyResult> {
     const { state, logger } = this.deps;
     if (state.addOutline(this.item(vacancy))) logger.log(`Аутлайн: "${vacancy.title}"`, "warn");
+    await this.deps.onOutline(vacancy);
     await this.deps.onChange();
 
     if (detectPageType() === "search") {
       qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
     } else {
+      state.resumeAfterRedirect = state.running;
+      await this.deps.onChange();
       location.href = this.deps.searchUrl();
     }
     return "outline";
