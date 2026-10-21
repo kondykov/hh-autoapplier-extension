@@ -40,6 +40,7 @@ async function bootstrap() {
       onAutoReject: () => void controller.toggleAutoReject(),
       onUrlChange: (url) => void controller.setUrl(url),
       onLimitChange: (value) => void controller.setLimit(value),
+      onRulesChange: (rules) => void controller.setRules(rules),
       onLetterChange: (text) => void controller.setLetter(text),
       onPresetSave: (name) => void controller.savePreset(name),
       onPresetDelete: (name) => void controller.deletePreset(name),
@@ -50,6 +51,7 @@ async function bootstrap() {
       limit: config.dailyLimit,
       letter: config.coverLetterTemplate,
       presets: config.presets.map((p) => p.name),
+      rules: config.rules,
     },
   );
   logger.addSink(panel);

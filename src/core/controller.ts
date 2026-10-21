@@ -11,6 +11,7 @@ import type { Logger } from "../infra/logger";
 import type { LetterProvider } from "../letters/letter-provider";
 import { extractVacancyInfo } from "../pages/vacancy-info";
 import { downloadJson, QuestionStore } from "../questions/store";
+import type { FilterRules } from "../filter/rules";
 import { ApplicationStore, downloadCsv, toCsv } from "../report/applications";
 import { extractQuestions } from "../questions/extract";
 import { openNextRejection } from "../rejects/runner";
@@ -138,7 +139,7 @@ export class Controller {
     panel.setUrl(location.href);
     await saveConfig(storage, config);
 
-    state.vacancies = collectVacancies(state, logger);
+    state.vacancies = collectVacancies(state, logger, config.rules);
     state.index = 0;
     await this.persist();
     logger.log(`Найдено вакансий: ${state.vacancies.length}`, "success");
@@ -354,10 +355,15 @@ export class Controller {
     await saveConfig(this.d.storage, this.d.config);
   }
 
+  async setRules(rules: FilterRules) {
+    this.d.config.rules = rules;
+    await saveConfig(this.d.storage, this.d.config);
+  }
+
   async savePreset(name: string) {
     const { config, storage } = this.d;
     const url = config.searchRedirectUrl;
-    config.presets = [...config.presets.filter((p) => p.name !== name), { name, url, letter: config.coverLetterTemplate }];
+    config.presets = [...config.presets.filter((p) => p.name !== name), { name, url, letter: config.coverLetterTemplate, rules: config.rules }];
     await saveConfig(storage, config);
     this.d.panel.setPresets(config.presets.map((p) => p.name));
   }
@@ -372,6 +378,10 @@ export class Controller {
     const preset = this.d.config.presets.find((p) => p.name === name);
     if (!preset) return;
     await this.setUrl(preset.url);
+    if (preset.rules) {
+      await this.setRules(preset.rules);
+      this.d.panel.setRules(preset.rules);
+    }
     if (preset.letter) {
       await this.setLetter(preset.letter);
       this.d.panel.setLetter(preset.letter);

@@ -1,5 +1,6 @@
 import type { KeyValueStorage } from "../infra/storage";
 import type { LogLevel, LogSink } from "../infra/logger";
+import { parseList, type FilterRules } from "../filter/rules";
 import { PANEL_CSS } from "./styles";
 
 export interface PanelStats {
@@ -24,6 +25,7 @@ export interface PanelHandlers {
   onRejectNext(): void;
   onAutoReject(): void;
   onLetterChange(text: string): void;
+  onRulesChange(rules: FilterRules): void;
   onPresetSave(name: string): void;
   onPresetDelete(name: string): void;
   onPresetApply(name: string): void;
@@ -39,7 +41,7 @@ export class Panel implements LogSink {
   constructor(
     private storage: KeyValueStorage,
     private handlers: PanelHandlers,
-    private initial: { url: string; limit: number; letter: string; presets: string[] },
+    private initial: { url: string; limit: number; letter: string; presets: string[]; rules: FilterRules },
   ) {}
 
   async mount(): Promise<void> {
@@ -92,6 +94,14 @@ export class Panel implements LogSink {
             <button class="hh-btn" id="hh-btn-preset-del">Удалить</button>
           </div>
         </div>
+        <details class="hh-input-group"><summary>Фильтры вакансий</summary>
+          <label for="hh-f-stop">Стоп-слова (через запятую)</label><input id="hh-f-stop" class="hh-input" />
+          <label for="hh-f-required">Обязательный стек (любой из)</label><input id="hh-f-required" class="hh-input" />
+          <label for="hh-f-preferred">Желательный стек (+1 балл)</label><input id="hh-f-preferred" class="hh-input" />
+          <label for="hh-f-salary">Мин. оплата, ₽ (0 — выкл.)</label><input id="hh-f-salary" type="number" min="0" class="hh-input" />
+          <label for="hh-f-formats">Формат (удалённо, гибрид, офис)</label><input id="hh-f-formats" class="hh-input" />
+          <label for="hh-f-score">Мин. баллов (0 — выкл.)</label><input id="hh-f-score" type="number" min="0" class="hh-input" />
+        </details>
         <div class="hh-input-group"><label for="hh-input-letter">Сопроводительное письмо</label><textarea id="hh-input-letter" class="hh-input" rows="5"></textarea></div>
         <div id="hh-autoapply-log"></div>
       </div>`;
@@ -117,6 +127,11 @@ export class Panel implements LogSink {
     const letter = this.el<HTMLTextAreaElement>("hh-input-letter");
     letter.value = this.initial.letter;
     letter.onchange = () => this.handlers.onLetterChange(letter.value);
+
+    this.setRules(this.initial.rules);
+    for (const id of ["stop", "required", "preferred", "salary", "formats", "score"]) {
+      this.el<HTMLInputElement>(`hh-f-${id}`).onchange = () => this.handlers.onRulesChange(this.readRules());
+    }
 
     this.setPresets(this.initial.presets);
     const preset = this.el<HTMLSelectElement>("hh-input-preset");
@@ -190,6 +205,28 @@ export class Panel implements LogSink {
     const btn = this.el("hh-btn-auto");
     btn.textContent = active ? "Стоп" : "Авто";
     btn.classList.toggle("hh-btn-primary", active);
+  }
+
+  private readRules(): FilterRules {
+    const v = (id: string) => this.el<HTMLInputElement>(`hh-f-${id}`).value;
+    return {
+      stopWords: parseList(v("stop")),
+      requiredStack: parseList(v("required")),
+      preferredStack: parseList(v("preferred")),
+      minSalary: Math.max(0, parseInt(v("salary"), 10) || 0),
+      formats: parseList(v("formats")),
+      minScore: Math.max(0, parseInt(v("score"), 10) || 0),
+    };
+  }
+
+  setRules(r: FilterRules): void {
+    const set = (id: string, value: string) => (this.el<HTMLInputElement>(`hh-f-${id}`).value = value);
+    set("stop", r.stopWords.join(", "));
+    set("required", r.requiredStack.join(", "));
+    set("preferred", r.preferredStack.join(", "));
+    set("salary", String(r.minSalary));
+    set("formats", r.formats.join(", "));
+    set("score", String(r.minScore));
   }
 
   setLetter(text: string): void {
