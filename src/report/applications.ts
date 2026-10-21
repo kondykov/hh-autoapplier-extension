@@ -8,6 +8,7 @@ export interface ApplicationRecord {
   format: string;
   link: string;
   appliedAt: string;
+  resume?: string;
 }
 
 const KEY = "hh_autoapply_applications";
@@ -32,14 +33,14 @@ export class ApplicationStore {
   }
 }
 
-const HEADERS = ["Название вакансии", "Стек", "Компания", "Оплата труда", "Формат трудоустройства", "Ссылка", "Дата"];
+const HEADERS = ["Название вакансии", "Стек", "Компания", "Оплата труда", "Формат трудоустройства", "Ссылка", "Дата", "Резюме"];
 
 const cell = (v: string) => `"${v.replace(/"/g, '""')}"`;
 
 // ; и BOM, чтобы Excel в русской локали открыл файл сразу в колонках и в UTF-8
 export function toCsv(records: ApplicationRecord[]): string {
   const rows = records.map((r) =>
-    [r.title, r.stack, r.company, r.salary || "не указана", r.format || "не указан", r.link, r.appliedAt.slice(0, 10)]
+    [r.title, r.stack, r.company, r.salary || "не указана", r.format || "не указан", r.link, r.appliedAt.slice(0, 10), r.resume ?? ""]
       .map(cell)
       .join(";"),
   );

@@ -1,3 +1,4 @@
+import { DEFAULT_RESUMES, type ResumeProfile } from "../resume/profiles";
 import { EMPTY_RULES, type FilterRules } from "../filter/rules";
 import type { KeyValueStorage } from "../infra/storage";
 
@@ -14,6 +15,7 @@ export interface AppConfig {
   dailyLimit: number;
   presets: SearchPreset[];
   rules: FilterRules;
+  resumes: ResumeProfile[];
 }
 
 declare const __DEFAULT_LETTER__: string | undefined;
@@ -26,6 +28,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   dailyLimit: 150,
   presets: [],
   rules: EMPTY_RULES,
+  resumes: DEFAULT_RESUMES,
 };
 
 const KEY = "hh_autoapply_config";

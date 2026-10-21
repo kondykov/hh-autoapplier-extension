@@ -6,10 +6,10 @@ export interface LetterProvider {
 }
 
 export class StaticTemplateProvider implements LetterProvider {
-  constructor(private template: () => string) {}
+  constructor(private template: (vacancy?: Vacancy) => string) {}
 
   async getLetter(vacancy?: Vacancy): Promise<string> {
-    return this.template()
+    return this.template(vacancy)
       .replaceAll("{{title}}", vacancy?.title ?? "")
       .replaceAll("{{company}}", vacancy?.company ?? "");
   }

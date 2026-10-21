@@ -1,6 +1,7 @@
 import type { KeyValueStorage } from "../infra/storage";
 import type { LogLevel, LogSink } from "../infra/logger";
 import { parseList, type FilterRules } from "../filter/rules";
+import type { ResumeProfile } from "../resume/profiles";
 import { PANEL_CSS } from "./styles";
 
 export interface PanelStats {
@@ -26,6 +27,7 @@ export interface PanelHandlers {
   onAutoReject(): void;
   onLetterChange(text: string): void;
   onRulesChange(rules: FilterRules): void;
+  onResumesChange(profiles: ResumeProfile[]): void;
   onPresetSave(name: string): void;
   onPresetDelete(name: string): void;
   onPresetApply(name: string): void;
@@ -41,7 +43,7 @@ export class Panel implements LogSink {
   constructor(
     private storage: KeyValueStorage,
     private handlers: PanelHandlers,
-    private initial: { url: string; limit: number; letter: string; presets: string[]; rules: FilterRules },
+    private initial: { url: string; limit: number; letter: string; presets: string[]; rules: FilterRules; resumes: ResumeProfile[] },
   ) {}
 
   async mount(): Promise<void> {
@@ -102,6 +104,10 @@ export class Panel implements LogSink {
           <label for="hh-f-formats">Формат (удалённо, гибрид, офис)</label><input id="hh-f-formats" class="hh-input" />
           <label for="hh-f-score">Мин. баллов (0 — выкл.)</label><input id="hh-f-score" type="number" min="0" class="hh-input" />
         </details>
+        <details class="hh-input-group"><summary>Резюме по стеку (JSON)</summary>
+          <textarea id="hh-input-resumes" class="hh-input" rows="8" spellcheck="false"></textarea>
+          <div class="hh-step-label" id="hh-resumes-status"></div>
+        </details>
         <div class="hh-input-group"><label for="hh-input-letter">Сопроводительное письмо</label><textarea id="hh-input-letter" class="hh-input" rows="5"></textarea></div>
         <div id="hh-autoapply-log"></div>
       </div>`;
@@ -129,6 +135,22 @@ export class Panel implements LogSink {
     letter.onchange = () => this.handlers.onLetterChange(letter.value);
 
     this.setRules(this.initial.rules);
+    const resumes = this.el<HTMLTextAreaElement>("hh-input-resumes");
+    resumes.value = JSON.stringify(this.initial.resumes, null, 2);
+    resumes.onchange = () => {
+      const status = this.el("hh-resumes-status");
+      try {
+        const parsed = JSON.parse(resumes.value) as ResumeProfile[];
+        const valid =
+          Array.isArray(parsed) &&
+          parsed.every((r) => typeof r.name === "string" && typeof r.match === "string" && Array.isArray(r.keywords));
+        if (!valid) throw new Error("нужен массив {name, match, keywords[]}");
+        this.handlers.onResumesChange(parsed);
+        status.textContent = "Сохранено";
+      } catch (e) {
+        status.textContent = `Ошибка: ${(e as Error).message}`;
+      }
+    };
     for (const id of ["stop", "required", "preferred", "salary", "formats", "score"]) {
       this.el<HTMLInputElement>(`hh-f-${id}`).onchange = () => this.handlers.onRulesChange(this.readRules());
     }
