@@ -1,3 +1,4 @@
+import { CaptchaGuard } from "../captcha/guard";
 import { ApplyPipeline } from "../apply/pipeline";
 import { DELAYS, wait } from "./delays";
 import { saveConfig, type AppConfig } from "./config";
@@ -40,8 +41,13 @@ export class Controller {
   private busy = false;
   private rejecting = false;
   private pipeline: ApplyPipeline;
+  private captcha: CaptchaGuard;
 
   constructor(private d: ControllerDeps) {
+    this.captcha = new CaptchaGuard((shown) => {
+      d.panel.setCaptcha(shown);
+      d.logger.log(shown ? "Капча: авто-режим на паузе" : "Капча решена, продолжаю", shown ? "warn" : "success");
+    });
     this.pipeline = new ApplyPipeline({
       state: d.state,
       logger: d.logger,
@@ -71,12 +77,14 @@ export class Controller {
   async init(): Promise<void> {
     const { state, panel } = this.d;
     await this.refresh();
+    this.captcha.start();
     panel.setAutoActive(state.running);
     const page = detectPageType();
     panel.setStep(
       page === "search" ? 'Нажмите "Собрать вакансии"' : "Откройте страницу поиска вакансий (/search/vacancy)",
     );
     if (!state.running) return;
+    await this.captcha.waitUntilClear();
 
     if (page === "search") await this.resumeOnSearch();
     else if (page === "response" || page === "vacancy") await this.handleVacancyPage();
@@ -203,6 +211,7 @@ export class Controller {
 
   private async handleVacancyPage(): Promise<void> {
     const { state, logger, panel } = this.d;
+    await this.captcha.waitUntilClear();
     if (await this.d.limit.isReached()) {
       this.stopAuto();
       await this.persist();
@@ -255,6 +264,8 @@ export class Controller {
       return;
     }
 
+    if (await this.captcha.waitUntilClear()) panel.setStep("Капча решена, продолжаю");
+    this.captcha.consumeHit();
     this.busy = true;
     panel.setNextEnabled(false);
     panel.setStep(`Обработка: "${vacancy.title}"`);
@@ -265,6 +276,9 @@ export class Controller {
       if (result === "disabled") {
         panel.setStep('Кнопка "Отправить" неактивна. Выберите резюме вручную и нажмите Next.');
         this.stopAuto();
+      } else if (this.captcha.consumeHit() && !navigated) {
+        // Капча сорвала шаг: повторяем ту же вакансию после её решения
+        logger.log(`Капча во время "${vacancy.title}", повторю после решения`, "warn");
       } else {
         state.index++;
         panel.setStep(`${result}: "${vacancy.title}" (${state.index}/${state.vacancies.length})`);

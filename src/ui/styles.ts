@@ -5,6 +5,9 @@ export const PANEL_CSS = `
 #hh-autoapply-header button{background:none;border:none;color:#fff;font-size:18px;cursor:pointer;padding:0 4px}
 #hh-autoapply-body{padding:12px 16px;overflow-y:auto;flex:1}
 .hh-step-info{background:#16213e;border-radius:8px;padding:10px 12px;margin:8px 0;border-left:3px solid #e94560}
+#hh-captcha-banner{background:#e94560;color:#fff;font-weight:bold;padding:8px;border-radius:6px;margin-bottom:8px;text-align:center;animation:hh-blink 1s infinite}
+#hh-captcha-banner[hidden]{display:none}
+@keyframes hh-blink{50%{opacity:.5}}
 .hh-step-label{color:#e94560;font-weight:bold;font-size:12px;text-transform:uppercase}
 .hh-step-desc{margin-top:4px;color:#ccc;line-height:1.4;white-space:pre-line}
 .hh-btn{padding:8px 16px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;color:#fff;background:#555}
