@@ -31,4 +31,3 @@ dotnet ef migrations add <Name> -p src/HhAutoApplier.Infrastructure -s src/HhAut
 ## Антипаттерны
 - ❌ «Быстрая проверка» откликом на реальную вакансию
 - ❌ Новая зависимость ради одной функции
-- ❌ Правка `legacy/` вместо переноса логики в новые модули
