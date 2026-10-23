@@ -78,6 +78,10 @@ public class CollectorHostedService(IServiceScopeFactory scopes, IOptions<HhOpti
                 await scope.ServiceProvider.GetRequiredService<VacancyCollector>().RunAsync(stop);
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested) { return; }
+            catch (HhAuthException e)
+            {
+                log.LogWarning("Сбор вакансий пропущен: {Message}", e.Message);
+            }
             catch (Exception e)
             {
                 log.LogError(e, "Сбор вакансий завершился ошибкой");

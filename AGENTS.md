@@ -10,7 +10,7 @@ npm run typecheck                 # tsc --noEmit
 npm test                          # vitest (29 тестов)
 npm run build                     # dist/content.js (esbuild)
 node scripts/dev-browser.mjs      # Chromium с расширением, профиль .profile, CDP :9222
-cd server; dotnet test            # xunit (5 тестов)
+cd server; dotnet test            # xunit (8 тестов)
 cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:8080
 ```
 Расширение читается только при старте браузера: после `build` браузер перезапускать (спросить, если у владельца открыта страница).
