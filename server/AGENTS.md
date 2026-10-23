@@ -16,7 +16,7 @@ Core (домен, правила, без EF/HTTP) ← Infrastructure (EF, `HhApi
 - Новая логика — в Core + xunit-тест; endpoint тонкий
 - Сидирование — `DbSeeder`, не `HasData`
 - Только nuget.org (`nuget.config`): в глобальном конфиге владельца недоступный источник
-- `api.hh.ru` без токена = 403, User-Agent без example.com; без токена — `POST /api/import`
+- `api.hh.ru` без токена = 403; используется личный токен соискателя из браузера (`HH_ACCESS_TOKEN`, истекает — `HhAuthException`); User-Agent без example.com; без токена — `POST /api/import`
 - Секреты (`HH_ACCESS_TOKEN`, `API_KEY`) только в `.env`
 
 ## Boundaries

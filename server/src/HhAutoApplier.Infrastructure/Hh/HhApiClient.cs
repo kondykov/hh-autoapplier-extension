@@ -21,6 +21,13 @@ public class HhOptions
     public bool CollectOnStartup { get; set; } = true;
 }
 
+// hh.ru отклонил токен: его нет, он истёк или неверный. Личный токен из браузера живёт, пока жива сессия
+public class HhAuthException(int status)
+    : Exception($"hh.ru отклонил запрос ({status}): токен HH_ACCESS_TOKEN отсутствует, истёк или неверный — обновите его в server/.env")
+{
+    public int Status { get; } = status;
+}
+
 public interface IVacancySource
 {
     Task<IReadOnlyList<string>> SearchIdsAsync(SearchProfile search, int page, CancellationToken ct);
@@ -49,7 +56,9 @@ public class HhApiClient : IVacancySource
         if (!string.IsNullOrWhiteSpace(search.Area)) url += $"&area={Uri.EscapeDataString(search.Area)}";
         if (!string.IsNullOrWhiteSpace(search.ExtraParams)) url += "&" + search.ExtraParams.TrimStart('&');
 
-        var result = await _http.GetFromJsonAsync<SearchResponse>(url, ct);
+        var response = await _http.GetAsync(url, ct);
+        EnsureSuccess(response);
+        var result = await response.Content.ReadFromJsonAsync<SearchResponse>(ct);
         return result?.Items.Select(i => i.Id).ToList() ?? [];
     }
 
@@ -57,9 +66,16 @@ public class HhApiClient : IVacancySource
     {
         var response = await _http.GetAsync($"vacancies/{id}", ct);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
-        response.EnsureSuccessStatusCode();
+        EnsureSuccess(response);
         var dto = await response.Content.ReadFromJsonAsync<VacancyDto>(ct);
         return dto is null ? null : HhVacancyMapper.Map(dto, searchName);
+    }
+
+    private static void EnsureSuccess(HttpResponseMessage response)
+    {
+        if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+            throw new HhAuthException((int)response.StatusCode);
+        response.EnsureSuccessStatusCode();
     }
 }
 
