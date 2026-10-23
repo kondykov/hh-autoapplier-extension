@@ -124,13 +124,13 @@ Telegram-бот на backend: события (капча в расширении
 
 Этапы — milestones в GitHub, задачи — issues в [kondykov/hh-autoapplier-extension](https://github.com/kondykov/hh-autoapplier-extension/issues).
 
-1. **Основа.** CI #1, живая проверка выбора резюме и автопаузы #2, ADR #3, решения владельца #4.
-2. **Связка расширения и backend** (локально). Настройки сервера #13, сбор вакансий в backend #14, режим «из очереди» #15, тесты конвейера отклика #17, `PageStep` #18, модули backend и логика вне `Program.cs` #11, интеграционные тесты API #12, удаление сборщика API hh.ru из backend, CORS #20, разброс задержек #19.
-3. **LLM.** `ILlmClient` #21, оценка #22, письма #23, ответы на анкеты #24, ручная проверка #25, удаление локальных правил из расширения #27; затем сбор переписки и разбор диалогов #26.
-4. **Пользователи и сервер дома.** Identity и роли #7, `Application` #8, владельцы данных #9, персональные токены #10, развёртывание #5, VPN, firewall и TLS #6.
-5. **Уведомления.** Telegram #28.
+1. **Основа** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/1)). CI #1, живая проверка выбора резюме и автопаузы #2, ADR #3, решения владельца #4.
+2. **Связка расширения и backend** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/2), локально). Настройки сервера #13, сбор вакансий в backend #14, режим «из очереди» #15, тесты конвейера отклика #17, `PageStep` #18, модули backend и логика вне `Program.cs` #11, интеграционные тесты API #12, удаление сборщика API hh.ru из backend #31, CORS #20, разброс задержек #19.
+3. **LLM** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/3)). `ILlmClient` #21, оценка #22, письма #23, ответы на анкеты #24, ручная проверка #25, удаление локальных правил из расширения #27; затем сбор переписки и разбор диалогов #26.
+4. **Пользователи и сервер дома** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/4)). Identity и роли #7, `Application` #8, владельцы данных #9, персональные токены #10, развёртывание #5, VPN, firewall и TLS #6.
+5. **Уведомления** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/5)). Telegram #28.
 
-Вне этапов: чистка истории git от данных коллеги #30. Сняты новой схемой: токен API hh.ru #16, Playwright-воркер #29.
+Вне этапов: чистка истории git от данных коллеги #30. Сняты новой схемой и закрыты: токен API hh.ru #16, Playwright-воркер #29.
 
 ## Открытые вопросы владельцу
 
