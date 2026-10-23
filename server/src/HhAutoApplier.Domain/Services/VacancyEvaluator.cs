@@ -1,25 +1,15 @@
-using HhAutoApplier.Core.Domain;
+using HhAutoApplier.Domain.Resumes;
+using HhAutoApplier.Domain.Searches;
+using HhAutoApplier.Domain.Vacancies;
 
-namespace HhAutoApplier.Core.Rules;
+namespace HhAutoApplier.Domain.Services;
 
 public record Evaluation(VacancyStatus Status, int Score, string? Reason, string? ResumeProfile);
 
-public class VacancyEvaluator(IReadOnlyDictionary<string, decimal> rubRates)
+// Оценка вакансии правилами поиска: отсев по стоп-словам, зарплате, формату и балл для очереди
+public class VacancyEvaluator
 {
-    public static readonly IReadOnlyDictionary<string, decimal> DefaultRates = new Dictionary<string, decimal>
-    {
-        ["RUR"] = 1, ["RUB"] = 1, ["USD"] = 90, ["EUR"] = 100, ["KZT"] = 0.18m, ["BYR"] = 30, ["BYN"] = 30,
-    };
-
-    public static VacancyEvaluator Default { get; } = new(DefaultRates);
-
-    public int? SalaryRub(Vacancy v)
-    {
-        var amount = v.SalaryTo ?? v.SalaryFrom;
-        if (amount is null) return null;
-        var cur = (v.SalaryCurrency ?? "RUR").ToUpperInvariant();
-        return rubRates.TryGetValue(cur, out var rate) ? (int)(amount.Value * rate) : null;
-    }
+    public static VacancyEvaluator Default { get; } = new();
 
     public Evaluation Evaluate(Vacancy v, FilterRules rules, IEnumerable<ResumeProfile> resumes)
     {
@@ -35,7 +25,7 @@ public class VacancyEvaluator(IReadOnlyDictionary<string, decimal> rubRates)
 
         if (rules.SkipWithTest && v.HasTest) return Rejected("есть тестовое задание");
 
-        var salary = SalaryRub(v);
+        var salary = v.Salary?.ToRub();
         if (rules.RequireSalary && salary is null) return Rejected("зарплата не указана");
         if (rules.MinSalaryRub is { } min && salary is { } s && s < min) return Rejected($"зарплата {s} ниже {min}");
 
@@ -48,9 +38,7 @@ public class VacancyEvaluator(IReadOnlyDictionary<string, decimal> rubRates)
 
         var score = 50 + Math.Min(included.Count, 3) * 10 + (salary is not null ? 10 : 0)
                     + Math.Min(v.Stack.Length, 4) * 3 + (profile is not null ? 10 : 0);
-        if (score < rules.MinScore) return Rejected($"оценка {score} ниже {rules.MinScore}");
-
-        return new Evaluation(VacancyStatus.Queued, score, null, profile?.Name);
+        return score < rules.MinScore ? Rejected($"оценка {score} ниже {rules.MinScore}") : new Evaluation(VacancyStatus.Queued, score, null, profile?.Name);
 
         Evaluation Rejected(string? reason) => new(VacancyStatus.Skipped, 0, reason, profile?.Name);
     }

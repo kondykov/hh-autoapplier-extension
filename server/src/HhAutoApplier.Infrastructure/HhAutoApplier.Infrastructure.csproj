@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\HhAutoApplier.Core\HhAutoApplier.Core.csproj" />
+    <ProjectReference Include="..\HhAutoApplier.Application\HhAutoApplier.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,6 +1,7 @@
 using System.Net;
-using HhAutoApplier.Core.Domain;
-using HhAutoApplier.Infrastructure.Sources;
+using HhAutoApplier.Application.Abstractions;
+using HhAutoApplier.Domain.Searches;
+using HhAutoApplier.Domain.Vacancies;
 using HhAutoApplier.Infrastructure.Sources.Hh;
 using Microsoft.Extensions.Options;
 
@@ -11,6 +12,9 @@ public class HhSourceTests
     // Страница hh.ru: JSON состояния лежит HTML-экранированным в <template id="HH-Lux-InitialState">
     private static string Page(string json) =>
         $"<html><body><template style=\"display:none\" id=\"HH-Lux-InitialState\">{WebUtility.HtmlEncode(json)}</template></body></html>";
+
+    private static Vacancy Card(string id, string title) =>
+        Vacancy.Create(id, title, $"https://hh.ru/vacancy/{id}", "dotnet", DateTimeOffset.UtcNow);
 
     private const string SearchJson = """
         {"vacancySearchResult":{"vacancies":[
@@ -32,7 +36,7 @@ public class HhSourceTests
     public void Search_ParsesCards()
     {
         using var state = HhPageParser.ExtractState(Page(SearchJson))!;
-        var list = HhPageParser.ParseSearch(state.RootElement, "dotnet")!;
+        var list = HhPageParser.ParseSearch(state.RootElement, "dotnet", DateTimeOffset.UtcNow)!;
 
         Assert.Equal(["101", "102"], list.Select(v => v.Id));
         var v = list[0];
@@ -48,7 +52,7 @@ public class HhSourceTests
     [Fact]
     public void Vacancy_AddsDescriptionStackAndDate()
     {
-        var v = new Vacancy { Id = "101", Title = "C# разработчик" };
+        var v = Card("101", "C# разработчик");
         using var state = HhPageParser.ExtractState(Page(VacancyJson))!;
 
         Assert.True(HhPageParser.ParseVacancy(state.RootElement, v));
@@ -60,6 +64,7 @@ public class HhSourceTests
         Assert.Equal("Удалённо", v.WorkFormat);
         Assert.Equal(250000, v.SalaryFrom);
         Assert.Equal(new DateTimeOffset(2026, 10, 5, 21, 35, 34, 795, TimeSpan.FromHours(3)), v.PublishedAt);
+        Assert.Equal(TimeSpan.Zero, v.PublishedAt.Offset);
     }
 
     [Fact]
@@ -67,8 +72,8 @@ public class HhSourceTests
     {
         Assert.Null(HhPageParser.ExtractState("<html>Подтвердите, что вы не робот</html>"));
         using var state = HhPageParser.ExtractState(Page("""{"other":1}"""))!;
-        Assert.Null(HhPageParser.ParseSearch(state.RootElement, "x"));
-        Assert.False(HhPageParser.ParseVacancy(state.RootElement, new Vacancy { Id = "1", Title = "x" }));
+        Assert.Null(HhPageParser.ParseSearch(state.RootElement, "x", DateTimeOffset.UtcNow));
+        Assert.False(HhPageParser.ParseVacancy(state.RootElement, Card("1", "x")));
     }
 
     private sealed class StubHandler(HttpStatusCode status, string body = "", string? finalPath = null) : HttpMessageHandler
@@ -82,16 +87,16 @@ public class HhSourceTests
     }
 
     private static HhWebSource Source(HttpStatusCode status, string body = "", string? finalPath = null) =>
-        new(new HttpClient(new StubHandler(status, body, finalPath)), Options.Create(new HhOptions()));
+        new(new HttpClient(new StubHandler(status, body, finalPath)), Options.Create(new HhOptions()), TimeProvider.System);
 
-    private static readonly SearchProfile Search = new() { Name = "dotnet", Query = "C#" };
+    private static readonly SearchProfile Search = SearchProfile.Create("dotnet", "C#", null, null, null, true);
 
     [Fact]
     public async Task Source_ReturnsSearchAndDetails()
     {
         Assert.Equal(2, (await Source(HttpStatusCode.OK, Page(SearchJson)).SearchAsync(Search, 0, default)).Count);
-        Assert.True(await Source(HttpStatusCode.OK, Page(VacancyJson)).LoadDetailsAsync(new Vacancy { Id = "101", Title = "x" }, default));
-        Assert.False(await Source(HttpStatusCode.NotFound).LoadDetailsAsync(new Vacancy { Id = "1", Title = "x" }, default));
+        Assert.True(await Source(HttpStatusCode.OK, Page(VacancyJson)).LoadDetailsAsync(Card("101", "x"), default));
+        Assert.False(await Source(HttpStatusCode.NotFound).LoadDetailsAsync(Card("1", "x"), default));
     }
 
     [Theory]

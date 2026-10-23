@@ -10,7 +10,7 @@ npm run typecheck                 # tsc --noEmit
 npm test                          # vitest (29 тестов)
 npm run build                     # dist/content.js (esbuild)
 node scripts/dev-browser.mjs      # Chromium с расширением, профиль .profile, CDP :9222
-cd server; dotnet test            # xunit (13 тестов)
+cd server; dotnet test            # xunit (18 тестов)
 cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:8080
 ```
 Расширение читается только при старте браузера: после `build` браузер перезапускать (спросить, если у владельца открыта страница).
@@ -24,7 +24,7 @@ cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:808
 ## Project Structure
 - `src/content/main.ts` — композиция; `src/core/` — Controller, config, selectors
 - `src/{apply,search,filter,resume,report,questions,rejects,letters,captcha,dom,infra,ui}` — модули
-- `server/src/HhAutoApplier.{Core,Infrastructure,Api}` — домен, EF/клиент hh, minimal API
+- `server/src/HhAutoApplier.{Domain,Application,Infrastructure,Api}` — DDD + CQRS: агрегаты, команды/запросы, EF и источники, контроллеры (`docs/adr/0001-backend-ddd-cqrs.md`)
 - `docs/` — для людей; план доработок — `docs/ROADMAP.md`
 
 ## Code Style
@@ -34,8 +34,8 @@ qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
 // ❌ document.querySelector('[data-qa="..."]') в логике
 ```
 ```csharp
-// ✅ правила в Core, endpoint тонкий
-// ❌ бизнес-логика в Program.cs; HasData со списками (сидировать через DbSeeder)
+// ✅ сценарий = Command/Query + Handler в Application; правила — в методах агрегатов Domain; контроллер только вызывает обработчик
+// ❌ логика в контроллере или Program.cs; публичные сеттеры у агрегатов; HasData (сидировать через DbSeeder)
 ```
 Новое поле конфига — и в дефолты, и в слияние `loadConfig`.
 

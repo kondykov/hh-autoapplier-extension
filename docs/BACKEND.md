@@ -2,14 +2,18 @@
 
 ASP.NET Core 10 + PostgreSQL. Собирает вакансии, фильтрует/оценивает их, выбирает резюме и отдаёт клиенту готовую очередь.
 
+Архитектура — DDD и простой CQRS без MediatR, решение и примеры: [adr/0001-backend-ddd-cqrs.md](adr/0001-backend-ddd-cqrs.md). Документация API: `http://127.0.0.1:8080/scalar` (без ключа).
+
 ```
 server/
-  src/HhAutoApplier.Core            домен и правила (без зависимостей): Vacancy, SearchProfile, FilterRules,
-                                    VacancyEvaluator, ResumePicker, StackExtractor
-  src/HhAutoApplier.Infrastructure  EF Core (Npgsql); Sources/ — источники вакансий (IVacancySource, Hh/HhWebSource),
-                                    Collecting/ — VacancyCollector и фоновый сбор
-  src/HhAutoApplier.Api             minimal API, X-Api-Key
-  tests/HhAutoApplier.Tests         xunit (правила, стек, выбор резюме, разбор страниц hh.ru)
+  src/HhAutoApplier.Domain          агрегаты Vacancy, SearchProfile, ResumeProfile; value objects Salary, FilterRules;
+                                    доменные сервисы VacancyEvaluator, ResumePicker, StackExtractor (без зависимостей)
+  src/HhAutoApplier.Application     Commands/ и Queries/ по фичам (команда + обработчик), Dtos/, Extractors/,
+                                    Errors/, порты Abstractions/ (IAppDbContext, IVacancySource)
+  src/HhAutoApplier.Infrastructure  EF Core (Npgsql, Configurations/, миграции, DbSeeder); Sources/Hh — источник hh.ru;
+                                    Collecting/ — фоновый сбор по расписанию
+  src/HhAutoApplier.Api             контроллеры, X-Api-Key, OpenAPI + Scalar
+  tests/HhAutoApplier.Tests         xunit (домен, правила, разбор страниц hh.ru)
   docker-compose.yml, Dockerfile    postgres:17 + api
 ```
 
@@ -28,7 +32,7 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 
 Сборщик работает автономно внутри backend: фоновая задача раз в `Collector:IntervalMinutes` (и сразу при старте) проходит все включённые поиски по всем источникам. Вручную — `POST /api/collect`.
 
-**Источник — плагин** `IVacancySource` (`Sources/`): `SearchAsync` возвращает карточки с выдачи (дёшево), `LoadDetailsAsync` дополняет новую вакансию описанием и навыками. Новый агрегатор — своя реализация и регистрация в `DependencyInjection`.
+**Источник — плагин** `IVacancySource` (порт в Application, реализации в `Infrastructure/Sources/`): `SearchAsync` возвращает карточки с выдачи (дёшево), `LoadDetailsAsync` дополняет новую вакансию описанием и навыками. Новый агрегатор — своя реализация и регистрация в `Infrastructure/DependencyInjection`. Сам сбор — `CollectVacanciesCommandHandler`.
 
 **hh.ru** (`HhWebSource`, `Hh:Enabled`): публичные страницы поиска и вакансий без токена и аккаунта. Данные берутся из JSON `HH-Lux-InitialState`; разбор — только в `HhPageParser`, при смене вёрстки hh.ru правится он и тесты `HhSourceTests`. Поля поиска (`query`, `area`, `extraParams`) — параметры страницы `hh.ru/search/vacancy`.
 

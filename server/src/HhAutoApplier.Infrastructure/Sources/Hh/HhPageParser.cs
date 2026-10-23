@@ -1,8 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using HhAutoApplier.Core.Domain;
-using HhAutoApplier.Core.Rules;
+using HhAutoApplier.Domain.Vacancies;
 
 namespace HhAutoApplier.Infrastructure.Sources.Hh;
 
@@ -27,34 +26,31 @@ public static partial class HhPageParser
         var start = html.IndexOf('>', tag) + 1;
         var end = html.IndexOf("</", start, StringComparison.Ordinal);
         if (start <= 0 || end < 0) return null;
-        try { return JsonDocument.Parse(WebUtility.HtmlDecode(html[start..end])); }
-        catch (JsonException) { return null; }
+        try
+        {
+            return JsonDocument.Parse(WebUtility.HtmlDecode(html[start..end]));
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     // null — на странице нет выдачи (капча или другая вёрстка)
-    public static IReadOnlyList<Vacancy>? ParseSearch(JsonElement state, string searchName)
+    public static IReadOnlyList<Vacancy>? ParseSearch(JsonElement state, string searchName, DateTimeOffset now)
     {
         if (!state.TryGetProperty("vacancySearchResult", out var result)
             || !result.TryGetProperty("vacancies", out var items) || items.ValueKind != JsonValueKind.Array)
             return null;
 
-        var now = DateTimeOffset.UtcNow;
         return items.EnumerateArray()
             .Where(i => i.TryGetProperty("vacancyId", out _))
             .Select(i =>
             {
                 var id = i.GetProperty("vacancyId").ToString();
-                var v = new Vacancy
-                {
-                    Id = id,
-                    Title = Str(i, "name"),
-                    Url = $"https://hh.ru/vacancy/{id}",
-                    HasTest = i.TryGetProperty("userTestPresent", out var t) && t.ValueKind == JsonValueKind.True,
-                    PublishedAt = Date(i, "publicationTime") ?? now,
-                    CollectedAt = now,
-                    SearchName = searchName,
-                };
-                FillCommon(v, i);
+                var v = Vacancy.Create(id, Str(i, "name"), $"https://hh.ru/vacancy/{id}", searchName, now);
+                var hasTest = i.TryGetProperty("userTestPresent", out var t) && t.ValueKind == JsonValueKind.True;
+                UpdateCard(v, i, hasTest, Date(i, "publicationTime"));
                 return v;
             })
             .ToList();
@@ -68,33 +64,27 @@ public static partial class HhPageParser
             || !full.TryGetProperty("vacancy", out var v))
             return false;
 
-        if (Str(v, "name") is { Length: > 0 } title) vacancy.Title = title;
-        FillCommon(vacancy, v);
-        if (Date(v, "publicationTimeIso") is { } published) vacancy.PublishedAt = published;
+        UpdateCard(vacancy, v, null, Date(v, "publicationTimeIso"));
 
-        var description = HtmlToText(Str(v, "description"));
-        vacancy.Description = description.Length > 4000 ? description[..4000] : description;
         var skills = v.TryGetProperty("keySkills", out var ks) && ks.ValueKind == JsonValueKind.Array
             ? ks.EnumerateArray().Select(k => k.ValueKind == JsonValueKind.String ? k.GetString() ?? "" : Str(k, "name"))
                 .Where(s => s != "").ToList()
             : [];
-        vacancy.Stack = StackExtractor.Extract($"{vacancy.Title} {description}", skills);
+        vacancy.UpdateDetails(Str(v, "name"), HtmlToText(Str(v, "description")), skills);
         return true;
     }
 
     // Поля, одинаковые в выдаче и на странице вакансии
-    private static void FillCommon(Vacancy vacancy, JsonElement v)
+    private static void UpdateCard(Vacancy vacancy, JsonElement v, bool? hasTest, DateTimeOffset? publishedAt)
     {
-        if (v.TryGetProperty("company", out var company) && Str(company, "name") is { Length: > 0 } name) vacancy.Company = name;
-        if (v.TryGetProperty("area", out var area) && Str(area, "name") is { Length: > 0 } areaName) vacancy.Area = areaName;
-        if (v.TryGetProperty("compensation", out var comp) && comp.ValueKind == JsonValueKind.Object)
-        {
-            vacancy.SalaryFrom = Int(comp, "from");
-            vacancy.SalaryTo = Int(comp, "to");
-            vacancy.SalaryCurrency = Str(comp, "currencyCode") is { Length: > 0 } cur ? cur : null;
-        }
-        var formats = WorkFormatCodes(v).Select(c => WorkFormats.GetValueOrDefault(c, c)).Distinct().ToList();
-        if (formats.Count > 0) vacancy.WorkFormat = string.Join(", ", formats);
+        var company = v.TryGetProperty("company", out var c) ? Str(c, "name") : null;
+        var area = v.TryGetProperty("area", out var a) ? Str(a, "name") : null;
+        var salary = v.TryGetProperty("compensation", out var comp) && comp.ValueKind == JsonValueKind.Object
+            ? Salary.From(Int(comp, "from"), Int(comp, "to"), Str(comp, "currencyCode"))
+            : null;
+        var formats = string.Join(", ", WorkFormatCodes(v).Select(code => WorkFormats.GetValueOrDefault(code, code)).Distinct());
+
+        vacancy.UpdateCard(company, area, salary, formats, hasTest, publishedAt);
     }
 
     // В выдаче: [{"workFormatsElement":["REMOTE"]}], на странице вакансии: ["REMOTE"]
@@ -105,9 +95,10 @@ public static partial class HhPageParser
         {
             if (e.ValueKind == JsonValueKind.String) yield return e.GetString()!;
             else if (e.ValueKind == JsonValueKind.Object && e.TryGetProperty("workFormatsElement", out var inner)
-                     && inner.ValueKind == JsonValueKind.Array)
+                                                         && inner.ValueKind == JsonValueKind.Array)
                 foreach (var c in inner.EnumerateArray())
-                    if (c.ValueKind == JsonValueKind.String) yield return c.GetString()!;
+                    if (c.ValueKind == JsonValueKind.String)
+                        yield return c.GetString()!;
         }
     }
 
@@ -120,14 +111,19 @@ public static partial class HhPageParser
 
     private static string Str(JsonElement e, string name) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String
-            ? p.GetString() ?? "" : "";
+            ? p.GetString() ?? ""
+            : "";
 
     private static int? Int(JsonElement e, string name) =>
         e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var n) ? n : null;
 
+    // hh.ru отдаёт время с московским смещением, а Npgsql пишет в timestamptz только UTC
     private static DateTimeOffset? Date(JsonElement e, string name) =>
-        DateTimeOffset.TryParse(Str(e, name), out var d) ? d : null;
+        DateTimeOffset.TryParse(Str(e, name), out var d) ? d.ToUniversalTime() : null;
 
-    [GeneratedRegex("<[^>]+>")] private static partial Regex Tags();
-    [GeneratedRegex(@"[ \t]+")] private static partial Regex Spaces();
+    [GeneratedRegex("<[^>]+>")]
+    private static partial Regex Tags();
+
+    [GeneratedRegex(@"[ \t]+")]
+    private static partial Regex Spaces();
 }

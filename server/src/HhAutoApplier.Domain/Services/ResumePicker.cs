@@ -1,6 +1,6 @@
-using HhAutoApplier.Core.Domain;
+using HhAutoApplier.Domain.Resumes;
 
-namespace HhAutoApplier.Core.Rules;
+namespace HhAutoApplier.Domain.Services;
 
 public static class ResumePicker
 {
@@ -13,8 +13,13 @@ public static class ResumePicker
             .Where(s => s.Score > 0)
             .OrderByDescending(s => s.Score)
             .ToList();
-        if (scored.Count == 0) return null;
-        if (scored.Count > 1 && scored[0].Score == scored[1].Score) return null;
-        return scored[0].Profile;
+        switch (scored.Count)
+        {
+            case 0:
+            case > 1 when scored[0].Score == scored[1].Score:
+                return null;
+            default:
+                return scored[0].Profile;
+        }
     }
 }
