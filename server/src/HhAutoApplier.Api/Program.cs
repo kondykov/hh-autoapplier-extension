@@ -2,7 +2,7 @@ using HhAutoApplier.Core.Domain;
 using HhAutoApplier.Core.Rules;
 using HhAutoApplier.Infrastructure;
 using HhAutoApplier.Infrastructure.Collecting;
-using HhAutoApplier.Infrastructure.Hh;
+using HhAutoApplier.Infrastructure.Sources;
 using HhAutoApplier.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -141,7 +141,7 @@ api.MapPost("/import", async (AppDbContext db, ImportRequest req) =>
 api.MapPost("/collect", async (VacancyCollector collector, CancellationToken ct) =>
 {
     try { return Results.Ok(await collector.RunAsync(ct)); }
-    catch (HhAuthException e) { return Results.Problem(e.Message, statusCode: StatusCodes.Status502BadGateway); }
+    catch (SourceBlockedException e) { return Results.Problem(e.Message, statusCode: StatusCodes.Status502BadGateway); }
 });
 
 // Отчёт по откликам: json или csv (разделитель ';', BOM — открывается в Excel)

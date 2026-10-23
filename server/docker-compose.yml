@@ -25,9 +25,8 @@ services:
     environment:
       ConnectionStrings__Default: Host=db;Port=5432;Database=hhapplier;Username=hhapplier;Password=${POSTGRES_PASSWORD:-hhapplier}
       Api__Key: ${API_KEY:-}
-      Hh__UserAgent: ${HH_USER_AGENT:-HhAutoApplier/1.0 (set-your-email@example.com)}
-      Hh__AccessToken: ${HH_ACCESS_TOKEN:-}
-      Hh__CollectIntervalMinutes: ${COLLECT_INTERVAL_MINUTES:-60}
+      Hh__Enabled: ${HH_ENABLED:-true}
+      Collector__IntervalMinutes: ${COLLECT_INTERVAL_MINUTES:-60}
     ports:
       - "127.0.0.1:8080:8080"
 

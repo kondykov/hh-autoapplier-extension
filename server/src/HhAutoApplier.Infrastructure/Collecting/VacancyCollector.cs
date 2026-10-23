@@ -1,7 +1,7 @@
 using HhAutoApplier.Core.Domain;
 using HhAutoApplier.Core.Rules;
-using HhAutoApplier.Infrastructure.Hh;
 using HhAutoApplier.Infrastructure.Persistence;
+using HhAutoApplier.Infrastructure.Sources;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -10,15 +10,26 @@ using Microsoft.Extensions.Options;
 
 namespace HhAutoApplier.Infrastructure.Collecting;
 
+public class CollectorOptions
+{
+    public const string Section = "Collector";
+    public int MaxPages { get; set; } = 3;
+    // Пауза между запросами к источнику — случайная в этом диапазоне, чтобы не долбить сайт ровным ритмом
+    public int DelayMinMs { get; set; } = 2000;
+    public int DelayMaxMs { get; set; } = 5000;
+    public int IntervalMinutes { get; set; } = 60;
+    public bool CollectOnStartup { get; set; } = true;
+}
+
 public record CollectResult(int Searches, int Seen, int Added, int Queued, int Skipped);
 
 public class VacancyCollector(
     AppDbContext db,
-    IVacancySource source,
-    IOptions<HhOptions> options,
+    IEnumerable<IVacancySource> sources,
+    IOptions<CollectorOptions> options,
     ILogger<VacancyCollector> log)
 {
-    private readonly HhOptions _opt = options.Value;
+    private readonly CollectorOptions _opt = options.Value;
     private readonly VacancyEvaluator _evaluator = VacancyEvaluator.Default;
 
     public async Task<CollectResult> RunAsync(CancellationToken ct)
@@ -27,49 +38,53 @@ public class VacancyCollector(
         var resumes = await db.Resumes.ToListAsync(ct);
         int seen = 0, added = 0, queued = 0, skipped = 0;
 
+        foreach (var source in sources)
         foreach (var search in searches)
         {
             for (var page = 0; page < _opt.MaxPages; page++)
             {
-                var ids = await source.SearchIdsAsync(search, page, ct);
-                if (ids.Count == 0) break;
-                seen += ids.Count;
+                if (page > 0) await PauseAsync(ct);
+                var found = await source.SearchAsync(search, page, ct);
+                if (found.Count == 0) break;
+                seen += found.Count;
 
-                var known = await db.Vacancies.Where(v => ids.Contains(v.Id)).Select(v => v.Id).ToListAsync(ct);
-                foreach (var id in ids.Except(known))
+                var ids = found.Select(v => v.Id).ToList();
+                var known = (await db.Vacancies.Where(v => ids.Contains(v.Id)).Select(v => v.Id).ToListAsync(ct)).ToHashSet();
+                var fresh = found.DistinctBy(v => v.Id).Where(v => !known.Contains(v.Id)).ToList();
+                foreach (var vacancy in fresh)
                 {
-                    await Task.Delay(_opt.RequestDelayMs, ct);
-                    var vacancy = await source.GetAsync(id, search.Name, ct);
-                    if (vacancy is null) continue;
+                    await PauseAsync(ct);
+                    if (!await source.LoadDetailsAsync(vacancy, ct)) continue;
 
                     var eval = _evaluator.Evaluate(vacancy, search.Rules, resumes);
-                    vacancy.Status = eval.Status;
-                    vacancy.Score = eval.Score;
-                    vacancy.StatusReason = eval.Reason;
-                    vacancy.ResumeProfile = eval.ResumeProfile;
+                    (vacancy.Status, vacancy.Score, vacancy.StatusReason, vacancy.ResumeProfile) =
+                        (eval.Status, eval.Score, eval.Reason, eval.ResumeProfile);
                     db.Vacancies.Add(vacancy);
                     added++;
                     if (eval.Status == VacancyStatus.Queued) queued++; else skipped++;
                 }
                 await db.SaveChangesAsync(ct);
-                if (ids.Except(known).Count() == 0) break;
-                await Task.Delay(_opt.RequestDelayMs, ct);
+                // Выдача отсортирована по дате: страница без новых — дальше только известные
+                if (fresh.Count == 0) break;
             }
         }
 
-        log.LogInformation("Сбор: поисков {S}, просмотрено {Seen}, новых {Added} (в очередь {Q}, отсеяно {Sk})",
-            searches.Count, seen, added, queued, skipped);
+        log.LogInformation("Сбор: источников {Src}, поисков {S}, просмотрено {Seen}, новых {Added} (в очередь {Q}, отсеяно {Sk})",
+            sources.Count(), searches.Count, seen, added, queued, skipped);
         return new CollectResult(searches.Count, seen, added, queued, skipped);
     }
+
+    private Task PauseAsync(CancellationToken ct) =>
+        Task.Delay(Random.Shared.Next(_opt.DelayMinMs, Math.Max(_opt.DelayMinMs, _opt.DelayMaxMs) + 1), ct);
 }
 
-public class CollectorHostedService(IServiceScopeFactory scopes, IOptions<HhOptions> options, ILogger<CollectorHostedService> log)
+public class CollectorHostedService(IServiceScopeFactory scopes, IOptions<CollectorOptions> options, ILogger<CollectorHostedService> log)
     : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stop)
     {
         var opt = options.Value;
-        if (!opt.CollectOnStartup) await Task.Delay(TimeSpan.FromMinutes(opt.CollectIntervalMinutes), stop);
+        if (!opt.CollectOnStartup) await Task.Delay(TimeSpan.FromMinutes(opt.IntervalMinutes), stop);
         while (!stop.IsCancellationRequested)
         {
             try
@@ -78,15 +93,15 @@ public class CollectorHostedService(IServiceScopeFactory scopes, IOptions<HhOpti
                 await scope.ServiceProvider.GetRequiredService<VacancyCollector>().RunAsync(stop);
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested) { return; }
-            catch (HhAuthException e)
+            catch (SourceBlockedException e)
             {
-                log.LogWarning("Сбор вакансий пропущен: {Message}", e.Message);
+                log.LogWarning("{Message}", e.Message);
             }
             catch (Exception e)
             {
                 log.LogError(e, "Сбор вакансий завершился ошибкой");
             }
-            await Task.Delay(TimeSpan.FromMinutes(opt.CollectIntervalMinutes), stop);
+            await Task.Delay(TimeSpan.FromMinutes(opt.IntervalMinutes), stop);
         }
     }
 }
