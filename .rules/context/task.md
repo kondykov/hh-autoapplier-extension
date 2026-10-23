@@ -26,4 +26,4 @@
 Задачи — в GitHub Issues (`kondykov/hh-autoapplier-extension`), карта и порядок — в `docs/ROADMAP.md`.
 
 ## В работе
-- Задачи: issues #1–#31 (#16, #29 закрыты как снятые) и 5 активных milestones в https://github.com/kondykov/hh-autoapplier-extension/issues; соответствие этапам — в `docs/ROADMAP.md`, «Порядок»
+- Задачи: issues #1–#32 (#14, #16, #29 сняты, #31 сделан) и 5 активных milestones в https://github.com/kondykov/hh-autoapplier-extension/issues; соответствие этапам — в `docs/ROADMAP.md`, «Порядок»
