@@ -100,7 +100,6 @@ flowchart LR
 - Метки: направление (`backend`, `extension`, `llm`, `rbac`, `infra`, `docs`), тип (`feature`, `bug`, `chore`), приоритет (`p1`–`p3`). Крупные направления — milestones по этапам ниже.
 - Агенты читают issues через `gh`, ссылаются на номер в коммите (`refs #N`), закрывают через PR (`closes #N`). Создавать и закрывать issues — по просьбе владельца.
 - `.rules/context/task.md` остаётся коротким статусом для агентов: что сейчас в работе и номера issues.
-- Нужен первый push ветки на GitHub; до этого задачи живут здесь.
 
 ## Уже запланировано
 
@@ -132,14 +131,20 @@ flowchart LR
 
 ## Порядок
 
-1. **Основа.** Первый push, GitHub Issues по этому плану, CI. Живая проверка выбора резюме и автопаузы (P3). ADR по архитектуре (D).
-2. **Сервер дома.** Docker на сервере, Tailscale, firewall, TLS, бэкапы (E).
-3. **Пользователи.** Identity, роли, `Application` вместо статуса в `Vacancy`, владельцы у поисков и резюме, персональные токены (A). Рефакторинг backend в модули (D).
-4. **Расширение — клиент.** Настройки сервера, импорт карточек, режим «из очереди», статусы на сервер (C). Тесты на конвейер отклика, `PageStep` (D).
-5. **LLM.** `ILlmClient`, оценка, письма, ответы на анкеты, ручная проверка; затем разбор диалогов (B). Удаление локальных правил и шаблонов из расширения.
-6. **Уведомления и автономность.** Telegram (P8), Playwright-воркер при необходимости.
+Этапы — milestones в GitHub, задачи — issues; номера ниже ведут в [kondykov/hh-autoapplier-extension](https://github.com/kondykov/hh-autoapplier-extension/issues).
+
+1. **Основа** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/1)). CI #1, живая проверка выбора резюме и автопаузы #2, ADR по архитектуре #3, решения владельца #4.
+2. **Сервер дома** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/2)). Развёртывание на сервере #5, VPN, firewall и TLS #6.
+3. **Пользователи** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/3)). Identity и роли #7, `Application` вместо статуса в `Vacancy` #8, владельцы у поисков и резюме #9, персональные токены #10, модули backend #11, интеграционные тесты API #12.
+4. **Расширение — клиент** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/4)). Настройки сервера #13, импорт карточек #14, режим «из очереди» #15, токен hh.ru #16, тесты конвейера отклика #17, `PageStep` #18, разброс задержек #19, CORS #20.
+5. **LLM** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/5)). `ILlmClient` #21, оценка #22, письма #23, ответы на анкеты #24, ручная проверка #25, разбор диалогов #26, удаление локальных правил из расширения #27.
+6. **Автономность** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/6)). Telegram #28, Playwright-воркер #29.
+
+Вне этапов: чистка истории git от данных коллеги #30.
 
 ## Открытые вопросы владельцу
+
+Обсуждение и ответы — в #4.
 
 - Какой LLM: облачный провайдер, локальная модель на сервере или opencode с провайдером? Есть ли GPU на сервере?
 - Ручная проверка каждого отклика или только для сомнительных (балл ниже порога)?
