@@ -2,7 +2,7 @@
 
 Chrome MV3, TypeScript. Исходники разбиты на модули, в поставке один файл `dist/content.js` (esbuild, IIFE): content scripts не поддерживают ES-модули, и один файл надёжнее при установке. Расширение перенесено из пользовательских скриптов Tampermonkey коллеги; старый код удалён, он остался в истории git.
 
-Backend описан в [BACKEND.md](BACKEND.md), план автономной работы — в [MULTI_ACCOUNT_PLAN.md](MULTI_ACCOUNT_PLAN.md).
+Backend описан в [BACKEND.md](BACKEND.md), план доработок — в [ROADMAP.md](ROADMAP.md): расширение собирает вакансии и откликается, backend анализирует и оценивает.
 
 ## Модули
 
@@ -28,7 +28,7 @@ Backend описан в [BACKEND.md](BACKEND.md), план автономной 
 | `infra/` | `KeyValueStorage` (Chrome и Memory), `Logger` с приёмниками |
 | `ui/` | панель-оверлей, модалки, стили |
 
-Зависимости идут сверху вниз: UI → Controller → модули → `dom`/`infra`. Ядро не обращается к `chrome.*` напрямую, только через `KeyValueStorage`; это нужно для будущего Playwright-воркера.
+Зависимости идут сверху вниз: UI → Controller → модули → `dom`/`infra`. Ядро не обращается к `chrome.*` напрямую, только через `KeyValueStorage`, поэтому его можно тестировать без браузера.
 
 ## Конфиг и хранение
 

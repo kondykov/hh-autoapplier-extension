@@ -10,14 +10,14 @@ docker compose up -d --build        # db (host 5433) + api (127.0.0.1:8080)
 ```
 
 ## Structure
-Core (домен, правила, без EF/HTTP) ← Infrastructure (EF, `HhApiClient`, `VacancyCollector`) ← Api (minimal API, `X-Api-Key`).
+Core (домен, правила, без EF/HTTP) ← Infrastructure (EF; `HhApiClient` и `VacancyCollector` устарели, будут удалены) ← Api (minimal API, `X-Api-Key`).
 
 ## Rules
 - Новая логика — в Core + xunit-тест; endpoint тонкий
 - Сидирование — `DbSeeder`, не `HasData`
 - Только nuget.org (`nuget.config`): в глобальном конфиге владельца недоступный источник
-- `api.hh.ru` без токена = 403; используется личный токен соискателя из браузера (`HH_ACCESS_TOKEN`, истекает — `HhAuthException`); User-Agent без example.com; без токена — `POST /api/import`
-- Секреты (`HH_ACCESS_TOKEN`, `API_KEY`) только в `.env`
+- Сервер не ходит на hh.ru: вакансии приходят от расширения через `POST /api/import`. `api.hh.ru` без токена приложения = 403, токена нет; новую логику на API hh.ru не строить
+- Секреты (`API_KEY`, пароль БД) только в `.env`
 
 ## Boundaries
 - ⚠️ Миграции, смена схемы, новые NuGet-пакеты — спросить

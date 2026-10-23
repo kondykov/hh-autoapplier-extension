@@ -6,7 +6,7 @@ ASP.NET Core 10 + PostgreSQL. Собирает вакансии, фильтру�
 server/
   src/HhAutoApplier.Core            домен и правила (без зависимостей): Vacancy, SearchProfile, FilterRules,
                                     VacancyEvaluator, ResumePicker, StackExtractor
-  src/HhAutoApplier.Infrastructure  EF Core (Npgsql), клиент hh API, VacancyCollector + фоновый сервис
+  src/HhAutoApplier.Infrastructure  EF Core (Npgsql); клиент hh API и VacancyCollector — устаревшие, будут удалены
   src/HhAutoApplier.Api             minimal API, X-Api-Key
   tests/HhAutoApplier.Tests         xunit (правила, стек, выбор резюме)
   docker-compose.yml, Dockerfile    postgres:17 + api
@@ -25,12 +25,10 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 
 ## Источники вакансий
 
-1. **API hh.ru** (`VacancyCollector`, раз в `CollectIntervalMinutes`). Без токена `api.hh.ru` отвечает 403.
-   Используется личный токен соискателя из браузера (`HH_ACCESS_TOKEN`) — без регистрации приложения на dev.hh.ru, только для личного некоммерческого использования; это серая зона условий hh.ru.
-   Токен живёт, пока жива сессия: при 401/403 сборщик пишет в лог предупреждение, а `POST /api/collect` отвечает 502 с подсказкой обновить токен.
-   Нужен и `HH_USER_AGENT` с реальным контактом
+Основной источник — **импорт от расширения** `POST /api/import`: расширение собирает карточки на выдаче hh.ru в браузере пользователя и присылает их на сервер. Токены hh.ru серверу не нужны.
+
+Устаревший источник — **API hh.ru** (`VacancyCollector`, раз в `CollectIntervalMinutes`). Без токена приложения `api.hh.ru` отвечает 403, токена нет, поэтому сборщик только пишет в лог предупреждение (`HhAuthException`), а `POST /api/collect` отвечает 502. Будет удалён (см. `ROADMAP.md`, направление A)
    (User-Agent с example.com блокируется).
-2. **Импорт от клиента** `POST /api/import` — расширение или Playwright присылает собранные карточки. Работает без токена.
 
 ## API (заголовок `X-Api-Key`, если задан `Api:Key`)
 
@@ -43,7 +41,7 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 | GET/PUT/DELETE | `/api/searches` | сохранённые поиски с правилами (`FilterRules`) |
 | GET/PUT | `/api/resumes` | профили резюме (`match`, `keywords`) |
 | POST | `/api/import` | `{search, vacancies[]}` |
-| POST | `/api/collect` | запустить сбор сейчас |
+| POST | `/api/collect` | сбор через API hh.ru (устаревший, без токена — 502) |
 | GET | `/api/stats` | счётчики по статусам |
 | GET | `/api/report?format=csv` | отчёт по откликам |
 
@@ -51,4 +49,4 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 
 ## Дальше
 
-Режим «брать вакансии из очереди» в расширении/воркере, Telegram-бот и мультиаккаунтность: см. `MULTI_ACCOUNT_PLAN.md`.
+Сбор из расширения, режим «из очереди», LLM, пользователи и Telegram-бот: см. `ROADMAP.md`.
