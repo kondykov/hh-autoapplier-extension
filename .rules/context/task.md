@@ -1,7 +1,7 @@
 # Task: текущий статус (динамический файл)
 
 ## Расположение
-- Репозиторий `kondykov/hh-autoapplier-extension`, рабочая ветка `kondykov-new-hh-autoapplier-repo` <!-- VERIFY -->; на GitHub ничего не запушено, PR нет
+- Репозиторий проекта — `kondykov/hh-autoapplier` (https://github.com/kondykov/hh-autoapplier) <!-- VERIFY -->; `kondykov/hh-autoapplier-extension` — форк проекта коллеги, откуда всё начиналось, туда не пушить
 
 ## Готово (typecheck, 29 vitest, 5 xunit, сборка)
 - Расширение: оверлей, сбор вакансий, фильтры и скоринг по пресетам, автоотклик, письма (универсальное + по пресетам), автовыбор резюме PHP/.NET, отчёт CSV, анкеты, автоотказы, повторы пустой выдачи, дневной лимит, автопауза при капче

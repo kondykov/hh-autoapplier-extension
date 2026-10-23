@@ -1,4 +1,4 @@
-# AGENTS.md — hh-autoapplier-extension
+# AGENTS.md — hh-autoapplier
 
 Личный полуавтоматический инструмент откликов на hh.ru: MV3-расширение (TypeScript) + backend (ASP.NET Core 10, PostgreSQL). Общаться по-русски, кратко.
 
