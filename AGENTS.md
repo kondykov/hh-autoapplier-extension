@@ -1,6 +1,8 @@
 # AGENTS.md — hh-autoapplier-extension
 
-Личный полуавтоматический инструмент откликов на hh.ru: MV3-расширение (TypeScript) + backend (ASP.NET Core 10, PostgreSQL). Общаться по-русски.
+Личный полуавтоматический инструмент откликов на hh.ru: MV3-расширение (TypeScript) + backend (ASP.NET Core 10, PostgreSQL). Общаться по-русски, кратко.
+
+Файл для любых ИИ-агентов. Это единственный источник инструкций: файлы конкретных инструментов (`CLAUDE.md`) только ссылаются сюда, отдельные копии правил не заводить.
 
 ## Commands
 ```powershell
@@ -23,7 +25,7 @@ cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:808
 - `src/content/main.ts` — композиция; `src/core/` — Controller, config, selectors
 - `src/{apply,search,filter,resume,report,questions,rejects,letters,captcha,dom,infra,ui}` — модули
 - `server/src/HhAutoApplier.{Core,Infrastructure,Api}` — домен, EF/клиент hh, minimal API
-- `docs/` — для людей
+- `docs/` — для людей; план доработок — `docs/ROADMAP.md`
 
 ## Code Style
 ```ts
@@ -38,7 +40,7 @@ qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
 Новое поле конфига — и в дефолты, и в слияние `loadConfig`.
 
 ## Git Workflow
-- Коммит в текущую ветку; в конце сообщения: `Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>`
+- Коммит в текущую ветку; в конце сообщения трейлер `Co-authored-by:` агента, который делал изменения
 - `git push` и PR — только по просьбе
 
 ## Boundaries
@@ -46,4 +48,4 @@ qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
 - ⚠️ Спросить: новые зависимости, миграции EF, перезапуск браузера, запуск Docker Desktop, смена задержек/лимитов
 - ❌ Реальные отклики без согласия; коммит `letter.local.txt`, `server/.env`, `.profile/`, токенов; обход/автоматическое решение капчи
 
-→ Full rules: .rules/ (начать с `.rules/_index.md`, статус — `.rules/context/task.md`)
+→ Full rules: .rules/ (начать с `.rules/_index.md`, статус — `.rules/context/task.md`, план — `docs/ROADMAP.md`)

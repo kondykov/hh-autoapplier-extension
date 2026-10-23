@@ -30,6 +30,7 @@ docker compose up -d --build                   # http://127.0.0.1:8080/health
 ```
 
 Подробнее:
+- [docs/ROADMAP.md](docs/ROADMAP.md): текущее состояние, планы и порядок доработок
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): модули расширения, конфиг, письма, резюме
 - [docs/BACKEND.md](docs/BACKEND.md): backend и API
 - [docs/MULTI_ACCOUNT_PLAN.md](docs/MULTI_ACCOUNT_PLAN.md): план автономной работы с несколькими аккаунтами

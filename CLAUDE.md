@@ -1,3 +1,5 @@
 # CLAUDE.md
 
-Все правила для агентов — в [AGENTS.md](AGENTS.md) (команды, стиль, границы) и `.rules/` (полные правила, статус в `.rules/context/task.md`). Читай их первыми. Backend: `server/AGENTS.md`.
+Инструкции для агентов общие и лежат в `AGENTS.md`; этот файл только подключает их для Claude Code.
+
+@AGENTS.md

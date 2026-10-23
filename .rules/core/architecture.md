@@ -27,4 +27,4 @@
 - **`server/nuget.config` только с nuget.org** — в глобальном конфиге владельца недоступный приватный источник
 
 ## Документы
-Подробности для людей: `docs/ARCHITECTURE.md`, `docs/BACKEND.md`, `docs/MULTI_ACCOUNT_PLAN.md`.
+Подробности для людей: `docs/ARCHITECTURE.md`, `docs/BACKEND.md`, `docs/MULTI_ACCOUNT_PLAN.md`; план доработок — `docs/ROADMAP.md`.
