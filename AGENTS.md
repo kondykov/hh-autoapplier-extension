@@ -42,6 +42,7 @@ qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
 ## Git Workflow
 - Коммит в текущую ветку; в конце сообщения трейлер `Co-authored-by:` агента, который делал изменения
 - `git push` и PR — только по просьбе
+- Задачи — GitHub Issues (`gh issue list`), карта и порядок — `docs/ROADMAP.md`; в коммите `refs #N`, в PR `closes #N`; создавать и закрывать issues — по просьбе
 
 ## Boundaries
 - ✅ Править `src/`, `server/`, `tests/`, `docs/`; запускать тесты/сборку; локальный docker compose
