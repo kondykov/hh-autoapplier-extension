@@ -3,6 +3,7 @@ dist/
 *.log
 .profile/
 letter.local.txt
+legacy/промпт.txt
 
 server/.tools/
 server/**/bin/
