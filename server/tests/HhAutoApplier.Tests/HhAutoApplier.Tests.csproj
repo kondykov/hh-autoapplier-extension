@@ -19,7 +19,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\HhAutoApplier.Core\HhAutoApplier.Core.csproj" />
     <ProjectReference Include="..\..\src\HhAutoApplier.Infrastructure\HhAutoApplier.Infrastructure.csproj" />
   </ItemGroup>
 

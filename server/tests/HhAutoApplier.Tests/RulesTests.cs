@@ -1,5 +1,7 @@
-using HhAutoApplier.Core.Domain;
-using HhAutoApplier.Core.Rules;
+using HhAutoApplier.Domain.Resumes;
+using HhAutoApplier.Domain.Searches;
+using HhAutoApplier.Domain.Services;
+using HhAutoApplier.Domain.Vacancies;
 
 namespace HhAutoApplier.Tests;
 
@@ -7,12 +9,17 @@ public class RulesTests
 {
     private static readonly ResumeProfile[] Resumes =
     [
-        new() { Name = ".NET", Match = "C# .NET", Keywords = ["c#", ".net", "asp.net"] },
-        new() { Name = "PHP", Match = "PHP", Keywords = ["php", "laravel"] },
+        ResumeProfile.Create(".NET", "C# .NET", ["c#", ".net", "asp.net"]),
+        ResumeProfile.Create("PHP", "PHP", ["php", "laravel"]),
     ];
 
-    private static Vacancy V(string title, string desc = "", int? from = null, string cur = "RUR", string fmt = "") =>
-        new() { Id = "1", Title = title, Description = desc, SalaryFrom = from, SalaryCurrency = cur, WorkFormat = fmt };
+    private static Vacancy V(string title, string desc = "", int? from = null, string cur = "RUR", string fmt = "")
+    {
+        var v = Vacancy.Create("1", title, "https://hh.ru/vacancy/1", "test", DateTimeOffset.UtcNow);
+        v.UpdateCard(null, null, Salary.From(from, null, cur), fmt, null, null);
+        v.UpdateDetails(null, desc, []);
+        return v;
+    }
 
     [Fact]
     public void Picker_ChoosesByKeywords_NullOnTieOrNone()
@@ -49,8 +56,9 @@ public class RulesTests
         Assert.Equal(VacancyStatus.Queued, VacancyEvaluator.Default.Evaluate(V("C#", from: 3000, cur: "USD"), rules, Resumes).Status);
         Assert.Equal(VacancyStatus.Skipped, VacancyEvaluator.Default.Evaluate(V("C#", from: 100_000), rules, Resumes).Status);
         Assert.Equal(VacancyStatus.Queued, VacancyEvaluator.Default.Evaluate(V("C#"), rules, Resumes).Status);
-        rules.RequireSalary = true;
-        Assert.Equal(VacancyStatus.Skipped, VacancyEvaluator.Default.Evaluate(V("C#"), rules, Resumes).Status);
+
+        var strict = new FilterRules { MinSalaryRub = 200_000, RequireSalary = true };
+        Assert.Equal(VacancyStatus.Skipped, VacancyEvaluator.Default.Evaluate(V("C#"), strict, Resumes).Status);
     }
 
     [Fact]

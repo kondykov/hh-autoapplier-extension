@@ -1,7 +1,7 @@
 using System.Net;
+using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Infrastructure.Collecting;
 using HhAutoApplier.Infrastructure.Persistence;
-using HhAutoApplier.Infrastructure.Sources;
 using HhAutoApplier.Infrastructure.Sources.Hh;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -15,6 +15,7 @@ public static class DependencyInjection
     {
         services.Configure<CollectorOptions>(config.GetSection(CollectorOptions.Section));
         services.AddDbContext<AppDbContext>(o => o.UseNpgsql(config.GetConnectionString("Default")));
+        services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AppDbContext>());
 
         // Источники вакансий: новый агрегатор = своя реализация IVacancySource и регистрация здесь
         var hh = config.GetSection(HhOptions.Section);
@@ -26,7 +27,6 @@ public static class DependencyInjection
             services.AddTransient<IVacancySource>(sp => sp.GetRequiredService<HhWebSource>());
         }
 
-        services.AddScoped<VacancyCollector>();
         services.AddHostedService<CollectorHostedService>();
         return services;
     }

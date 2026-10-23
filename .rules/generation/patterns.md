@@ -19,7 +19,7 @@ export const isCaptchaVisible = (root: ParentNode = document) => root.querySelec
 Тип → дефолт → слияние в `loadConfig` → сеттер в `Controller` → поле в панели (если нужно) → тест.
 
 ## Новый endpoint backend
-Правило/логика → `Core` + xunit-тест; доступ к данным → `Infrastructure`; в `Program.cs` — только маршрут. Схема БД изменилась → миграция:
+Правило → метод агрегата в `Domain` + xunit-тест; сценарий → `Application/<Commands|Queries>/<Фича>/XxxCommand.cs` + `XxxCommandHandler.cs` (результат с ошибками — `[GenerateOneOf] partial class XxxResult`); маршрут → метод контроллера в `Api/Controllers` с `[FromServices]` обработчиком и XML-комментарием. Схема БД изменилась → миграция:
 ```
 dotnet ef migrations add <Name> -p src/HhAutoApplier.Infrastructure -s src/HhAutoApplier.Api -o Persistence/Migrations
 ```

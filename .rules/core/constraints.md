@@ -19,11 +19,11 @@ document.querySelector('[data-qa="response-popup-close"]')
 
 ## Code Style (backend, C#)
 ```csharp
-// ✅ правило в Core, без EF и HTTP
+// ✅ правило — метод агрегата или доменный сервис в Domain, без EF и HTTP
 public Evaluation Evaluate(Vacancy v, FilterRules rules, IEnumerable<ResumeProfile> resumes)
-// ✅ эндпоинт тонкий: читает, вызывает Core, сохраняет
+// ✅ сценарий = Command/Query + Handler в Application; контроллер: вызвать обработчик → FromResult(result.Value)
 
-// ❌ бизнес-правила внутри Program.cs или DbContext
+// ❌ бизнес-правила в контроллере, Program.cs или DbContext; публичные сеттеры у агрегатов; Match/Switch OneOf в контроллерах
 // ❌ HasData со списками (EF видит «меняющуюся модель») — сидирование через DbSeeder
 ```
 

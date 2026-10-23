@@ -1,5 +1,7 @@
 using System.Net;
-using HhAutoApplier.Core.Domain;
+using HhAutoApplier.Application.Abstractions;
+using HhAutoApplier.Domain.Searches;
+using HhAutoApplier.Domain.Vacancies;
 using Microsoft.Extensions.Options;
 
 namespace HhAutoApplier.Infrastructure.Sources.Hh;
@@ -7,7 +9,9 @@ namespace HhAutoApplier.Infrastructure.Sources.Hh;
 public class HhOptions
 {
     public const string Section = "Hh";
+
     public bool Enabled { get; set; } = true;
+
     // Обычный браузерный User-Agent: публичные страницы hh.ru отдаются без входа
     public string UserAgent { get; set; } =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
@@ -19,9 +23,12 @@ public class HhWebSource : IVacancySource
 {
     private readonly HttpClient _http;
 
-    public HhWebSource(HttpClient http, IOptions<HhOptions> options)
+    private readonly TimeProvider _clock;
+
+    public HhWebSource(HttpClient http, IOptions<HhOptions> options, TimeProvider clock)
     {
         _http = http;
+        _clock = clock;
         _http.BaseAddress = new Uri("https://hh.ru/");
         _http.DefaultRequestHeaders.UserAgent.ParseAdd(options.Value.UserAgent);
         _http.DefaultRequestHeaders.AcceptLanguage.ParseAdd("ru-RU,ru;q=0.9");
@@ -36,7 +43,7 @@ public class HhWebSource : IVacancySource
         if (!string.IsNullOrWhiteSpace(search.ExtraParams)) url += "&" + search.ExtraParams.TrimStart('&');
 
         using var state = await LoadStateAsync(url, ct) ?? throw Blocked("на странице поиска нет данных");
-        return HhPageParser.ParseSearch(state.RootElement, search.Name) ?? throw Blocked("на странице поиска нет выдачи");
+        return HhPageParser.ParseSearch(state.RootElement, search.Name, _clock.GetUtcNow()) ?? throw Blocked("на странице поиска нет выдачи");
     }
 
     public async Task<bool> LoadDetailsAsync(Vacancy vacancy, CancellationToken ct)
@@ -49,9 +56,14 @@ public class HhWebSource : IVacancySource
     private async Task<System.Text.Json.JsonDocument?> LoadStateAsync(string url, CancellationToken ct)
     {
         using var response = await _http.GetAsync(url, ct);
-        if (response.StatusCode == HttpStatusCode.NotFound) return null;
-        if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
-            throw Blocked($"ответ {(int)response.StatusCode}");
+        switch (response.StatusCode)
+        {
+            case HttpStatusCode.NotFound:
+                return null;
+            case HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests:
+                throw Blocked($"ответ {(int)response.StatusCode}");
+        }
+
         if (response.RequestMessage?.RequestUri?.AbsolutePath.Contains("captcha", StringComparison.OrdinalIgnoreCase) == true)
             throw Blocked("капча");
         response.EnsureSuccessStatusCode();

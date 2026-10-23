@@ -1,11 +1,13 @@
 using System.Text.RegularExpressions;
 
-namespace HhAutoApplier.Core.Rules;
+namespace HhAutoApplier.Domain.Services;
 
-public static class TextNormalizer
+public static partial class TextNormalizer
 {
-    public static string Normalize(string? text) =>
-        Regex.Replace(text ?? "", @"\s+", " ").Trim().ToLowerInvariant().Replace('ё', 'е');
+    public static string Normalize(string? text) => MyRegex().Replace(text ?? "", " ").Trim().ToLowerInvariant().Replace('ё', 'е');
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex MyRegex();
 }
 
 public static class StackExtractor
@@ -44,9 +46,11 @@ public static class StackExtractor
     public static string[] Extract(string text, IEnumerable<string>? extra = null)
     {
         var found = Dictionary.Where(d => d.Pattern.IsMatch(text)).Select(d => d.Name).ToList();
-        if (extra is not null)
-            foreach (var e in extra.Where(x => !string.IsNullOrWhiteSpace(x)))
-                if (!found.Contains(e, StringComparer.OrdinalIgnoreCase)) found.Add(e);
+        if (extra is null) return [.. found];
+
+        foreach (var e in extra.Where(x => !string.IsNullOrWhiteSpace(x)))
+            if (!found.Contains(e, StringComparer.OrdinalIgnoreCase))
+                found.Add(e);
         return [.. found];
     }
 }

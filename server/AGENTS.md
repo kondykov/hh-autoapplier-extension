@@ -10,10 +10,14 @@ docker compose up -d --build        # db (host 5433) + api (127.0.0.1:8080)
 ```
 
 ## Structure
-Core (домен, правила, без EF/HTTP) ← Infrastructure (EF, источники вакансий `Sources/`, `VacancyCollector`) ← Api (minimal API, `X-Api-Key`).
+DDD + простой CQRS без MediatR (`../docs/adr/0001-backend-ddd-cqrs.md`):
+Domain (агрегаты, value objects, доменные сервисы; без зависимостей) ← Application (Commands/Queries + Handlers, Dtos, Extractors, порты `IAppDbContext`/`IVacancySource`) ← Infrastructure (EF, источники `Sources/`, фоновый сбор) ← Api (контроллеры, `X-Api-Key`, OpenAPI + Scalar на `/scalar`).
 
 ## Rules
-- Новая логика — в Core + xunit-тест; endpoint тонкий
+- Новый сценарий: `XxxCommand`/`XxxQuery` (record + DataAnnotations) и `XxxCommandHandler`/`XxxQueryHandler` в `Application/<Commands|Queries>/<Фича>/`; регистрация автоматическая (Scrutor)
+- Результат с ошибками — `[GenerateOneOf] partial class XxxResult : OneOfBase<...>` рядом с командой; контроллер разбирает `.Value` через `FromResult`. Не вызывать `Match`/`Switch` OneOf в контроллерах — так переезд на union-типы .NET 11 сводится к замене объявления результата
+- Правила и переходы статусов — методы агрегатов (сеттеры закрыты), нарушение — `DomainException`; обработчик переводит её в `ConflictError`/`ValidationError`
+- Новая логика — с xunit-тестом (домен — без БД)
 - Сидирование — `DbSeeder`, не `HasData`
 - Только nuget.org (`nuget.config`): в глобальном конфиге владельца недоступный источник
 - Вакансии собирает сервер через источники-плагины `IVacancySource`; hh.ru — публичные страницы без токена (`HhWebSource`), разбор только в `HhPageParser` + тест на фикстуре. `api.hh.ru` не использовать (403 без токена)

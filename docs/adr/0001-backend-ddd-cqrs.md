@@ -1,6 +1,6 @@
 # ADR 0001. Backend: DDD и простой CQRS без MediatR
 
-Статус: **предложено** (ждёт решения владельца). Дата: 2026-10-23. Issue: #3, #11.
+Статус: **принято и реализовано**. Дата: 2026-10-23. Issue: #3, #11.
 
 ## Контекст
 
@@ -15,7 +15,7 @@ Backend вырос из прототипа: вся логика эндпоинт
 
 - `ICommandHandler<TCommand, TResult>` и `IQueryHandler<TQuery, TResult>` с одним методом `Handle`; без MediatR и без диспетчера.
 - Команда/запрос — `record` с DataAnnotations; обработчик — отдельный класс рядом: `Application/Commands/<Фича>/XxxCommand.cs` + `XxxCommandHandler.cs`.
-- Контроллер получает обработчик через `[FromServices]` и разбирает результат `OneOf<…>` через `Match` в HTTP-ответ.
+- Контроллер получает обработчик через `[FromServices]` и переводит результат `OneOf` в HTTP-ответ. В отличие от образца — не через `Match`, а через `.Value` в общем `FromResult` (см. «Переезд на union-типы»).
 - Ошибки — типы-записи (`NotFoundError`, `ConflictError`, …) вместо исключений для ожидаемых ситуаций.
 - Маппинг сущность → DTO — экстракторы `IExtractor<TSource, TTarget>`.
 - Автоматическая регистрация обработчиков и экстракторов сканированием сборки.
@@ -54,8 +54,9 @@ server/src/
     DomainException.cs
   HhAutoApplier.Application/            → Domain
     Cqrs/           ICommandHandler, IQueryHandler, IExtractor
-    Errors/         NotFoundError, ConflictError, ValidationError
-    Abstractions/   IAppDbContext (DbSet-ы), IVacancySource, SourceBlockedException
+    Errors/         NotFoundError, ConflictError, ValidationError, SourceUnavailableError
+    Abstractions/   IAppDbContext (DbSet-ы), IVacancySource, SourceBlockedException, CollectorOptions
+    DependencyInjection.cs  AddApplication: Scrutor-сканирование обработчиков и экстракторов
     Commands/
       Vacancies/    ImportVacancies, SetVacancyStatus
       Collecting/   CollectVacancies
@@ -66,90 +67,113 @@ server/src/
       Searches/     GetSearches
       Resumes/      GetResumes
       Reports/      GetApplicationsReport (json/csv)
-    Dtos/           VacancyDto, SearchDto, ResumeDto, StatsDto
+    Dtos/           VacancyDto, SearchDto, ResumeDto, ImportResultDto, CollectResultDto, FileDto
     Extractors/     VacancyExtractor, SearchExtractor, ResumeExtractor
   HhAutoApplier.Infrastructure/         → Application
-    Persistence/    AppDbContext : IAppDbContext, конфигурации сущностей, миграции, DbSeeder
+    Persistence/    AppDbContext : IAppDbContext, Configurations/, миграции, DbSeeder, DatabaseInitializer
     Sources/Hh/     HhWebSource, HhPageParser
     Collecting/     CollectorHostedService → вызывает CollectVacanciesCommandHandler
   HhAutoApplier.Api/                    → Infrastructure
     Controllers/    VacanciesController, SearchesController, ResumesController, ReportsController, CollectorController
-    Program.cs, Dependencies.cs (сканирование обработчиков), ApiKeyMiddleware
+    Controllers/ApiController.cs  FromResult: результат сценария → HTTP
+    Middlewares/    ApiKeyMiddleware
+    Program.cs
 ```
 
-Сейчас `Core` = будущий `Domain`; `Application` появляется новым проектом, логика из `Program.cs` и `VacancyCollector` расходится по обработчикам.
+Прежний `Core` стал `Domain`; логика из `Program.cs` и `VacancyCollector` разошлась по обработчикам `Application`.
 
 ## Как выглядит сценарий
 
+Пример — смена статуса вакансии (полный код в `server/src/HhAutoApplier.Application/Commands/Vacancies/`):
+
 ```csharp
-// Application/Commands/Vacancies/SetVacancyStatusCommand.cs
+// SetVacancyStatusCommand.cs — команда и её результат
 public record SetVacancyStatusCommand
 {
     [Required]
     public required string VacancyId { get; init; }
 
     [Required]
-    public VacancyStatus Status { get; init; }
+    public required VacancyStatus Status { get; init; }
 
     public string? Reason { get; init; }
 
     public string? Resume { get; init; }
 }
 
-// Application/Commands/Vacancies/SetVacancyStatusCommandHandler.cs
-public class SetVacancyStatusCommandHandler(
-    IAppDbContext db,
-    IExtractor<Vacancy, VacancyDto> extractor
-) : ICommandHandler<SetVacancyStatusCommand, OneOf<VacancyDto, NotFoundError, ConflictError>>
-{
-    public async Task<OneOf<VacancyDto, NotFoundError, ConflictError>> Handle(SetVacancyStatusCommand command)
-    {
-        var vacancy = await db.Vacancies.FindAsync(command.VacancyId);
-        if (vacancy is null) return new NotFoundError($"Вакансия {command.VacancyId} не найдена");
+[GenerateOneOf]
+public partial class SetVacancyStatusResult : OneOfBase<VacancyDto, NotFoundError, ConflictError>;
 
+// SetVacancyStatusCommandHandler.cs — правила перехода живут в агрегате, обработчик их вызывает
+public async Task<SetVacancyStatusResult> Handle(SetVacancyStatusCommand command, CancellationToken ct = default)
+{
+    var vacancy = await db.Vacancies.FindAsync([command.VacancyId], ct);
+    if (vacancy is null)
+        return new NotFoundError($"Вакансия {command.VacancyId} не найдена");
+
+    try
+    {
         switch (command.Status)
         {
             case VacancyStatus.Applied:
-                vacancy.MarkApplied(command.Resume);
+                vacancy.MarkApplied(command.Resume, clock.GetUtcNow());
                 break;
-            case VacancyStatus.Skipped:
-                vacancy.Skip(command.Reason);
-                break;
+            // Skipped, Failed, Rejected, Queued — аналогично
             default:
                 return new ConflictError($"Статус {command.Status} нельзя выставить вручную");
         }
-
-        await db.SaveChangesAsync();
-        return extractor.Extract(vacancy);
     }
+    catch (DomainException e)
+    {
+        return new ConflictError(e.Message);
+    }
+
+    await db.SaveChangesAsync(ct);
+    return extractor.Extract(vacancy);
 }
 
-// Api/Controllers/VacanciesController.cs
-[HttpPost("{id}/status")]
+// VacanciesController.cs — только вызов и перевод результата в HTTP
+[HttpPost("vacancies/{id}/status")]
 public async Task<IActionResult> SetStatus(
     string id,
     [FromBody] SetVacancyStatusRequest request,
-    [FromServices] SetVacancyStatusCommandHandler handler
+    [FromServices] SetVacancyStatusCommandHandler handler,
+    CancellationToken ct
 )
 {
-    var result = await handler.Handle(new SetVacancyStatusCommand { VacancyId = id, Status = request.Status, Reason = request.Reason, Resume = request.Resume });
-    return result.Match<IActionResult>(Ok, notFound => NotFound(notFound), conflict => Conflict(conflict));
+    var command = new SetVacancyStatusCommand { VacancyId = id, Status = request.Status, Reason = request.Reason, Resume = request.Resume };
+    return FromResult((await handler.Handle(command, ct)).Value);
 }
 ```
 
 Правило: **команды** меняют состояние через методы агрегатов; **запросы** читают `AsNoTracking` и проецируют в DTO, агрегаты не трогают.
 
-## Решения, которые нужно подтвердить
+## Принятые решения
 
-| Вопрос | Предложение | Альтернатива |
-|---|---|---|
-| Проекты | 4 проекта (Domain, Application, Infrastructure, Api) | один проект с папками, как в образце |
-| Результаты | `OneOf` (новая зависимость), как в образце | свой `Result<T, TError>` |
-| Регистрация обработчиков | `Scrutor` (новая зависимость), как в образце | своё сканирование сборки, ~15 строк |
-| HTTP | MVC-контроллеры с XML-доками, как в образце | minimal API, сгруппированный по фичам |
-| OpenAPI UI | Scalar (новая зависимость) | без UI, только `/openapi/v1.json` |
-| Схема БД | не меняется: `Salary` и правила маппятся на текущие колонки | — |
-| API для расширения | маршруты и формат ответов сохраняются | — |
+| Вопрос | Решение |
+|---|---|
+| Проекты | 4 проекта: Domain, Application, Infrastructure, Api |
+| Результаты | `OneOf` + `OneOf.SourceGenerator`: на каждый сценарий именованный тип `[GenerateOneOf] partial class XxxResult : OneOfBase<...>` рядом с командой |
+| Регистрация обработчиков | `Scrutor`: сканирование Application по `ICommandHandler<,>`, `IQueryHandler<,>`, `IExtractor<,>` |
+| HTTP | MVC-контроллеры с XML-доками; общий `ApiController.FromResult` переводит результат в ответ |
+| OpenAPI UI | `Microsoft.AspNetCore.OpenApi` + `Scalar` на `/scalar` |
+| Схема БД | не менялась (проверено `has-pending-model-changes`): `Salary` собирается из прежних колонок |
+| API для расширения | маршруты и формат ответов сохранены; тело ошибок — `{ "message": "..." }` |
+
+### Переезд на union-типы .NET 11
+
+Результат сценария объявлен одной строкой рядом с командой, а контроллер разбирает его только через `.Value` и сопоставление с образцом в `ApiController.FromResult` — без `Match`/`Switch` из OneOf. Обработчики возвращают варианты через неявное преобразование (`return new NotFoundError(...)`), которое есть и у union-типов. Переезд:
+
+```csharp
+// сейчас
+[GenerateOneOf]
+public partial class SetVacancyStatusResult : OneOfBase<VacancyDto, NotFoundError, ConflictError>;
+
+// .NET 11
+public union SetVacancyStatusResult(VacancyDto, NotFoundError, ConflictError);
+```
+
+Обработчики и контроллеры при этом не меняются; если в итоговом дизайне языка у union не будет свойства `Value`, правка одна — в `FromResult`. Варианты — только конкретные типы (генератор OneOf не допускает интерфейсы), поэтому списки — `List<T>`.
 
 ## Последствия
 
@@ -157,9 +181,6 @@ public async Task<IActionResult> SetStatus(
 - Домен тестируется без БД; обработчики — на SQLite в памяти или Testcontainers (#12).
 - Больше файлов — цена читаемости; для проекта такого размера приемлемо.
 
-## План перехода
+## Что сделано
 
-1. `Core` → `Domain`: агрегаты с закрытыми сеттерами и методами, value objects; тесты домена.
-2. Проект `Application`: CQRS-абстракции, ошибки, команды и запросы для текущих эндпоинтов, экстракторы; сборщик — `CollectVacanciesCommandHandler`.
-3. Infrastructure: `AppDbContext : IAppDbContext`, конфигурации сущностей в отдельных классах; hosted service вызывает обработчик.
-4. Api: контроллеры вместо `Program.cs`, автосканирование, OpenAPI; прогон всех тестов и полного цикла в Docker.
+Команды: `ImportVacancies`, `SetVacancyStatus`, `CollectVacancies`, `SaveSearch`, `DeleteSearch`, `SaveResume`. Запросы: `GetQueue`, `GetVacancies`, `GetStats`, `GetSearches`, `GetResumes`, `GetApplicationsReport`. Фоновый сбор вызывает `CollectVacanciesCommandHandler`. Тесты: 18 xunit (домен, правила, источник hh.ru). Проверено в Docker: все эндпоинты, сбор при старте, OpenAPI и Scalar.
