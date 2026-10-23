@@ -96,7 +96,7 @@ flowchart LR
 - Обновления ОС и контейнеров, бэкап БД и профилей, логи входов.
 
 ### F. Ведение задач
-- Источник задач — GitHub Issues в `kondykov/hh-autoapplier-extension`; этот файл — карта направлений и порядок, со ссылками на issues.
+- Источник задач — GitHub Issues в [kondykov/hh-autoapplier](https://github.com/kondykov/hh-autoapplier/issues); этот файл — карта направлений и порядок, со ссылками на issues.
 - Метки: направление (`backend`, `extension`, `llm`, `rbac`, `infra`, `docs`), тип (`feature`, `bug`, `chore`), приоритет (`p1`–`p3`). Крупные направления — milestones по этапам ниже.
 - Агенты читают issues через `gh`, ссылаются на номер в коммите (`refs #N`), закрывают через PR (`closes #N`). Создавать и закрывать issues — по просьбе владельца.
 - `.rules/context/task.md` остаётся коротким статусом для агентов: что сейчас в работе и номера issues.
