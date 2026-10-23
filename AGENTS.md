@@ -23,7 +23,7 @@ cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:808
 - `src/content/main.ts` — композиция; `src/core/` — Controller, config, selectors
 - `src/{apply,search,filter,resume,report,questions,rejects,letters,captcha,dom,infra,ui}` — модули
 - `server/src/HhAutoApplier.{Core,Infrastructure,Api}` — домен, EF/клиент hh, minimal API
-- `docs/` — для людей; `legacy/` — старые скрипты, не трогать
+- `docs/` — для людей
 
 ## Code Style
 ```ts
@@ -44,6 +44,6 @@ qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
 ## Boundaries
 - ✅ Править `src/`, `server/`, `tests/`, `docs/`; запускать тесты/сборку; локальный docker compose
 - ⚠️ Спросить: новые зависимости, миграции EF, перезапуск браузера, запуск Docker Desktop, смена задержек/лимитов
-- ❌ Реальные отклики без согласия; коммит `letter.local.txt`, `server/.env`, `.profile/`, токенов; правка `legacy/`; обход/автоматическое решение капчи
+- ❌ Реальные отклики без согласия; коммит `letter.local.txt`, `server/.env`, `.profile/`, токенов; обход/автоматическое решение капчи
 
 → Full rules: .rules/ (начать с `.rules/_index.md`, статус — `.rules/context/task.md`)

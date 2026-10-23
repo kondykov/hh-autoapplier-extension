@@ -1,4 +1,4 @@
-// Единственное место, где живут селекторы hh.ru (перенесены из legacy/hh-autoapply.user.js)
+// Единственное место, где живут селекторы hh.ru
 export const SELECTORS = {
   vacancyCard: '[data-qa="vacancy-serp__vacancy"]',
   vacancyTitle: '[data-qa="serp-item__title"]',
