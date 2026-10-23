@@ -1,6 +1,8 @@
+using System.Net;
 using HhAutoApplier.Infrastructure.Collecting;
-using HhAutoApplier.Infrastructure.Hh;
 using HhAutoApplier.Infrastructure.Persistence;
+using HhAutoApplier.Infrastructure.Sources;
+using HhAutoApplier.Infrastructure.Sources.Hh;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,9 +13,19 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration config)
     {
-        services.Configure<HhOptions>(config.GetSection(HhOptions.Section));
+        services.Configure<CollectorOptions>(config.GetSection(CollectorOptions.Section));
         services.AddDbContext<AppDbContext>(o => o.UseNpgsql(config.GetConnectionString("Default")));
-        services.AddHttpClient<IVacancySource, HhApiClient>();
+
+        // Источники вакансий: новый агрегатор = своя реализация IVacancySource и регистрация здесь
+        var hh = config.GetSection(HhOptions.Section);
+        services.Configure<HhOptions>(hh);
+        if (hh.GetValue("Enabled", true))
+        {
+            services.AddHttpClient<HhWebSource>()
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All });
+            services.AddTransient<IVacancySource>(sp => sp.GetRequiredService<HhWebSource>());
+        }
+
         services.AddScoped<VacancyCollector>();
         services.AddHostedService<CollectorHostedService>();
         return services;
