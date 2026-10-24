@@ -13,6 +13,8 @@ export class ReportActions {
     private applications: ApplicationStore,
     private logger: Logger,
     private persist: () => Promise<void>,
+    // Подтверждение пользователя (в панели)
+    private ask: (message: string, yesLabel: string) => Promise<boolean>,
   ) {}
 
   // Вопросы анкеты с текущей страницы — для будущего автозаполнения
@@ -60,7 +62,7 @@ export class ReportActions {
   }
 
   async clear(): Promise<void> {
-    if (!confirm("Очистить аутлайн, непонятное и собранные вопросы?"))
+    if (!(await this.ask("Очистить аутлайн, непонятное и собранные вопросы?", "Очистить")))
       return;
 
     this.state.clearOutline();

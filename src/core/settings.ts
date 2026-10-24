@@ -99,7 +99,7 @@ export class Settings {
       this.panel.setLetter(preset.letter);
     }
     this.panel.setUrl(preset.url);
-    if (detectPageType() === "search" || confirm(`Перейти на поиск "${name}"?`))
+    if (detectPageType() === "search" || (await this.panel.ask(`Перейти на поиск "${name}"?`, "Перейти")))
       location.href = preset.url;
   }
 }
