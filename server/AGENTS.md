@@ -4,7 +4,7 @@
 
 ## Commands
 ```powershell
-dotnet test
+dotnet test                         # нужен Docker: тесты API поднимают postgres:17 в Testcontainers
 docker compose up -d --build        # db (host 5433) + api (127.0.0.1:8080)
 .\..\.tools\dotnet-ef migrations add <Name> -p src/HhAutoApplier.Infrastructure -s src/HhAutoApplier.Api -o Persistence/Migrations
 ```
@@ -17,7 +17,7 @@ Domain (агрегаты, value objects, доменные сервисы; без
 - Новый сценарий: `XxxCommand`/`XxxQuery` (record + DataAnnotations) и `XxxCommandHandler`/`XxxQueryHandler` в `Application/<Commands|Queries>/<Фича>/`; регистрация автоматическая (Scrutor)
 - Результат с ошибками — `[GenerateOneOf] partial class XxxResult : OneOfBase<...>` рядом с командой; контроллер разбирает `.Value` через `FromResult`. Не вызывать `Match`/`Switch` OneOf в контроллерах — так переезд на union-типы .NET 11 сводится к замене объявления результата
 - Правила и переходы статусов — методы агрегатов (сеттеры закрыты), нарушение — `DomainException`; обработчик переводит её в `ConflictError`/`ValidationError`
-- Новая логика — с xunit-тестом (домен — без БД)
+- Новая логика — с xunit-тестом (домен — без БД). Новый эндпоинт — тест в `tests/HhAutoApplier.Tests/Api/ApiTests.cs` через `ApiFactory` (настоящий Postgres, подменный `IVacancySource`, на hh.ru не ходит)
 - Сидирование — `DbSeeder`, не `HasData`
 - Только nuget.org (`nuget.config`): в глобальном конфиге владельца недоступный источник
 - Вакансии собирает сервер через источники-плагины `IVacancySource`; hh.ru — публичные страницы без токена (`HhWebSource`), разбор только в `HhPageParser` + тест на фикстуре. `api.hh.ru` не использовать (403 без токена)

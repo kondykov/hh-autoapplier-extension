@@ -86,7 +86,7 @@ flowchart LR
 - Результаты сценариев — `OneOf` с именованным типом на каждый сценарий; на .NET 11 меняется только объявление на `union`.
 - Модули по функциям: `Identity`, `Vacancies`, `Sources`, `Applications`, `Resumes`, `Letters`, `Llm`. Эндпоинты по модулям (`MapGroup` в отдельных файлах), `Program.cs` только собирает приложение; импорт и CSV уходят из `Program.cs`.
 - Фоновые задачи (LLM) — через очередь в БД и `BackgroundService`, без внешнего брокера.
-- Тесты: юнит на Domain, интеграционные на API через `WebApplicationFactory` и тестовый Postgres (#12).
+- Тесты: юнит на Domain, интеграционные на API через `WebApplicationFactory` и Postgres в Testcontainers (готово, #12).
 
 **Расширение — сбор и исполнение, слои «порты и адаптеры».**
 - `core` — сценарии и состояние без DOM и `chrome.*`; `pages` — шаги по типу страницы (`PageStep`: выдача, вакансия, отклик, список откликов) вместо одного `Controller` на 416 строк; `hh` — селекторы и DOM hh.ru; `api` — клиент backend; `infra`, `ui` — как сейчас.
@@ -118,7 +118,7 @@ Telegram-бот на backend: события (капча в расширении
 ## Технический долг
 
 - Правила продублированы и расходятся: поля (`stopWords`/`requiredStack` против `ExcludeKeywords`/`IncludeKeywords`, на сервере есть `RequireSalary` и `SkipWithTest`), ключевые слова резюме (`wpf`, `wordpress` только в расширении). Закрывается направлением A.
-- Нет тестов на `Controller` (появятся с разделением на `PageStep`, #18) и интеграционных на API (#12).
+- Нет тестов на `Controller` расширения (появятся с разделением на `PageStep`, #18).
 - `DELAYS` фиксированные; нужен случайный разброс (меняет частоту запросов — согласовать).
 - CORS `AllowAnyOrigin`; после связки — только источник расширения.
 - Версии `package.json` и `manifest.json` (0.4.0) поднимать вместе.
