@@ -9,7 +9,8 @@ const defaultLetter = existsSync("letter.local.txt") ? readFileSync("letter.loca
 
 const options = {
   define: { __DEFAULT_LETTER__: JSON.stringify(defaultLetter) },
-  entryPoints: { content: "src/content/main.ts" },
+  // content.js — на страницах hh.ru, background.js — service worker для запросов к backend
+  entryPoints: { content: "src/content/main.ts", background: "src/background/main.ts" },
   outdir: "dist",
   bundle: true,
   format: "iife",

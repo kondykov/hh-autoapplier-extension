@@ -9,6 +9,14 @@ export interface SearchPreset {
   rules?: FilterRules;
 }
 
+// Backend: адрес и ключ X-Api-Key. Запросы к нему делает фоновый service worker расширения
+export interface ServerSettings {
+  url: string;
+  apiKey: string;
+}
+
+export const DEFAULT_SERVER: ServerSettings = { url: "http://127.0.0.1:8080", apiKey: "" };
+
 export interface AppConfig {
   coverLetterTemplate: string;
   searchRedirectUrl: string;
@@ -16,6 +24,7 @@ export interface AppConfig {
   presets: SearchPreset[];
   rules: FilterRules;
   resumes: ResumeProfile[];
+  server: ServerSettings;
 }
 
 declare const __DEFAULT_LETTER__: string | undefined;
@@ -29,13 +38,19 @@ export const DEFAULT_CONFIG: AppConfig = {
   presets: [],
   rules: EMPTY_RULES,
   resumes: DEFAULT_RESUMES,
+  server: DEFAULT_SERVER,
 };
 
 const KEY = "hh_autoapply_config";
 
 export async function loadConfig(storage: KeyValueStorage): Promise<AppConfig> {
   const saved = await storage.get<Partial<AppConfig>>(KEY, {});
-  return { ...DEFAULT_CONFIG, ...saved, rules: { ...EMPTY_RULES, ...saved.rules } };
+  return {
+    ...DEFAULT_CONFIG,
+    ...saved,
+    rules: { ...EMPTY_RULES, ...saved.rules },
+    server: { ...DEFAULT_SERVER, ...saved.server },
+  };
 }
 
 export function saveConfig(storage: KeyValueStorage, config: AppConfig): Promise<void> {
