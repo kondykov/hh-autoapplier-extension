@@ -10,7 +10,7 @@ public class LlmOptions
     // Только из .env (LLM_API_KEY); пустой — LLM выключена
     public string? ApiKey { get; set; }
 
-    public string Model { get; set; } = "llama-3.3-70b-versatile";
+    public string Model { get; set; } = "openai/gpt-oss-120b";
 
     public int TimeoutSeconds { get; set; } = 60;
 

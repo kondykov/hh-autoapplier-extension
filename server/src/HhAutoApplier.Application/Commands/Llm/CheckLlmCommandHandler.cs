@@ -14,7 +14,7 @@ public class CheckLlmCommandHandler(ILlmClient llm) : ICommandHandler<CheckLlmCo
         try
         {
             var result = await llm.CompleteAsync(
-                new LlmRequest([LlmMessage.User("Ответь одним словом: ok")], Temperature: 0, MaxTokens: 5),
+                new LlmRequest([LlmMessage.User("Ответь одним словом: ok")], Temperature: 0, MaxTokens: 200),
                 ct);
             return new LlmCheckDto(result.Model, result.Content.Trim(), (int)timer.ElapsedMilliseconds, result.PromptTokens + result.CompletionTokens);
         }
