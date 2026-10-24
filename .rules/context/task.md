@@ -3,7 +3,7 @@
 ## Расположение
 - Репозиторий — `kondykov/hh-autoapplier-extension` (https://github.com/kondykov/hh-autoapplier-extension) <!-- VERIFY -->; владелец позже переименует его в `kondykov/hh-autoapplier`. Код, ветки и issues — здесь
 
-## Готово (typecheck, 78 vitest, 26 xunit, сборка, CI)
+## Готово (typecheck, 78 vitest, 32 xunit, сборка, CI)
 - Расширение: оверлей, сбор вакансий, фильтры и скоринг по пресетам, автоотклик, письма (универсальное + по пресетам), автовыбор резюме PHP/.NET, отчёт CSV, анкеты, автоотказы, повторы пустой выдачи, дневной лимит, автопауза при капче
 - Backend: поиски с правилами, оценка, выбор резюме, очередь, статусы, отчёт, `POST /api/import`, автономный сбор с публичных страниц hh.ru (источники-плагины), Docker (postgres + api); архитектура DDD + CQRS без MediatR (4 проекта, OneOf, Scrutor, Scalar)
 

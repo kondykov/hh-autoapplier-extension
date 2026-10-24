@@ -17,6 +17,7 @@ public abstract class ApiController : ControllerBase
         ConflictError e => Conflict(e),
         ValidationError e => BadRequest(e),
         SourceUnavailableError e => StatusCode(StatusCodes.Status502BadGateway, e),
+        LlmUnavailableError e => StatusCode(StatusCodes.Status503ServiceUnavailable, e),
         FileDto f => File(f.Content, f.ContentType, f.FileName),
         Success or null => NoContent(),
         _ => Ok(value),

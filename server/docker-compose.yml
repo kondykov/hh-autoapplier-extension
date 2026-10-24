@@ -27,6 +27,10 @@ services:
       Api__Key: ${API_KEY:-}
       Hh__Enabled: ${HH_ENABLED:-true}
       Collector__IntervalMinutes: ${COLLECT_INTERVAL_MINUTES:-60}
+      Llm__ApiKey: ${LLM_API_KEY:-}
+      Llm__BaseUrl: ${LLM_BASE_URL:-https://api.groq.com/openai/v1}
+      Llm__Model: ${LLM_MODEL:-llama-3.3-70b-versatile}
+      Llm__DailyRequestLimit: ${LLM_DAILY_LIMIT:-300}
     ports:
       - "127.0.0.1:8080:8080"
 

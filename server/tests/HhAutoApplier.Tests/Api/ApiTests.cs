@@ -162,6 +162,14 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task LlmCheck_WithoutKey_Is503_AndDoesNotCallProvider()
+    {
+        var res = await _api.PostAsync("/api/llm/check", null);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, res.StatusCode);
+        Assert.Contains("LLM_API_KEY", await res.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Report_JsonAndCsv()
     {
         await SaveSearch();
