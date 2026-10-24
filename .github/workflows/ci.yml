@@ -1,0 +1,54 @@
+# Проверка расширения и backend на каждый push и pull request
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  extension:
+    name: Расширение (typecheck, test, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Playwright нужен только для dev-браузера: браузеры в CI не качаем
+      - run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+
+      - run: npm run typecheck
+      - run: npm test
+      # Без letter.local.txt сборка берёт письмо по умолчанию
+      - run: npm run build
+
+  server:
+    name: Backend (build, test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - run: dotnet restore HhAutoApplier.slnx
+      - run: dotnet build HhAutoApplier.slnx --no-restore -c Release
+      - run: dotnet test HhAutoApplier.slnx --no-build -c Release
+
+      - name: Модель EF совпадает с миграциями
+        run: |
+          dotnet tool install --global dotnet-ef --version 10.0.13
+          dotnet ef migrations has-pending-model-changes -p src/HhAutoApplier.Infrastructure -s src/HhAutoApplier.Api --no-build --configuration Release
