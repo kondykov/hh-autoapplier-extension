@@ -9,7 +9,14 @@ Backend описан в [BACKEND.md](BACKEND.md), план доработок �
 | Модуль | Ответственность |
 |---|---|
 | `content/main.ts` | composition root: собирает зависимости и панель |
-| `core/controller.ts` | оркестратор: сбор, «Следующий», авто-режим с возобновлением после перехода страницы, поиски, настройки |
+| `core/controller.ts` | сборка: общий контекст шагов, конвейер, капча; после загрузки страницы передаёт управление подходящему шагу (`pickStep`) |
+| `pages/step-context.ts` | `StepContext` (состояние, панель, конвейер, backend, `Navigator` вместо `location`), `PageStep`, `pickStep`, `stopAuto`/`stopQueue` |
+| `pages/search-step.ts` | выдача: сбор карточек, «Next», авто-режим, повторы пустой выдачи |
+| `pages/vacancy-step.ts` | страница вакансии в авто-режиме: отклик и возврат на поиск |
+| `pages/queue-step.ts` | режим «из очереди» |
+| `pages/reject-step.ts` | чаты: следующий отказ, авто-отказы |
+| `core/settings.ts` | настройки из панели: URL, лимит, письмо, резюме, правила, сервер, пробный режим, сохранённые поиски |
+| `report/report-actions.ts` | анкеты, отчёт CSV, «Аутлайн» и «Непонятное» |
 | `core/state.ts` | состояние (очередь вакансий, outline, unclear) и `StateRepository` |
 | `core/config.ts` | `AppConfig`, дефолты, `loadConfig`/`saveConfig` |
 | `core/selectors.ts` | все селекторы и текстовые маркеры hh.ru |
@@ -31,7 +38,7 @@ Backend описан в [BACKEND.md](BACKEND.md), план доработок �
 | `queue/queue-mode.ts` | чистая логика режима «из очереди»: адрес страницы отклика, выбор следующей вакансии, исход → статус сервера |
 | `background/main.ts` | service worker: принимает `{ type: "hh-api", path, method, body }` только от своего расширения, сам берёт адрес и ключ из конфига и делает `fetch` |
 
-Зависимости идут сверху вниз: UI → Controller → модули → `dom`/`infra`. Ядро не обращается к `chrome.*` напрямую, только через `KeyValueStorage`, поэтому его можно тестировать без браузера.
+Зависимости идут сверху вниз: UI → шаги страниц и настройки → модули → `dom`/`infra`. Новый режим — новый `PageStep` и место в списке `pickStep` в `Controller.init`; шаги тестируются на подменном `StepContext` (`tests/steps.test.ts`). Ядро не обращается к `chrome.*` напрямую, только через `KeyValueStorage`, поэтому его можно тестировать без браузера.
 
 ## Связь с backend
 
