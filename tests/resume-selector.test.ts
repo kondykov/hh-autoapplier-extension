@@ -52,6 +52,14 @@ describe("ResumeSelector", () => {
     expect(await choose("Менеджер проектов")).toEqual({ profile: null, failed: false });
   });
 
+  it("берёт заранее заданное резюме (выбор backend), даже если стек указывает на другое", async () => {
+    renderForm(DOTNET, [PHP, DOTNET]);
+    const result = selector.choose({ ...vacancy("Старший разработчик C# .NET"), resume: "PHP" });
+    await vi.runAllTimersAsync();
+    expect((await result).profile?.name).toBe("PHP");
+    expect(document.querySelector('[data-qa="resume-title"]')!.textContent).toBe(PHP);
+  });
+
   it("сообщает о неудаче, если нужного резюме нет в списке", async () => {
     renderForm(PHP, [PHP]);
     expect(await choose("Разработчик C# .NET")).toEqual({ profile: null, failed: true });

@@ -54,6 +54,8 @@ async function bootstrap() {
       onPresetApply: (name) => void controller.applyPreset(name),
       onServerChange: (url, apiKey) => void controller.setServer(url, apiKey),
       onServerCheck: () => void controller.checkServer(),
+      onQueue: () => void controller.toggleQueue(),
+      onQueueDryRunChange: (enabled) => void controller.setQueueDryRun(enabled),
     },
     {
       url: config.searchRedirectUrl,
@@ -63,6 +65,7 @@ async function bootstrap() {
       rules: config.rules,
       resumes: config.resumes,
       server: config.server,
+      queueDryRun: config.queueDryRun,
     },
   );
   logger.addSink(panel);

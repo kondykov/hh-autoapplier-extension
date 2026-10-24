@@ -9,7 +9,7 @@ import type { LetterProvider } from "../letters/letter-provider";
 import { waitForApplyOutcome, type ApplyOutcome } from "./outcome-detector";
 import { attachLetterAndSubmit } from "./submit";
 
-export type ApplyResult = "success" | "outline" | "skipped" | "disabled" | "unclear" | "failed";
+export type ApplyResult = "success" | "outline" | "skipped" | "disabled" | "unclear" | "failed" | "dry_run";
 
 export interface PipelineDeps {
   state: AppState;
@@ -20,6 +20,10 @@ export interface PipelineDeps {
   onApplied: (vacancy: Vacancy) => Promise<void>;
   onOutline: (vacancy: Vacancy) => Promise<void>;
   onChange: () => Promise<void>;
+  // Пробный режим: всё, кроме нажатия «Отправить»
+  dryRun: () => boolean;
+  // Режим «из очереди» сам решает, куда идти после анкеты, — без редиректа на поиск
+  stayOnOutline: () => boolean;
 }
 
 async function handleRelocationWarning(logger: Logger): Promise<void> {
@@ -86,7 +90,7 @@ export class ApplyPipeline {
     }
     if (chosen.profile) vacancy.resume = chosen.profile.name;
     const letter = await this.deps.letters.getLetter(vacancy);
-    const result = await attachLetterAndSubmit(vacancy, letter, logger);
+    const result = await attachLetterAndSubmit(vacancy, letter, logger, this.deps.dryRun());
     switch (result) {
       case "outline":
         return this.saveOutline(vacancy);
@@ -95,6 +99,8 @@ export class ApplyPipeline {
         return "success";
       case "disabled":
         return "disabled";
+      case "dry_run":
+        return "dry_run";
       case "pending_response":
         if (depth < 2) return this.resolve(vacancy, "response", depth + 1);
         return "failed";
@@ -121,7 +127,7 @@ export class ApplyPipeline {
 
     if (detectPageType() === "search") {
       qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
-    } else {
+    } else if (!this.deps.stayOnOutline()) {
       state.resumeAfterRedirect = state.running;
       await this.deps.onChange();
       location.href = this.deps.searchUrl();

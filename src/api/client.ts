@@ -1,3 +1,4 @@
+import type { QueueItem, StatusReport } from "../queue/queue-mode";
 import type { ApiRequest, ApiResponse } from "./transport";
 
 export type ApiSender = (request: ApiRequest) => Promise<ApiResponse>;
@@ -10,7 +11,18 @@ export interface CheckResult {
   message: string;
 }
 
-// Клиент backend для content script. Методы очереди и статусов появятся с режимом «из очереди» (#15)
+export type QueueResult = { ok: true; items: QueueItem[] } | { ok: false; error: string };
+
+export type ReportResult = { ok: true } | { ok: false; error: string };
+
+interface VacancyDto {
+  id: string;
+  title: string;
+  company: string;
+  resumeProfile: string | null;
+}
+
+// Клиент backend для content script
 export class BackendClient {
   constructor(private send: ApiSender) {}
 
@@ -29,6 +41,30 @@ export class BackendClient {
     return { ok: true, message: `Связь есть: вакансий на сервере ${total}, в очереди ${counts.Queued ?? 0}` };
   }
 
+  // Лучшие одобренные вакансии; берём с запасом, чтобы пропускать уже опробованные в пробном режиме
+  async getQueue(limit = 20): Promise<QueueResult> {
+    const res = await this.call({ type: "hh-api", path: `/api/queue?limit=${limit}` });
+    if (res.status !== 200) return { ok: false, error: describe(res) };
+
+    const items = (JSON.parse(res.body) as VacancyDto[]).map((v) => ({
+      id: v.id,
+      title: v.title,
+      company: v.company,
+      resume: v.resumeProfile,
+    }));
+    return { ok: true, items };
+  }
+
+  async reportStatus(id: string, report: StatusReport, resume: string | null): Promise<ReportResult> {
+    const res = await this.call({
+      type: "hh-api",
+      path: `/api/vacancies/${encodeURIComponent(id)}/status`,
+      method: "POST",
+      body: { status: report.status, reason: report.reason, resume },
+    });
+    return res.status === 200 ? { ok: true } : { ok: false, error: describe(res) };
+  }
+
   private async call(request: ApiRequest): Promise<ApiResponse> {
     try {
       return await this.send(request);
@@ -37,4 +73,10 @@ export class BackendClient {
       return { status: 0, body: "", error: (e as Error).message };
     }
   }
+}
+
+function describe(res: ApiResponse): string {
+  if (res.status === 0) return `сервер недоступен: ${res.error ?? "нет ответа"}`;
+  if (res.status === 401) return "неверный ключ API";
+  return `сервер ответил ${res.status}: ${res.body.slice(0, 200)}`;
 }

@@ -7,7 +7,8 @@ import { isAlreadyResponded, normalizeText, qs, qsa } from "../dom/query";
 import type { Logger } from "../infra/logger";
 import { isAlreadyRespondedOnPage, isOutlineDetected } from "./outcome-detector";
 
-export type SubmitResult = "success" | "outline" | "pending_response" | "disabled" | "unclear" | "failed";
+// dry_run — пробный режим: форма заполнена, кнопка «Отправить» найдена и активна, но не нажата
+export type SubmitResult = "success" | "outline" | "pending_response" | "disabled" | "unclear" | "failed" | "dry_run";
 
 function findButtonByText(root: ParentNode, text: string, excludeApply: boolean): HTMLElement | null {
   const isApply = (el: Element) => excludeApply && el.matches(SELECTORS.applyButton);
@@ -75,6 +76,7 @@ export async function attachLetterAndSubmit(
   vacancy: Vacancy | null,
   letter: string,
   logger: Logger,
+  dryRun = false,
 ): Promise<SubmitResult> {
   if (isOutlineDetected()) return "outline";
 
@@ -103,6 +105,11 @@ export async function attachLetterAndSubmit(
   if ((submit as HTMLButtonElement).disabled || (real as HTMLButtonElement).disabled) {
     logger.log('Кнопка "Отправить" неактивна. Возможно, нужно выбрать резюме.', "warn");
     return "disabled";
+  }
+
+  if (dryRun) {
+    logger.log('Пробный режим: кнопка "Отправить" найдена и активна, не нажимаю', "warn");
+    return "dry_run";
   }
 
   const startPage = detectPageType();

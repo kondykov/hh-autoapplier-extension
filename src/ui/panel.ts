@@ -37,6 +37,8 @@ export interface PanelHandlers {
   // apiKey: null — не менять сохранённый ключ
   onServerChange(url: string, apiKey: string | null): void;
   onServerCheck(): void;
+  onQueue(): void;
+  onQueueDryRunChange(enabled: boolean): void;
 }
 
 const POS_KEY = "hh_panel_pos";
@@ -55,6 +57,7 @@ export class Panel implements LogSink {
       rules: FilterRules;
       resumes: ResumeProfile[];
       server: ServerSettings;
+      queueDryRun: boolean;
     },
   ) {}
 
@@ -89,6 +92,10 @@ export class Panel implements LogSink {
           <button class="hh-btn hh-btn-primary" id="hh-btn-collect">Собрать вакансии</button>
           <button class="hh-btn hh-btn-success" id="hh-btn-next" disabled>Next →</button>
           <button class="hh-btn hh-btn-secondary" id="hh-btn-auto">Авто</button>
+        </div>
+        <div class="hh-btn-row">
+          <button class="hh-btn hh-btn-secondary" id="hh-btn-queue" title="Одобренные вакансии с сервера">Из очереди</button>
+          <label class="hh-step-label"><input type="checkbox" id="hh-input-dryrun" /> Пробный режим: не нажимать «Отправить»</label>
         </div>
         <div class="hh-btn-row">
           <button class="hh-btn hh-btn-warn" id="hh-btn-outline">Аутлайн</button>
@@ -148,6 +155,18 @@ export class Panel implements LogSink {
     this.el("hh-btn-report").onclick = () => this.handlers.onDownloadReport();
     this.el("hh-btn-rej").onclick = () => this.handlers.onRejectNext();
     this.el("hh-btn-autorej").onclick = () => this.handlers.onAutoReject();
+    this.el("hh-btn-queue").onclick = () => this.handlers.onQueue();
+
+    const dryRun = this.el<HTMLInputElement>("hh-input-dryrun");
+    dryRun.checked = this.initial.queueDryRun;
+    dryRun.onchange = () => {
+      // Выключение пробного режима — переход к настоящим откликам, только с подтверждением
+      if (!dryRun.checked && !confirm("Режим «из очереди» начнёт отправлять отклики по-настоящему. Выключить пробный режим?")) {
+        dryRun.checked = true;
+        return;
+      }
+      this.handlers.onQueueDryRunChange(dryRun.checked);
+    };
 
     const letter = this.el<HTMLTextAreaElement>("hh-input-letter");
     letter.value = this.initial.letter;
@@ -269,6 +288,12 @@ export class Panel implements LogSink {
     const status = this.el("hh-server-status");
     status.textContent = message;
     status.style.color = ok ? "#4CAF50" : "#F44336";
+  }
+
+  setQueueActive(active: boolean): void {
+    const btn = this.el("hh-btn-queue");
+    btn.textContent = active ? "Стоп очередь" : "Из очереди";
+    btn.classList.toggle("hh-btn-primary", active);
   }
 
   setAutoActive(active: boolean): void {

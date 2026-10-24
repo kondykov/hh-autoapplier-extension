@@ -1,4 +1,5 @@
 import type { KeyValueStorage } from "../infra/storage";
+import type { QueueItem } from "../queue/queue-mode";
 
 export interface VacancyItem {
   title: string;
@@ -27,6 +28,9 @@ interface PersistedState {
   retryDelay: number;
   emptyPageRetries: number;
   emptyPageRestarts: number;
+  queueRunning: boolean;
+  queueCurrent: QueueItem | null;
+  queueTried: string[];
 }
 
 const vacancyId = (url: string) => url.match(/\/vacancy\/(\d+)|vacancyId=(\d+)/)?.slice(1).find(Boolean);
@@ -45,6 +49,11 @@ export class AppState {
   retryDelay = 0;
   emptyPageRetries = 0;
   emptyPageRestarts = 0;
+  // Режим «из очереди» переживает переходы между страницами отклика
+  queueRunning = false;
+  queueCurrent: QueueItem | null = null;
+  // id, уже опробованные в этом запуске: в пробном режиме сервер о них не знает и вернёт их снова
+  queueTried: string[] = [];
 
   isSkipped(link: string): boolean {
     if (!link) return false;
@@ -89,6 +98,9 @@ export class AppState {
       retryDelay: this.retryDelay,
       emptyPageRetries: this.emptyPageRetries,
       emptyPageRestarts: this.emptyPageRestarts,
+      queueRunning: this.queueRunning,
+      queueCurrent: this.queueCurrent,
+      queueTried: this.queueTried,
     };
   }
 }

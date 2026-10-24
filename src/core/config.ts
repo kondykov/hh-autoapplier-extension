@@ -25,6 +25,8 @@ export interface AppConfig {
   rules: FilterRules;
   resumes: ResumeProfile[];
   server: ServerSettings;
+  // Режим «из очереди» без нажатия «Отправить»: по умолчанию включён, выключается только явно в панели
+  queueDryRun: boolean;
 }
 
 declare const __DEFAULT_LETTER__: string | undefined;
@@ -39,6 +41,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   rules: EMPTY_RULES,
   resumes: DEFAULT_RESUMES,
   server: DEFAULT_SERVER,
+  queueDryRun: true,
 };
 
 const KEY = "hh_autoapply_config";

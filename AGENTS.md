@@ -7,7 +7,7 @@
 ## Commands
 ```powershell
 npm run typecheck                 # tsc --noEmit
-npm test                          # vitest (41 тест)
+npm test                          # vitest (48 тестов)
 npm run build                     # dist/content.js + dist/background.js (esbuild)
 node scripts/dev-browser.mjs      # Chromium с расширением, профиль .profile, CDP :9222
 cd server; dotnet test            # xunit (18 тестов)
@@ -51,6 +51,6 @@ qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
 - ✅ Править `src/`, `server/`, `tests/`, `docs/`; запускать тесты/сборку; локальный docker compose
 - ✅ Без вопроса (разрешение владельца от 2026-10-24): push в рабочую ветку, закрытие сделанных issues, запуск Docker Desktop и dev-браузера, read-only проверки на hh.ru
 - ⚠️ Спросить: новые зависимости, миграции EF, смена задержек/лимитов, перезапуск dev-браузера, если у владельца открыта страница
-- ❌ Реальные отклики без согласия; коммит `letter.local.txt`, `server/.env`, `.profile/`, токенов; обход/автоматическое решение капчи
+- ❌ Реальные отклики без согласия (режим «из очереди» проверять только в пробном режиме — галочка в панели); коммит `letter.local.txt`, `server/.env`, `.profile/`, токенов; обход/автоматическое решение капчи
 
 → Full rules: .rules/ (начать с `.rules/_index.md`, статус — `.rules/context/task.md`, план — `docs/ROADMAP.md`)
