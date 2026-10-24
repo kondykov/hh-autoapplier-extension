@@ -8,4 +8,6 @@ public enum VacancyStatus
     Skipped = 3,
     Rejected = 4,
     Failed = 5,
+    // Прошла правила, ждёт LLM-оценки
+    Pending = 6,
 }

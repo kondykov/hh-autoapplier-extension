@@ -9,4 +9,6 @@ public record ResumeDto
     public required string Match { get; init; }
 
     public required string[] Keywords { get; init; }
+
+    public string? Summary { get; init; }
 }

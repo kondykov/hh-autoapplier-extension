@@ -17,6 +17,10 @@ public record SaveResumeCommand
     public required string Match { get; init; }
 
     public List<string> Keywords { get; init; } = [];
+
+    // Кратко о себе для LLM-оценки: опыт, стек, что интересно и что нет
+    [MaxLength(4000)]
+    public string? Summary { get; init; }
 }
 
 // На .NET 11: public union SaveResumeResult(ResumeDto, ValidationError);

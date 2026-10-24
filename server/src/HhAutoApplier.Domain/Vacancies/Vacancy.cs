@@ -52,6 +52,16 @@ public class Vacancy
 
     public DateTimeOffset? AppliedAt { get; private set; }
 
+    public LlmVerdict? LlmVerdict { get; private set; }
+
+    public int? LlmScore { get; private set; }
+
+    public string? LlmReason { get; private set; }
+
+    public string? LlmModel { get; private set; }
+
+    public DateTimeOffset? LlmEvaluatedAt { get; private set; }
+
     // Хранится тремя колонками, наружу — одним значением
     public Salary? Salary => Salary.From(SalaryFrom, SalaryTo, SalaryCurrency);
 
@@ -103,7 +113,8 @@ public class Vacancy
         Stack = StackExtractor.Extract($"{Title} {Description}", skills);
     }
 
-    public void Evaluate(VacancyEvaluator evaluator, FilterRules rules, IEnumerable<ResumeProfile> resumes)
+    // Оценка правилами поиска. awaitLlm — прошедшая правила вакансия ждёт LLM-оценки (Pending), а не идёт сразу в очередь
+    public void Evaluate(VacancyEvaluator evaluator, FilterRules rules, IEnumerable<ResumeProfile> resumes, bool awaitLlm = false)
     {
         if (Status is not (VacancyStatus.New or VacancyStatus.Queued or VacancyStatus.Skipped))
             throw new DomainException($"Вакансию в статусе {Status} нельзя переоценить");
@@ -111,6 +122,31 @@ public class Vacancy
         var evaluation = evaluator.Evaluate(this, rules, resumes);
         (Status, Score, StatusReason, ResumeProfile) =
             (evaluation.Status, evaluation.Score, evaluation.Reason, evaluation.ResumeProfile);
+        if (awaitLlm && Status == VacancyStatus.Queued)
+            Status = VacancyStatus.Pending;
+    }
+
+    // LLM-оценка под резюме: подходящие и сомнительные — в очередь, неподходящие — пропуск с причиной.
+    // resume — имя профиля, выбранное LLM; null — оставить выбор правил
+    public void ApplyLlmEvaluation(LlmVerdict verdict, int score, string reason, string? resume, string model, DateTimeOffset at)
+    {
+        if (Status != VacancyStatus.Pending)
+            throw new DomainException($"LLM-оценка возможна только для вакансии в статусе Pending, сейчас {Status}");
+
+        (LlmVerdict, LlmScore, LlmReason, LlmModel, LlmEvaluatedAt) = (verdict, Math.Clamp(score, 0, 100), reason, model, at);
+        Score = LlmScore.Value;
+        if (!string.IsNullOrWhiteSpace(resume))
+            ResumeProfile = resume;
+
+        if (verdict == Vacancies.LlmVerdict.Reject)
+        {
+            Status = VacancyStatus.Skipped;
+            StatusReason = $"LLM: {reason}";
+            return;
+        }
+
+        Status = VacancyStatus.Queued;
+        StatusReason = verdict == Vacancies.LlmVerdict.Doubtful ? $"LLM сомневается: {reason}" : null;
     }
 
     public void MarkApplied(string? resume, DateTimeOffset at)

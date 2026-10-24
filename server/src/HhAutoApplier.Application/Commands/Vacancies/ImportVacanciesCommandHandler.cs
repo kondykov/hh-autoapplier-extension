@@ -11,6 +11,7 @@ namespace HhAutoApplier.Application.Commands.Vacancies;
 public class ImportVacanciesCommandHandler(
     IAppDbContext db,
     VacancyEvaluator evaluator,
+    ILlmClient llm,
     TimeProvider clock
 ) : ICommandHandler<ImportVacanciesCommand, ImportVacanciesResult>
 {
@@ -32,11 +33,11 @@ public class ImportVacanciesCommandHandler(
             vacancy.UpdateCard(item.Company, item.Area, Salary.From(item.SalaryFrom, item.SalaryTo, item.SalaryCurrency),
                 item.WorkFormat, item.HasTest, item.PublishedAt?.ToUniversalTime());
             vacancy.UpdateDetails(null, item.Description ?? "", item.Stack ?? []);
-            vacancy.Evaluate(evaluator, search.Rules, resumes);
+            vacancy.Evaluate(evaluator, search.Rules, resumes, awaitLlm: llm.IsConfigured);
 
             db.Vacancies.Add(vacancy);
             added++;
-            if (vacancy.Status == VacancyStatus.Queued)
+            if (vacancy.Status is VacancyStatus.Queued or VacancyStatus.Pending)
                 queued++;
         }
 

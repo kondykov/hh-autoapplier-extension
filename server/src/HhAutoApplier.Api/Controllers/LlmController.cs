@@ -20,4 +20,20 @@ public class LlmController : ApiController
     {
         return FromResult((await handler.Handle(new CheckLlmCommand(), ct)).Value);
     }
+
+    /// <summary>
+    /// Оценить LLM вакансии, прошедшие правила (Pending): подходит — в очередь, сомнительно — в очередь с пометкой, не подходит — Skipped.
+    /// Каждая вакансия — один запрос дневного лимита; при исчерпании оставшиеся ждут следующего запуска.
+    /// </summary>
+    /// <response code="503">LLM не настроена.</response>
+    [HttpPost("evaluate")]
+    [ProducesResponseType(typeof(LlmEvaluationResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(LlmUnavailableError), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> Evaluate(
+        [FromBody] EvaluatePendingVacanciesCommand command,
+        [FromServices] EvaluatePendingVacanciesCommandHandler handler,
+        CancellationToken ct)
+    {
+        return FromResult((await handler.Handle(command, ct)).Value);
+    }
 }

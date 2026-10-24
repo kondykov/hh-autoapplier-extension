@@ -1,7 +1,7 @@
 namespace HhAutoApplier.Infrastructure.Llm;
 
-// Счётчик запросов к LLM за сутки (UTC). В памяти процесса: после перезапуска backend считается заново
-public class LlmBudget(TimeProvider clock)
+// Счётчик запросов к LLM за сутки (UTC). usedToday — сколько уже было в журнале LlmCalls: после перезапуска счёт продолжается
+public class LlmBudget(TimeProvider clock, Func<DateOnly, int>? usedToday = null)
 {
     private readonly object _lock = new();
 
@@ -42,6 +42,6 @@ public class LlmBudget(TimeProvider clock)
             return;
 
         _day = today;
-        _used = 0;
+        _used = usedToday?.Invoke(today) ?? 0;
     }
 }

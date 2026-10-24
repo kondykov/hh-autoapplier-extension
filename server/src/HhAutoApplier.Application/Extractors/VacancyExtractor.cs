@@ -28,5 +28,10 @@ public class VacancyExtractor : IExtractor<Vacancy, VacancyDto>
         StatusReason = source.StatusReason,
         ResumeProfile = source.ResumeProfile,
         AppliedAt = source.AppliedAt,
+        LlmVerdict = source.LlmVerdict,
+        LlmScore = source.LlmScore,
+        LlmReason = source.LlmReason,
+        LlmModel = source.LlmModel,
+        LlmEvaluatedAt = source.LlmEvaluatedAt,
     };
 }

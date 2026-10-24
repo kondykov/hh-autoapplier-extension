@@ -22,6 +22,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     public FakeVacancySource Source { get; } = new();
 
+    public FakeLlmClient Llm { get; } = new();
+
     public async Task InitializeAsync() => await _db.StartAsync();
 
     public new async Task DisposeAsync()
@@ -44,6 +46,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         {
             services.RemoveAll<IVacancySource>();
             services.AddSingleton<IVacancySource>(Source);
+            services.RemoveAll<ILlmClient>();
+            services.AddSingleton<ILlmClient>(Llm);
         });
     }
 
@@ -59,9 +63,10 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         await using var scope = Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Database.ExecuteSqlRawAsync("""TRUNCATE "Vacancies", "Searches", "Resumes" RESTART IDENTITY""");
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE "Vacancies", "Searches", "Resumes", "LlmCalls" RESTART IDENTITY""");
         await DbSeeder.SeedAsync(db);
         Source.Reset();
+        Llm.Reset();
     }
 
     public async Task<T> WithDbAsync<T>(Func<AppDbContext, Task<T>> action)
@@ -108,6 +113,37 @@ public sealed class FakeVacancySource : IVacancySource
         var card = _cards.First(c => c.Id == vacancy.Id);
         vacancy.UpdateDetails(null, card.Description, []);
         return Task.FromResult(true);
+    }
+}
+
+// LLM для тестов: по умолчанию не настроена, как без LLM_API_KEY; ответы — по очереди из Answers
+public sealed class FakeLlmClient : ILlmClient
+{
+    public Queue<string> Answers { get; } = new();
+
+    public bool Configured { get; set; }
+
+    public int Calls { get; private set; }
+
+    public bool IsConfigured => Configured;
+
+    public void Reset()
+    {
+        Answers.Clear();
+        Configured = false;
+        Calls = 0;
+    }
+
+    public Task<LlmResult> CompleteAsync(LlmRequest request, CancellationToken ct = default)
+    {
+        if (!Configured)
+            throw new LlmUnavailableException("LLM не настроена: задайте LLM_API_KEY");
+
+        Calls++;
+        if (!Answers.TryDequeue(out var answer))
+            throw new LlmUnavailableException("дневной лимит запросов исчерпан");
+
+        return Task.FromResult(new LlmResult(answer, "fake-model", 100, 20));
     }
 }
 

@@ -1,3 +1,4 @@
+using HhAutoApplier.Domain.Llm;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Vacancies;
@@ -12,6 +13,8 @@ public interface IAppDbContext
     DbSet<SearchProfile> Searches { get; }
 
     DbSet<ResumeProfile> Resumes { get; }
+
+    DbSet<LlmCall> LlmCalls { get; }
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }
