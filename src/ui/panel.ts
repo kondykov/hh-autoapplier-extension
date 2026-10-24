@@ -97,6 +97,13 @@ export class Panel implements LogSink {
           <button class="hh-btn hh-btn-secondary" id="hh-btn-queue" title="Одобренные вакансии с сервера">Из очереди</button>
           <label class="hh-step-label"><input type="checkbox" id="hh-input-dryrun" /> Пробный режим: не нажимать «Отправить»</label>
         </div>
+        <div class="hh-confirm" id="hh-dryrun-confirm" hidden>
+          <div>Режим «из очереди» начнёт отправлять отклики по-настоящему. Выключить пробный режим?</div>
+          <div class="hh-btn-row">
+            <button class="hh-btn hh-btn-warn" id="hh-btn-dryrun-off">Да, отправлять</button>
+            <button class="hh-btn" id="hh-btn-dryrun-keep">Отмена</button>
+          </div>
+        </div>
         <div class="hh-btn-row">
           <button class="hh-btn hh-btn-warn" id="hh-btn-outline">Аутлайн</button>
           <button class="hh-btn hh-btn-warn" id="hh-btn-unclear">Непонятное</button>
@@ -157,15 +164,27 @@ export class Panel implements LogSink {
     this.el("hh-btn-autorej").onclick = () => this.handlers.onAutoReject();
     this.el("hh-btn-queue").onclick = () => this.handlers.onQueue();
 
+    // Выключение пробного режима — переход к настоящим откликам, только с подтверждением.
+    // Подтверждение — в панели, не confirm(): в dev-браузере Playwright сам закрывает диалоги, и галочка возвращалась
     const dryRun = this.el<HTMLInputElement>("hh-input-dryrun");
+    const confirmBox = this.el("hh-dryrun-confirm");
     dryRun.checked = this.initial.queueDryRun;
     dryRun.onchange = () => {
-      // Выключение пробного режима — переход к настоящим откликам, только с подтверждением
-      if (!dryRun.checked && !confirm("Режим «из очереди» начнёт отправлять отклики по-настоящему. Выключить пробный режим?")) {
-        dryRun.checked = true;
+      if (dryRun.checked) {
+        confirmBox.hidden = true;
+        this.handlers.onQueueDryRunChange(true);
         return;
       }
-      this.handlers.onQueueDryRunChange(dryRun.checked);
+      dryRun.checked = true;
+      confirmBox.hidden = false;
+    };
+    this.el("hh-btn-dryrun-off").onclick = () => {
+      confirmBox.hidden = true;
+      dryRun.checked = false;
+      this.handlers.onQueueDryRunChange(false);
+    };
+    this.el("hh-btn-dryrun-keep").onclick = () => {
+      confirmBox.hidden = true;
     };
 
     const letter = this.el<HTMLTextAreaElement>("hh-input-letter");
