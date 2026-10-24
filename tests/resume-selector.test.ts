@@ -9,7 +9,7 @@ function renderForm(current: string, options: string[]) {
   document.body.innerHTML = `
     <div role="button" id="trigger"><span data-qa="resume-title">${current}</span></div>
     <div role="listbox">${options.map((o) => `<div role="option">${o}</div>`).join("")}</div>`;
-  for (const option of document.querySelectorAll<HTMLElement>('[role="option"]'))
+  for (const option of Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')))
     option.onclick = () => {
       document.querySelector('[data-qa="resume-title"]')!.textContent = option.textContent;
     };
