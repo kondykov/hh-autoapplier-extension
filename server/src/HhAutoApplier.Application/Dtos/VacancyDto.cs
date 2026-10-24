@@ -44,4 +44,14 @@ public record VacancyDto
     public string? ResumeProfile { get; init; }
 
     public DateTimeOffset? AppliedAt { get; init; }
+
+    public LlmVerdict? LlmVerdict { get; init; }
+
+    public int? LlmScore { get; init; }
+
+    public string? LlmReason { get; init; }
+
+    public string? LlmModel { get; init; }
+
+    public DateTimeOffset? LlmEvaluatedAt { get; init; }
 }

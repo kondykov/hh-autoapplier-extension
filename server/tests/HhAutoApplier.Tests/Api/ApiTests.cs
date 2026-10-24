@@ -167,6 +167,36 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
         var res = await _api.PostAsync("/api/llm/check", null);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, res.StatusCode);
         Assert.Contains("LLM_API_KEY", await res.Content.ReadAsStringAsync());
+        Assert.Equal(0, factory.Llm.Calls);
+    }
+
+    [Fact]
+    public async Task LlmEvaluate_PendingGoToQueueOrSkipped_StopsOnLimit()
+    {
+        factory.Llm.Configured = true;
+        factory.Llm.Answers.Enqueue("""{"verdict": "fit", "score": 90, "resume": ".NET", "reason": "стек совпадает"}""");
+        factory.Llm.Answers.Enqueue("""Думаю так: {"verdict": "reject", "score": 15, "resume": null, "reason": "1С"}""");
+        await SaveSearch();
+        await Json(await Import("dotnet", Card("1", "C# разработчик"), Card("2", "C# и 1С разработчик"), Card("3", "C# разработчик")));
+
+        // С настроенной LLM прошедшие правила ждут оценки и в очередь расширения не попадают
+        Assert.Equal(0, (await Json(await _api.GetAsync("/api/queue"))).GetArrayLength());
+
+        var res = await Json(await _api.PostAsJsonAsync("/api/llm/evaluate", new { limit = 10 }));
+        Assert.Equal((2, 1, 1, 1), (res.GetProperty("evaluated").GetInt32(), res.GetProperty("fit").GetInt32(),
+            res.GetProperty("rejected").GetInt32(), res.GetProperty("remaining").GetInt32()));
+        Assert.Contains("лимит", res.GetProperty("stoppedBy").GetString());
+
+        var all = (await Json(await _api.GetAsync("/api/vacancies"))).EnumerateArray().ToDictionary(v => v.GetProperty("id").GetString()!);
+        var v1 = all["1"];
+        Assert.Equal(("Queued", "Fit", 90), (v1.GetProperty("status").GetString(), v1.GetProperty("llmVerdict").GetString(), v1.GetProperty("score").GetInt32()));
+        var v2 = all["2"];
+        Assert.Equal(("Skipped", "LLM: 1С"), (v2.GetProperty("status").GetString(), v2.GetProperty("statusReason").GetString()));
+        Assert.Equal("Pending", all["3"].GetProperty("status").GetString());
+
+        // Журнал: два ответа и одна неудача из-за лимита
+        var calls = await factory.WithDbAsync(db => Task.FromResult(db.LlmCalls.Select(c => c.Error == null).ToList()));
+        Assert.Equal([true, true, false], calls);
     }
 
     [Fact]

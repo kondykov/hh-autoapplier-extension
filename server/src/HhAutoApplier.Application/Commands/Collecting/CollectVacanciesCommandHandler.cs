@@ -13,6 +13,7 @@ namespace HhAutoApplier.Application.Commands.Collecting;
 public class CollectVacanciesCommandHandler(
     IAppDbContext db,
     IEnumerable<IVacancySource> sources,
+    ILlmClient llm,
     VacancyEvaluator evaluator,
     IOptions<CollectorOptions> options,
     ILogger<CollectVacanciesCommandHandler> logger
@@ -51,10 +52,10 @@ public class CollectVacanciesCommandHandler(
                         if (!await source.LoadDetailsAsync(vacancy, ct))
                             continue;
 
-                        vacancy.Evaluate(evaluator, search.Rules, resumes);
+                        vacancy.Evaluate(evaluator, search.Rules, resumes, awaitLlm: llm.IsConfigured);
                         db.Vacancies.Add(vacancy);
                         added++;
-                        if (vacancy.Status == VacancyStatus.Queued)
+                        if (vacancy.Status is VacancyStatus.Queued or VacancyStatus.Pending)
                             queued++;
                         else
                             skipped++;

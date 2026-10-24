@@ -1,5 +1,6 @@
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Application.Commands.Collecting;
+using HhAutoApplier.Application.Commands.Llm;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -7,7 +8,8 @@ using Microsoft.Extensions.Options;
 
 namespace HhAutoApplier.Infrastructure.Collecting;
 
-// Расписание сбора: сразу при старте (если включено) и дальше раз в интервал. Сам сбор — CollectVacanciesCommandHandler
+// Расписание сбора: сразу при старте (если включено) и дальше раз в интервал. Сам сбор — CollectVacanciesCommandHandler,
+// после него — LLM-оценка новых (если LLM настроена)
 public class CollectorHostedService(
     IServiceScopeFactory scopes,
     IOptions<CollectorOptions> options,
@@ -29,8 +31,14 @@ public class CollectorHostedService(
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
-                var handler = scope.ServiceProvider.GetRequiredService<CollectVacanciesCommandHandler>();
-                await handler.Handle(new CollectVacanciesCommand(), stop);
+                var collect = scope.ServiceProvider.GetRequiredService<CollectVacanciesCommandHandler>();
+                await collect.Handle(new CollectVacanciesCommand(), stop);
+
+                if (scope.ServiceProvider.GetRequiredService<ILlmClient>().IsConfigured)
+                {
+                    var evaluate = scope.ServiceProvider.GetRequiredService<EvaluatePendingVacanciesCommandHandler>();
+                    await evaluate.Handle(new EvaluatePendingVacanciesCommand { Limit = 200 }, stop);
+                }
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested)
             {

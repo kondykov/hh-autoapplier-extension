@@ -30,7 +30,12 @@ public static class DependencyInjection
 
         // LLM: OpenAI-совместимый провайдер (по умолчанию Groq); без ключа IsConfigured = false
         services.Configure<LlmOptions>(config.GetSection(LlmOptions.Section));
-        services.AddSingleton<LlmBudget>();
+        services.AddSingleton(sp => new LlmBudget(sp.GetRequiredService<TimeProvider>(), day =>
+        {
+            using var scope = sp.CreateScope();
+            var from = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+            return scope.ServiceProvider.GetRequiredService<AppDbContext>().LlmCalls.Count(c => c.CreatedAt >= from && c.CreatedAt < from.AddDays(1));
+        }));
         services.AddHttpClient<ILlmClient, OpenAiCompatibleClient>();
 
         services.AddHostedService<CollectorHostedService>();

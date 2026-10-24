@@ -1,4 +1,5 @@
 using HhAutoApplier.Application.Abstractions;
+using HhAutoApplier.Domain.Llm;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Vacancies;
@@ -13,6 +14,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<SearchProfile> Searches => Set<SearchProfile>();
 
     public DbSet<ResumeProfile> Resumes => Set<ResumeProfile>();
+
+    public DbSet<LlmCall> LlmCalls => Set<LlmCall>();
 
     // Маппинг каждой сущности — в своём классе в Configurations/
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>

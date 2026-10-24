@@ -10,6 +10,7 @@ public class VacancyConfiguration : IEntityTypeConfiguration<Vacancy>
     {
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(16);
+        builder.Property(x => x.LlmVerdict).HasConversion<string>().HasMaxLength(16);
         builder.HasIndex(x => new { x.Status, x.Score });
         builder.HasIndex(x => x.SearchName);
 

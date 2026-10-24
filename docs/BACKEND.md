@@ -43,7 +43,16 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 
 ## LLM
 
-Порт `ILlmClient` (Application) и `OpenAiCompatibleClient` (Infrastructure/Llm) — chat/completions любого OpenAI-совместимого провайдера; по умолчанию Groq. Настройки `Llm:*` (в `.env`: `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_DAILY_LIMIT`); без ключа LLM выключена. Повторы при 429 и 5xx (пауза — `Retry-After` или 1, 2, 4 с), таймаут, дневной лимит запросов (`LlmBudget`, в памяти — после перезапуска считается заново). Ключ Groq: https://console.groq.com/keys.
+Порт `ILlmClient` (Application) и `OpenAiCompatibleClient` (Infrastructure/Llm) — chat/completions любого OpenAI-совместимого провайдера; по умолчанию Groq. Настройки `Llm:*` (в `.env`: `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_DAILY_LIMIT`); без ключа LLM выключена. Повторы при 429 и 5xx (пауза — `Retry-After` или 1, 2, 4 с), таймаут, дневной лимит запросов (`LlmBudget`: счёт за сутки UTC, после перезапуска продолжается по журналу). Ключ Groq: https://console.groq.com/keys.
+
+Каждый запрос пишется в журнал `LlmCalls`: назначение, вакансия, модель, промпт, ответ или ошибка, токены.
+
+**Оценка вакансий (#22).** Если LLM настроена, вакансия, прошедшая правила, получает статус `Pending` и в очередь расширения не попадает. После каждого фонового сбора (и по `POST /api/llm/evaluate`) `EvaluatePendingVacanciesCommandHandler` отправляет LLM резюме (`Summary` профиля, иначе ключевые слова), пожелания из правил поиска и вакансию; ответ — JSON `{verdict, score, resume, reason}`:
+- `fit` — в очередь (`Queued`), `Score` = оценка LLM, резюме — выбранное LLM;
+- `doubtful` — в очередь с причиной «LLM сомневается: …» (ручная проверка — #25);
+- `reject` — `Skipped` с причиной «LLM: …».
+
+Неразобранный ответ считается сомнительным. При исчерпании лимита или недоступности провайдера оценка останавливается, остальные ждут следующего запуска. Без LLM вакансии идут в очередь сразу, как раньше. Поле `Summary` резюме заполняется через `PUT /api/resumes` — кратко о себе: опыт, стек, что интересно и что нет.
 
 ## API (заголовок `X-Api-Key`, если задан `Api:Key`)
 
@@ -54,10 +63,11 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 | GET | `/api/vacancies?status=&search=&skip=&take=` | список |
 | POST | `/api/vacancies/{id}/status` | `{status, reason?, resume?}`: Applied, Skipped, Failed... |
 | GET/PUT/DELETE | `/api/searches` | сохранённые поиски с правилами (`FilterRules`) |
-| GET/PUT | `/api/resumes` | профили резюме (`match`, `keywords`) |
+| GET/PUT | `/api/resumes` | профили резюме (`match`, `keywords`, `summary` для LLM) |
 | POST | `/api/import` | `{search, vacancies[]}` |
 | POST | `/api/collect` | запустить сбор сейчас (502, если источник заблокировал) |
 | POST | `/api/llm/check` | проверить ключ и модель LLM (503 — не настроена, лимит, провайдер не отвечает) |
+| POST | `/api/llm/evaluate` | `{limit}`: оценить LLM вакансии `Pending` (503 — LLM не настроена) |
 | GET | `/api/stats` | счётчики по статусам |
 | GET | `/api/report?format=csv` | отчёт по откликам |
 
