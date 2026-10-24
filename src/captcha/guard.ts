@@ -1,9 +1,8 @@
 import { wait } from "../core/delays";
-
-const CAPTCHA_SELECTORS = '[data-qa="account-captcha-input"], [data-qa="account-captcha-picture"]';
+import { SELECTORS } from "../core/selectors";
 
 export const isCaptchaVisible = (root: ParentNode = document): boolean =>
-  root.querySelector(CAPTCHA_SELECTORS) !== null;
+  root.querySelector(SELECTORS.captcha) !== null;
 
 // Следит за капчей, пока она на странице; блокирует авто-режим до её решения человеком
 export class CaptchaGuard {

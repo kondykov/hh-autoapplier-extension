@@ -1,16 +1,15 @@
 import { DELAYS, wait } from "../core/delays";
+import { SELECTORS } from "../core/selectors";
 import type { Vacancy } from "../core/state";
 import { normalizeText, qsa } from "../dom/query";
 import type { Logger } from "../infra/logger";
 import { pickProfile, type ResumeProfile } from "./profiles";
 
-const RESUME_TITLE = '[data-qa="resume-title"]';
-
-const currentTitle = () => normalizeText(document.querySelector(RESUME_TITLE)?.textContent);
+const currentTitle = () => normalizeText(document.querySelector(SELECTORS.resumeTitle)?.textContent);
 
 const trigger = () =>
-  qsa<HTMLElement>(RESUME_TITLE)
-    .map((t) => t.closest<HTMLElement>('[role="button"]'))
+  qsa<HTMLElement>(SELECTORS.resumeTitle)
+    .map((t) => t.closest<HTMLElement>(SELECTORS.resumeTrigger))
     .find(Boolean) ?? null;
 
 // failed: нужное резюме определено, но выбрать его не удалось — отправлять отклик нельзя
@@ -45,7 +44,7 @@ export class ResumeSelector {
     }
     opener.click();
     await wait(DELAYS.animation);
-    const option = qsa<HTMLElement>('[role="option"]').find((o) => normalizeText(o.textContent).includes(profile.match));
+    const option = qsa<HTMLElement>(SELECTORS.resumeOption).find((o) => normalizeText(o.textContent).includes(profile.match));
     if (!option) {
       this.logger.log(`Резюме «${profile.match}» не найдено в списке`, "error");
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));

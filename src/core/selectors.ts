@@ -31,6 +31,11 @@ export const SELECTORS = {
 
   alreadyRespondedText: '[data-qa="already-responded-text"]',
   resumeTitle: '[data-qa="resume-title"]',
+  // Список резюме на форме отклика: заголовок внутри кнопки, варианты — элементы listbox (проверено вживую 2026-10-24)
+  resumeTrigger: '[role="button"]',
+  resumeOption: '[role="option"]',
+  // Поле и картинка капчи hh.ru (/account/captcha, проверено 2026-10-24)
+  captcha: '[data-qa="account-captcha-input"], [data-qa="account-captcha-picture"]',
   responseRejectWarning: '[data-qa="response-reject-warning"]',
   titleDescription: '[data-qa="title-description"]',
 
