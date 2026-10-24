@@ -111,7 +111,7 @@ flowchart LR
 Telegram-бот на backend: события (капча в расширении, анкета без ответов, ответ работодателя, исчерпан лимит), ответы на них и команды. Доступ по whitelist chat id.
 
 ### G. Ведение задач
-- Задачи — GitHub Issues в [kondykov/hh-autoapplier-extension](https://github.com/kondykov/hh-autoapplier-extension/issues) (позже переименуется в `hh-autoapplier`); этот файл — карта и порядок.
+- Задачи — GitHub Issues в [kondykov/hh-autoapplier-extension](https://github.com/kondykov/hh-autoapplier-extension/issues) (позже переименуется в `hh-autoapplier`); статус, сроки и шкала — в [GitHub Project «hh-autoapplier»](https://github.com/users/kondykov/projects/5) (поля «Приоритет», «Начало», «Срок»); этот файл — схема, решения и порядок.
 - Метки: направление (`backend`, `extension`, `llm`, `rbac`, `infra`, `docs`), тип (`feature`, `chore`, `question`), приоритет (`p1`–`p3`); этапы — milestones.
 - В коммите `refs #N`, в PR `closes #N`. Создавать и закрывать issues — по просьбе владельца.
 
@@ -127,7 +127,7 @@ Telegram-бот на backend: события (капча в расширении
 
 ## Порядок
 
-Этапы — milestones в GitHub, задачи — issues в [kondykov/hh-autoapplier-extension](https://github.com/kondykov/hh-autoapplier-extension/issues).
+Этапы — milestones в GitHub, задачи — issues в [kondykov/hh-autoapplier-extension](https://github.com/kondykov/hh-autoapplier-extension/issues), шкала и статусы — [Project](https://github.com/users/kondykov/projects/5). Сроки этапов черновые, правятся в project и milestones.
 
 1. **Основа** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/1)). CI #1 (готово), живая проверка выбора резюме и автопаузы #2 (готово), ADR #3, решения владельца #4.
 2. **Связка расширения и backend** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/2), локально). Сборщик с источниками-плагинами и источник hh.ru #31 (готово), настройки сервера #13 (готово), режим «из очереди» #15, тесты конвейера отклика #17, `PageStep` #18, модули backend и логика вне `Program.cs` #11, интеграционные тесты API #12, CORS #20, разброс задержек #19.
