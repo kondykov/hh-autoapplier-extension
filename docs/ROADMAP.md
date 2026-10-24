@@ -118,7 +118,7 @@ Telegram-бот на backend: события (капча в расширении
 ## Технический долг
 
 - Правила продублированы и расходятся: поля (`stopWords`/`requiredStack` против `ExcludeKeywords`/`IncludeKeywords`, на сервере есть `RequireSalary` и `SkipWithTest`), ключевые слова резюме (`wpf`, `wordpress` только в расширении). Закрывается направлением A.
-- Нет тестов на `ApplyPipeline`, `submit`, `ResumeSelector`, `Controller` и на API.
+- Нет тестов на `Controller` (появятся с разделением на `PageStep`, #18) и интеграционных на API (#12).
 - `DELAYS` фиксированные; нужен случайный разброс (меняет частоту запросов — согласовать).
 - CORS `AllowAnyOrigin`; после связки — только источник расширения.
 - Версии `package.json` и `manifest.json` (0.4.0) поднимать вместе.
