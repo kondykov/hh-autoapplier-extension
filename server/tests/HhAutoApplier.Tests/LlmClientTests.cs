@@ -10,7 +10,7 @@ namespace HhAutoApplier.Tests;
 public class LlmClientTests
 {
     private const string Ok = """
-        {"model":"llama-3.3-70b-versatile","choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":12,"completion_tokens":1}}
+        {"model":"openai/gpt-oss-120b","choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":12,"completion_tokens":1}}
         """;
 
     // Отвечает по очереди заданными ответами и запоминает запросы
@@ -62,13 +62,13 @@ public class LlmClientTests
 
         var result = await client.CompleteAsync(Ask, default);
 
-        Assert.Equal(new LlmResult("ok", "llama-3.3-70b-versatile", 12, 1), result);
+        Assert.Equal(new LlmResult("ok", "openai/gpt-oss-120b", 12, 1), result);
         var (request, body) = Assert.Single(http.Requests);
         Assert.Equal("https://api.groq.com/openai/v1/chat/completions", request.RequestUri!.ToString());
         Assert.Equal("Bearer secret", request.Headers.Authorization!.ToString());
 
         var json = JsonDocument.Parse(body).RootElement;
-        Assert.Equal("llama-3.3-70b-versatile", json.GetProperty("model").GetString());
+        Assert.Equal("openai/gpt-oss-120b", json.GetProperty("model").GetString());
         Assert.Equal(["system", "user"], json.GetProperty("messages").EnumerateArray().Select(m => m.GetProperty("role").GetString()));
         Assert.Equal(50, json.GetProperty("max_tokens").GetInt32());
         Assert.Equal("json_object", json.GetProperty("response_format").GetProperty("type").GetString());
