@@ -14,11 +14,15 @@ public class CollectorHostedService(
     ILogger<CollectorHostedService> logger
 ) : BackgroundService
 {
+    private const int MaxIntervalMinutes = 7 * 24 * 60;
+
     protected override async Task ExecuteAsync(CancellationToken stop)
     {
         var opt = options.Value;
+        // Ошибка в конфиге не должна ронять приложение: Task.Delay не принимает паузы длиннее ~49 дней
+        var interval = TimeSpan.FromMinutes(Math.Clamp(opt.IntervalMinutes, 1, MaxIntervalMinutes));
         if (!opt.CollectOnStartup)
-            await Task.Delay(TimeSpan.FromMinutes(opt.IntervalMinutes), stop);
+            await Task.Delay(interval, stop);
 
         while (!stop.IsCancellationRequested)
         {
@@ -37,7 +41,7 @@ public class CollectorHostedService(
                 logger.LogError(e, "Сбор вакансий завершился ошибкой");
             }
 
-            await Task.Delay(TimeSpan.FromMinutes(opt.IntervalMinutes), stop);
+            await Task.Delay(interval, stop);
         }
     }
 }

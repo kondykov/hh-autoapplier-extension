@@ -13,7 +13,8 @@ server/
   src/HhAutoApplier.Infrastructure  EF Core (Npgsql, Configurations/, миграции, DbSeeder); Sources/Hh — источник hh.ru;
                                     Collecting/ — фоновый сбор по расписанию
   src/HhAutoApplier.Api             контроллеры, X-Api-Key, OpenAPI + Scalar
-  tests/HhAutoApplier.Tests         xunit (домен, правила, разбор страниц hh.ru)
+  tests/HhAutoApplier.Tests         xunit: домен, правила, разбор страниц hh.ru; Api/ — интеграционные тесты
+                                    API (WebApplicationFactory + Postgres 17 в Testcontainers, нужен Docker)
   docker-compose.yml, Dockerfile    postgres:17 + api
 ```
 
