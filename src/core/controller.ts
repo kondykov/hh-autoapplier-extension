@@ -1,5 +1,5 @@
 import { CaptchaGuard } from "../captcha/guard";
-import { ApplyPipeline } from "../apply/pipeline";
+import { ApplyPipeline, type ApplyResult } from "../apply/pipeline";
 import { DELAYS, wait } from "./delays";
 import type { BackendClient } from "../api/client";
 import { saveConfig, type AppConfig } from "./config";
@@ -18,6 +18,7 @@ import type { FilterRules } from "../filter/rules";
 import type { ResumeSelector } from "../resume/selector";
 import { ApplicationStore, downloadCsv, toCsv } from "../report/applications";
 import { extractQuestions } from "../questions/extract";
+import { isPageOf, pickNext, responseUrl, toStatusReport, type QueueItem } from "../queue/queue-mode";
 import { openNextRejection } from "../rejects/runner";
 import { collectVacancies } from "../search/vacancy-collector";
 import { SELECTORS } from "./selectors";
@@ -73,6 +74,8 @@ export class Controller {
       },
       onOutline: (vacancy) => this.saveQuestions(vacancy),
       onChange: () => this.persist(),
+      dryRun: () => d.state.queueRunning && d.config.queueDryRun,
+      stayOnOutline: () => d.state.queueRunning,
     });
   }
 
@@ -81,6 +84,12 @@ export class Controller {
     await this.refresh();
     this.captcha.start();
     panel.setAutoActive(state.running);
+    panel.setQueueActive(state.queueRunning);
+    if (state.queueRunning) {
+      await this.captcha.waitUntilClear();
+      await this.handleQueuePage();
+      return;
+    }
     const page = detectPageType();
     panel.setStep(
       page === "search" ? 'Нажмите "Собрать вакансии"' : "Откройте страницу поиска вакансий (/search/vacancy)",
@@ -302,6 +311,7 @@ export class Controller {
 
   async toggleAuto(): Promise<void> {
     const { state, panel } = this.d;
+    if (!state.running && state.queueRunning) this.stopQueue("Режим «из очереди» остановлен: включён обычный авто-режим");
     state.running = !state.running;
     panel.setAutoActive(state.running);
     state.resetEmptyCounters();
@@ -314,6 +324,136 @@ export class Controller {
       }
       void this.next();
     }
+  }
+
+  // Режим «из очереди»: следующая одобренная вакансия с backend → страница отклика → исход на сервер → следующая
+  async toggleQueue(): Promise<void> {
+    const { state, panel, logger, config } = this.d;
+    if (state.queueRunning) {
+      this.stopQueue("Режим «из очереди» остановлен");
+      await this.persist();
+      return;
+    }
+    if (state.running) this.stopAuto();
+    state.queueRunning = true;
+    state.queueCurrent = null;
+    state.queueTried = [];
+    panel.setQueueActive(true);
+    logger.log(
+      config.queueDryRun ? "Очередь: пробный режим — «Отправить» не нажимается, статусы на сервер не уходят" : "Очередь: отклики отправляются",
+      config.queueDryRun ? "warn" : "step",
+    );
+    await this.persist();
+    await this.openNextFromQueue();
+  }
+
+  async setQueueDryRun(enabled: boolean) {
+    this.d.config.queueDryRun = enabled;
+    await saveConfig(this.d.storage, this.d.config);
+    this.d.logger.log(enabled ? "Пробный режим очереди включён" : "Пробный режим очереди выключен: отклики будут отправляться", enabled ? "info" : "warn");
+  }
+
+  private async openNextFromQueue(): Promise<void> {
+    const { state, panel, logger, backend, limit } = this.d;
+    if (await limit.isReached()) {
+      this.stopQueue(`Достигнут дневной лимит (${limit.limit})`);
+      await this.persist();
+      return;
+    }
+
+    const queue = await backend.getQueue();
+    if (!queue.ok) {
+      this.stopQueue(`Очередь недоступна: ${queue.error}`);
+      await this.persist();
+      return;
+    }
+
+    const next = pickNext(queue.items, state.queueTried);
+    if (!next) {
+      this.stopQueue("Очередь пуста: одобренных вакансий больше нет");
+      await this.persist();
+      return;
+    }
+
+    state.queueCurrent = next;
+    state.queueTried.push(next.id);
+    await this.persist();
+    panel.setStep(`Очередь: "${next.title}"`);
+    logger.log(`Очередь: открываю "${next.title}" (${next.company})`, "step");
+    await wait(DELAYS.step);
+    if (state.queueRunning) location.href = responseUrl(next.id);
+  }
+
+  private async handleQueuePage(): Promise<void> {
+    const { state, logger, panel } = this.d;
+    const current = state.queueCurrent;
+    if (!current) {
+      await this.openNextFromQueue();
+      return;
+    }
+    if (!isPageOf(location.href, current.id)) {
+      // hh.ru не открыл форму отклика (вакансия в архиве, перенаправил на другую страницу) — идём дальше
+      logger.log(`Форма отклика для "${current.title}" не открылась`, "warn");
+      await this.finishQueueItem(current, "skipped");
+      return;
+    }
+
+    const info = extractVacancyInfo();
+    const vacancy: Vacancy = {
+      ...info,
+      title: current.title || info.title,
+      company: current.company || info.company,
+      link: location.href,
+      card: null,
+      applyBtn: null,
+      resume: current.resume ?? undefined,
+    };
+    panel.setStep(`Очередь: отклик на "${vacancy.title}"`);
+
+    let result: ApplyResult;
+    try {
+      result = await this.pipeline.applyOnPage(vacancy);
+    } catch (e) {
+      this.stopQueue(`Ошибка: ${(e as Error).message}`);
+      await this.persist();
+      return;
+    }
+
+    if (result === "disabled") {
+      this.stopQueue('Кнопка "Отправить" неактивна — проверьте форму вручную');
+      await this.persist();
+      return;
+    }
+    if (result === "dry_run") logger.log(`Пробный режим: "${vacancy.title}" готов к отправке`, "success");
+    await this.finishQueueItem(current, result, vacancy.resume);
+  }
+
+  // Сообщить исход на сервер и перейти к следующей вакансии
+  private async finishQueueItem(item: QueueItem, result: ApplyResult, resume?: string): Promise<void> {
+    const { state, logger, backend } = this.d;
+    const report = state.queueRunning && !this.d.config.queueDryRun ? toStatusReport(result) : null;
+    if (report) {
+      const sent = await backend.reportStatus(item.id, report, resume ?? item.resume);
+      if (!sent.ok) {
+        this.stopQueue(`Статус "${item.title}" не дошёл до сервера: ${sent.error}`);
+        await this.persist();
+        return;
+      }
+      logger.log(`Сервер: "${item.title}" → ${report.status}`, report.status === "Applied" ? "success" : "warn");
+    }
+
+    state.queueCurrent = null;
+    await this.persist();
+    if (state.queueRunning) await this.openNextFromQueue();
+  }
+
+  private stopQueue(message: string) {
+    const { state, panel, logger } = this.d;
+    state.queueRunning = false;
+    state.queueCurrent = null;
+    panel.setQueueActive(false);
+    panel.setStep(message);
+    logger.log(message, "warn");
   }
 
   private stopAuto() {

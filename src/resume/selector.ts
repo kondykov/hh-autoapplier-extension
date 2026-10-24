@@ -27,10 +27,11 @@ export class ResumeSelector {
     private logger: Logger,
   ) {}
 
-  // Выбирает в форме отклика резюме по стеку вакансии; возвращает выбранный профиль или null
+  // Выбирает в форме отклика резюме: заданное заранее (vacancy.resume — например, выбор backend) или по стеку вакансии
   async choose(vacancy: Vacancy): Promise<ChooseResult> {
     const haystack = `${vacancy.title} ${vacancy.text ?? ""} ${(vacancy.stack ?? []).join(" ")}`;
-    const profile = pickProfile(this.profiles(), haystack);
+    const preset = vacancy.resume ? this.profiles().find((p) => p.name === vacancy.resume) : undefined;
+    const profile = preset ?? pickProfile(this.profiles(), haystack);
     if (!profile) {
       this.logger.log("Стек не указывает на конкретное резюме, оставляю выбранное hh.ru", "warn");
       return ok(null);
