@@ -21,6 +21,10 @@ public record SaveResumeCommand
     // Кратко о себе для LLM-оценки: опыт, стек, что интересно и что нет
     [MaxLength(4000)]
     public string? Summary { get; init; }
+
+    // Письмо владельца для резюме: LLM подстраивает его под вакансию (стиль, подпись и контакты сохраняются)
+    [MaxLength(4000)]
+    public string? LetterTemplate { get; init; }
 }
 
 // На .NET 11: public union SaveResumeResult(ResumeDto, ValidationError);

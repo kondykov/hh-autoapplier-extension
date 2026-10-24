@@ -11,4 +11,6 @@ public record ResumeDto
     public required string[] Keywords { get; init; }
 
     public string? Summary { get; init; }
+
+    public string? LetterTemplate { get; init; }
 }

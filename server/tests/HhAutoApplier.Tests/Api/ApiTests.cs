@@ -200,6 +200,34 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task LlmLetters_ForQueuedWithoutLetter_ByResumeTemplate()
+    {
+        await SaveSearch();
+        await Json(await _api.PutAsJsonAsync("/api/resumes", new { name = ".NET", match = "C# .NET", keywords = new[] { "c#" }, letterTemplate = "С уважением, Иван" }));
+        // Без LLM на импорте вакансии сразу в очереди
+        await Json(await Import("dotnet", Card("1", "C# разработчик"), Card("2", "C# разработчик"), Card("3", "C# разработчик")));
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await _api.PostAsJsonAsync("/api/llm/letters", new { })).StatusCode);
+
+        factory.Llm.Configured = true;
+        const string letter = "Здравствуйте! Пишу на C# пять лет, ASP.NET Core знаю хорошо.\n\nС уважением, Иван";
+        factory.Llm.Answers.Enqueue(letter);
+        factory.Llm.Answers.Enqueue("Не могу.");
+        var res = await Json(await _api.PostAsJsonAsync("/api/llm/letters", new { limit = 10 }));
+        Assert.Equal((1, 1, 2), (res.GetProperty("written").GetInt32(), res.GetProperty("failed").GetInt32(), res.GetProperty("remaining").GetInt32()));
+        Assert.Contains("лимит", res.GetProperty("stoppedBy").GetString());
+
+        // Письмо уходит в расширение вместе с очередью
+        var letters = (await Json(await _api.GetAsync("/api/queue"))).EnumerateArray()
+            .Select(v => v.GetProperty("coverLetter")).Where(l => l.ValueKind == JsonValueKind.String).Select(l => l.GetString()).ToList();
+        Assert.Equal([letter], letters);
+
+        var prompts = await factory.WithDbAsync(db => Task.FromResult(db.LlmCalls.Where(c => c.Purpose == "cover-letter").Select(c => c.Prompt).ToList()));
+        Assert.Equal(3, prompts.Count);
+        Assert.All(prompts, p => Assert.Contains("С уважением, Иван", p));
+    }
+
+    [Fact]
     public async Task Report_JsonAndCsv()
     {
         await SaveSearch();

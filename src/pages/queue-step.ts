@@ -63,6 +63,7 @@ export class QueueStep implements PageStep {
       card: null,
       applyBtn: null,
       resume: current.resume ?? undefined,
+      letter: current.letter,
     };
     panel.setStep(`Очередь: отклик на "${vacancy.title}"`);
 

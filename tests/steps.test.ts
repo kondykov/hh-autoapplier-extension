@@ -113,12 +113,13 @@ describe("QueueStep", () => {
 
   it("на странице отклика: исход уходит на сервер, затем следующая вакансия", async () => {
     const { ctx, visited } = context({ url: RESPONSE("1"), queue: [item("1"), item("2")], result: "success", config: { queueDryRun: false } });
-    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"] });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: { ...item("1"), letter: "Письмо под вакансию" }, queueTried: ["1"] });
 
     await run(new QueueStep(ctx).resume());
 
     const v = ctx.pipeline.applyOnPage.mock.calls[0][0];
     expect(v.resume).toBe(".NET");
+    expect(v.letter).toBe("Письмо под вакансию");
     expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", { status: "Applied", reason: null }, ".NET");
     expect(visited).toEqual([RESPONSE("2")]);
   });

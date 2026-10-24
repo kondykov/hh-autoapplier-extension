@@ -54,4 +54,10 @@ public record VacancyDto
     public string? LlmModel { get; init; }
 
     public DateTimeOffset? LlmEvaluatedAt { get; init; }
+
+    public string? CoverLetter { get; init; }
+
+    public string? CoverLetterModel { get; init; }
+
+    public DateTimeOffset? CoverLetterAt { get; init; }
 }

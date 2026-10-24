@@ -20,6 +20,7 @@ interface VacancyDto {
   title: string;
   company: string;
   resumeProfile: string | null;
+  coverLetter?: string | null;
 }
 
 // Клиент backend для content script
@@ -51,6 +52,7 @@ export class BackendClient {
       title: v.title,
       company: v.company,
       resume: v.resumeProfile,
+      letter: v.coverLetter ?? undefined,
     }));
     return { ok: true, items };
   }

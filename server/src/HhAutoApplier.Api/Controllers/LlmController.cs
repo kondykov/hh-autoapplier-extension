@@ -36,4 +36,20 @@ public class LlmController : ApiController
     {
         return FromResult((await handler.Handle(command, ct)).Value);
     }
+
+    /// <summary>
+    /// Написать LLM сопроводительные письма для вакансий в очереди без письма: по резюме, выбранному для вакансии, и его шаблону письма.
+    /// Письмо уходит в расширение вместе с очередью; каждая вакансия — один запрос дневного лимита.
+    /// </summary>
+    /// <response code="503">LLM не настроена.</response>
+    [HttpPost("letters")]
+    [ProducesResponseType(typeof(CoverLettersResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(LlmUnavailableError), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> Letters(
+        [FromBody] WriteCoverLettersCommand command,
+        [FromServices] WriteCoverLettersCommandHandler handler,
+        CancellationToken ct)
+    {
+        return FromResult((await handler.Handle(command, ct)).Value);
+    }
 }
