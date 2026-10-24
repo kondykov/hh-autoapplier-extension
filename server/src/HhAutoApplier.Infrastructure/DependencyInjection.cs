@@ -1,6 +1,7 @@
 using System.Net;
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Infrastructure.Collecting;
+using HhAutoApplier.Infrastructure.Llm;
 using HhAutoApplier.Infrastructure.Persistence;
 using HhAutoApplier.Infrastructure.Sources.Hh;
 using Microsoft.EntityFrameworkCore;
@@ -26,6 +27,11 @@ public static class DependencyInjection
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All });
             services.AddTransient<IVacancySource>(sp => sp.GetRequiredService<HhWebSource>());
         }
+
+        // LLM: OpenAI-совместимый провайдер (по умолчанию Groq); без ключа IsConfigured = false
+        services.Configure<LlmOptions>(config.GetSection(LlmOptions.Section));
+        services.AddSingleton<LlmBudget>();
+        services.AddHttpClient<ILlmClient, OpenAiCompatibleClient>();
 
         services.AddHostedService<CollectorHostedService>();
         return services;

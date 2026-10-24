@@ -11,3 +11,6 @@ public sealed record ValidationError(string Message) : Error(Message);
 
 // Внешний источник недоступен: капча, блокировка, лимит
 public sealed record SourceUnavailableError(string Message) : Error(Message);
+
+// LLM не настроена, исчерпан дневной лимит или провайдер не отвечает
+public sealed record LlmUnavailableError(string Message) : Error(Message);

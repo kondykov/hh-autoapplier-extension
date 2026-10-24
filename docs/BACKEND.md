@@ -41,6 +41,10 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 
 Запасной путь — **импорт** `POST /api/import` (`{search, vacancies[]}`): вакансии от любого клиента, например расширения.
 
+## LLM
+
+Порт `ILlmClient` (Application) и `OpenAiCompatibleClient` (Infrastructure/Llm) — chat/completions любого OpenAI-совместимого провайдера; по умолчанию Groq. Настройки `Llm:*` (в `.env`: `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_DAILY_LIMIT`); без ключа LLM выключена. Повторы при 429 и 5xx (пауза — `Retry-After` или 1, 2, 4 с), таймаут, дневной лимит запросов (`LlmBudget`, в памяти — после перезапуска считается заново). Ключ Groq: https://console.groq.com/keys.
+
 ## API (заголовок `X-Api-Key`, если задан `Api:Key`)
 
 | Метод | Путь | Назначение |
@@ -53,6 +57,7 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 | GET/PUT | `/api/resumes` | профили резюме (`match`, `keywords`) |
 | POST | `/api/import` | `{search, vacancies[]}` |
 | POST | `/api/collect` | запустить сбор сейчас (502, если источник заблокировал) |
+| POST | `/api/llm/check` | проверить ключ и модель LLM (503 — не настроена, лимит, провайдер не отвечает) |
 | GET | `/api/stats` | счётчики по статусам |
 | GET | `/api/report?format=csv` | отчёт по откликам |
 
