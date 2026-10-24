@@ -7,7 +7,7 @@
 ## Commands
 ```powershell
 npm run typecheck                 # tsc --noEmit
-npm test                          # vitest (29 тестов)
+npm test                          # vitest (33 теста)
 npm run build                     # dist/content.js (esbuild)
 node scripts/dev-browser.mjs      # Chromium с расширением, профиль .profile, CDP :9222
 cd server; dotnet test            # xunit (18 тестов)
@@ -19,7 +19,7 @@ cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:808
 - Чистая логика — тесты в `tests/` (vitest + happy-dom), без живого hh.ru
 - Backend — `server/tests/HhAutoApplier.Tests`
 - Перед «готово»: typecheck + test + build (или `dotnet test`); то же гоняет CI (`.github/workflows/ci.yml`) на каждый push, плюс проверку, что модель EF совпадает с миграциями
-- Живую страницу проверять read-only через CDP; не нажимать «Отправить»
+- Живую страницу проверять read-only через CDP; не нажимать «Отправить». Перед открытием вакансии убедиться, что авто-режим выключен (кнопка панели «Авто») — он переживает перезапуск браузера
 
 ## Project Structure
 - `src/content/main.ts` — композиция; `src/core/` — Controller, config, selectors
