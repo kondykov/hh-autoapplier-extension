@@ -4,13 +4,15 @@ import { EMPTY_RULES } from "../src/filter/rules";
 import { MemoryStorage } from "../src/infra/storage";
 import { Panel, type PanelHandlers } from "../src/ui/panel";
 
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-async function mount(onQueueDryRunChange: (enabled: boolean) => void) {
+async function mount(onQueueDryRunChange: (enabled: boolean) => void = () => {}) {
   const handlers = new Proxy({ onQueueDryRunChange } as Partial<PanelHandlers>, {
     get: (target, key: string) => target[key as keyof PanelHandlers] ?? (() => {}),
   }) as PanelHandlers;
-  await new Panel(new MemoryStorage(), handlers, {
+  const panel = new Panel(new MemoryStorage(), handlers, {
     url: "",
     limit: 200,
     letter: "",
@@ -19,7 +21,9 @@ async function mount(onQueueDryRunChange: (enabled: boolean) => void) {
     resumes: [],
     server: DEFAULT_SERVER,
     queueDryRun: true,
-  }).mount();
+  });
+  await panel.mount();
+  return panel;
 }
 
 function uncheck(box: HTMLInputElement) {
@@ -41,12 +45,13 @@ describe("Panel: пробный режим очереди", () => {
 
     uncheck(box);
     expect(box.checked).toBe(true);
-    expect($("hh-dryrun-confirm").hidden).toBe(false);
+    expect($("hh-confirm").hidden).toBe(false);
     expect(change).not.toHaveBeenCalled();
 
-    $("hh-btn-dryrun-off").click();
+    $("hh-btn-confirm-yes").click();
+    await tick();
     expect(box.checked).toBe(false);
-    expect($("hh-dryrun-confirm").hidden).toBe(true);
+    expect($("hh-confirm").hidden).toBe(true);
     expect(change).toHaveBeenCalledWith(false);
     expect(confirmSpy).not.toHaveBeenCalled();
 
@@ -61,9 +66,23 @@ describe("Panel: пробный режим очереди", () => {
     const box = $<HTMLInputElement>("hh-input-dryrun");
 
     uncheck(box);
-    $("hh-btn-dryrun-keep").click();
+    $("hh-btn-confirm-no").click();
+    await tick();
     expect(box.checked).toBe(true);
-    expect($("hh-dryrun-confirm").hidden).toBe(true);
+    expect($("hh-confirm").hidden).toBe(true);
     expect(change).not.toHaveBeenCalled();
+  });
+
+  it("общий вопрос в панели: ответ, новый вопрос отменяет прежний", async () => {
+    const panel = await mount();
+    const first = panel.ask("Очистить аутлайн?", "Очистить");
+    expect($("hh-confirm-text").textContent).toBe("Очистить аутлайн?");
+    expect($("hh-btn-confirm-yes").textContent).toBe("Очистить");
+
+    const second = panel.ask("Перейти на поиск?", "Перейти");
+    expect(await first).toBe(false);
+    $("hh-btn-confirm-yes").click();
+    expect(await second).toBe(true);
+    expect($("hh-confirm").hidden).toBe(true);
   });
 });

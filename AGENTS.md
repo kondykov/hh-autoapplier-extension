@@ -7,7 +7,7 @@
 ## Commands
 ```powershell
 npm run typecheck                 # tsc --noEmit
-npm test                          # vitest (80 тестов)
+npm test                          # vitest (81 тест)
 npm run build                     # dist/content.js + dist/background.js (esbuild)
 node scripts/dev-browser.mjs      # Chromium с расширением, профиль .profile, CDP :9222
 cd server; dotnet test            # xunit (37 тестов; нужен запущенный Docker — Postgres для тестов API в Testcontainers)

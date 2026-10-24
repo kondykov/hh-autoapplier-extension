@@ -97,11 +97,11 @@ export class Panel implements LogSink {
           <button class="hh-btn hh-btn-secondary" id="hh-btn-queue" title="Одобренные вакансии с сервера">Из очереди</button>
           <label class="hh-step-label"><input type="checkbox" id="hh-input-dryrun" /> Пробный режим: не нажимать «Отправить»</label>
         </div>
-        <div class="hh-confirm" id="hh-dryrun-confirm" hidden>
-          <div>Режим «из очереди» начнёт отправлять отклики по-настоящему. Выключить пробный режим?</div>
+        <div class="hh-confirm" id="hh-confirm" hidden>
+          <div id="hh-confirm-text"></div>
           <div class="hh-btn-row">
-            <button class="hh-btn hh-btn-warn" id="hh-btn-dryrun-off">Да, отправлять</button>
-            <button class="hh-btn" id="hh-btn-dryrun-keep">Отмена</button>
+            <button class="hh-btn hh-btn-warn" id="hh-btn-confirm-yes"></button>
+            <button class="hh-btn" id="hh-btn-confirm-no">Отмена</button>
           </div>
         </div>
         <div class="hh-btn-row">
@@ -164,27 +164,19 @@ export class Panel implements LogSink {
     this.el("hh-btn-autorej").onclick = () => this.handlers.onAutoReject();
     this.el("hh-btn-queue").onclick = () => this.handlers.onQueue();
 
-    // Выключение пробного режима — переход к настоящим откликам, только с подтверждением.
-    // Подтверждение — в панели, не confirm(): в dev-браузере Playwright сам закрывает диалоги, и галочка возвращалась
+    // Выключение пробного режима — переход к настоящим откликам, только с подтверждением
     const dryRun = this.el<HTMLInputElement>("hh-input-dryrun");
-    const confirmBox = this.el("hh-dryrun-confirm");
     dryRun.checked = this.initial.queueDryRun;
-    dryRun.onchange = () => {
+    dryRun.onchange = async () => {
       if (dryRun.checked) {
-        confirmBox.hidden = true;
         this.handlers.onQueueDryRunChange(true);
         return;
       }
       dryRun.checked = true;
-      confirmBox.hidden = false;
-    };
-    this.el("hh-btn-dryrun-off").onclick = () => {
-      confirmBox.hidden = true;
+      if (!(await this.ask("Режим «из очереди» начнёт отправлять отклики по-настоящему. Выключить пробный режим?", "Да, отправлять")))
+        return;
       dryRun.checked = false;
       this.handlers.onQueueDryRunChange(false);
-    };
-    this.el("hh-btn-dryrun-keep").onclick = () => {
-      confirmBox.hidden = true;
     };
 
     const letter = this.el<HTMLTextAreaElement>("hh-input-letter");
@@ -273,6 +265,28 @@ export class Panel implements LogSink {
       };
       document.addEventListener("mousemove", move);
       document.addEventListener("mouseup", up);
+    });
+  }
+
+  // Подтверждение в панели вместо confirm(): в dev-браузере Playwright сам отклоняет диалоги страницы.
+  // Новый вопрос отменяет предыдущий неотвеченный
+  private pendingAnswer: ((yes: boolean) => void) | null = null;
+
+  ask(message: string, yesLabel = "Да"): Promise<boolean> {
+    this.pendingAnswer?.(false);
+    const box = this.el("hh-confirm");
+    this.el("hh-confirm-text").textContent = message;
+    this.el("hh-btn-confirm-yes").textContent = yesLabel;
+    box.hidden = false;
+    return new Promise((resolve) => {
+      const answer = (yes: boolean) => {
+        this.pendingAnswer = null;
+        box.hidden = true;
+        resolve(yes);
+      };
+      this.pendingAnswer = answer;
+      this.el("hh-btn-confirm-yes").onclick = () => answer(true);
+      this.el("hh-btn-confirm-no").onclick = () => answer(false);
     });
   }
 
