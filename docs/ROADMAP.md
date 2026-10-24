@@ -119,7 +119,6 @@ Telegram-бот на backend: события (капча в расширении
 
 - Правила продублированы и расходятся: поля (`stopWords`/`requiredStack` против `ExcludeKeywords`/`IncludeKeywords`, на сервере есть `RequireSalary` и `SkipWithTest`), ключевые слова резюме (`wpf`, `wordpress` только в расширении). Закрывается направлением A.
 - Нет тестов на `ApplyPipeline`, `submit`, `ResumeSelector`, `Controller` и на API.
-- Нет CI (GitHub Actions: typecheck, test, build, `dotnet test`).
 - `DELAYS` фиксированные; нужен случайный разброс (меняет частоту запросов — согласовать).
 - CORS `AllowAnyOrigin`; после связки — только источник расширения.
 - Версии `package.json` и `manifest.json` (0.4.0) поднимать вместе.
@@ -130,7 +129,7 @@ Telegram-бот на backend: события (капча в расширении
 
 Этапы — milestones в GitHub, задачи — issues в [kondykov/hh-autoapplier-extension](https://github.com/kondykov/hh-autoapplier-extension/issues).
 
-1. **Основа** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/1)). CI #1, живая проверка выбора резюме и автопаузы #2, ADR #3, решения владельца #4.
+1. **Основа** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/1)). CI #1 (готово), живая проверка выбора резюме и автопаузы #2, ADR #3, решения владельца #4.
 2. **Связка расширения и backend** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/2), локально). Сборщик с источниками-плагинами и источник hh.ru #31 (готово), настройки сервера #13, режим «из очереди» #15, тесты конвейера отклика #17, `PageStep` #18, модули backend и логика вне `Program.cs` #11, интеграционные тесты API #12, CORS #20, разброс задержек #19.
 3. **LLM** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/3)). `ILlmClient` #21, оценка #22, письма #23, ответы на анкеты #24, ручная проверка #25, удаление локальных правил из расширения #27; затем сбор переписки и разбор диалогов #26.
 4. **Пользователи и сервер дома** ([milestone](https://github.com/kondykov/hh-autoapplier-extension/milestone/4)). Identity и роли #7, `Application` #8, владельцы данных #9, персональные токены #10, развёртывание #5, VPN, firewall и TLS #6.

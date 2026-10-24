@@ -18,7 +18,7 @@ cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:808
 ## Testing
 - Чистая логика — тесты в `tests/` (vitest + happy-dom), без живого hh.ru
 - Backend — `server/tests/HhAutoApplier.Tests`
-- Перед «готово»: typecheck + test + build (или `dotnet test`)
+- Перед «готово»: typecheck + test + build (или `dotnet test`); то же гоняет CI (`.github/workflows/ci.yml`) на каждый push, плюс проверку, что модель EF совпадает с миграциями
 - Живую страницу проверять read-only через CDP; не нажимать «Отправить»
 
 ## Project Structure
