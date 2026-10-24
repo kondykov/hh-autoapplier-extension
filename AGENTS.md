@@ -42,12 +42,15 @@ qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
 
 ## Git Workflow
 - Коммит в текущую ветку; в конце сообщения трейлер `Co-authored-by:` агента, который делал изменения
-- `git push` и PR — только по просьбе
-- Задачи — GitHub Issues (`gh issue list`), карта и порядок — `docs/ROADMAP.md`; в коммите `refs #N`, в PR `closes #N`; создавать и закрывать issues — по просьбе
+- Рабочая ветка `kondykov-new-hh-autoapplier-repo`: коммит и `git push` в неё — без отдельного вопроса, после локальных typecheck/test/build (или `dotnet test`)
+- После push дождаться CI; красный CI — чинить сразу, это часть задачи
+- Задачи — GitHub Issues, карта и порядок — `docs/ROADMAP.md`; в коммите `refs #N`. Issue закрывать после зелёного CI с комментарием о коммите и о том, что проверено и что нет; заводить issues под найденные задачи — можно, с метками
+- PR, merge в `main`, удаление веток и issues — только по просьбе
 
 ## Boundaries
 - ✅ Править `src/`, `server/`, `tests/`, `docs/`; запускать тесты/сборку; локальный docker compose
-- ⚠️ Спросить: новые зависимости, миграции EF, перезапуск браузера, запуск Docker Desktop, смена задержек/лимитов
+- ✅ Без вопроса (разрешение владельца от 2026-10-24): push в рабочую ветку, закрытие сделанных issues, запуск Docker Desktop и dev-браузера, read-only проверки на hh.ru
+- ⚠️ Спросить: новые зависимости, миграции EF, смена задержек/лимитов, перезапуск dev-браузера, если у владельца открыта страница
 - ❌ Реальные отклики без согласия; коммит `letter.local.txt`, `server/.env`, `.profile/`, токенов; обход/автоматическое решение капчи
 
 → Full rules: .rules/ (начать с `.rules/_index.md`, статус — `.rules/context/task.md`, план — `docs/ROADMAP.md`)
