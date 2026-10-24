@@ -63,11 +63,12 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 | GET | `/api/vacancies?status=&search=&skip=&take=` | список |
 | POST | `/api/vacancies/{id}/status` | `{status, reason?, resume?}`: Applied, Skipped, Failed... |
 | GET/PUT/DELETE | `/api/searches` | сохранённые поиски с правилами (`FilterRules`) |
-| GET/PUT | `/api/resumes` | профили резюме (`match`, `keywords`, `summary` для LLM) |
+| GET/PUT | `/api/resumes` | профили резюме (`match`, `keywords`; для LLM — `summary` и шаблон письма `letterTemplate`) |
 | POST | `/api/import` | `{search, vacancies[]}` |
 | POST | `/api/collect` | запустить сбор сейчас (502, если источник заблокировал) |
 | POST | `/api/llm/check` | проверить ключ и модель LLM (503 — не настроена, лимит, провайдер не отвечает) |
 | POST | `/api/llm/evaluate` | `{limit}`: оценить LLM вакансии `Pending` (503 — LLM не настроена) |
+| POST | `/api/llm/letters` | `{limit}`: написать LLM письма для очереди без письма (503 — LLM не настроена) |
 | GET | `/api/stats` | счётчики по статусам |
 | GET | `/api/report?format=csv` | отчёт по откликам |
 

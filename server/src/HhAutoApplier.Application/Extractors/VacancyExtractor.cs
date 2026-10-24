@@ -33,5 +33,8 @@ public class VacancyExtractor : IExtractor<Vacancy, VacancyDto>
         LlmReason = source.LlmReason,
         LlmModel = source.LlmModel,
         LlmEvaluatedAt = source.LlmEvaluatedAt,
+        CoverLetter = source.CoverLetter,
+        CoverLetterModel = source.CoverLetterModel,
+        CoverLetterAt = source.CoverLetterAt,
     };
 }

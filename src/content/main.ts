@@ -5,7 +5,7 @@ import { DailyLimit } from "../core/daily-limit";
 import { StateRepository } from "../core/state";
 import { ConsoleSink, Logger } from "../infra/logger";
 import { ChromeStorage } from "../infra/storage";
-import { StaticTemplateProvider } from "../letters/letter-provider";
+import { PreparedLetterProvider, StaticTemplateProvider } from "../letters/letter-provider";
 import { QuestionStore } from "../questions/store";
 import { ApplicationStore } from "../report/applications";
 import { ResumeSelector } from "../resume/selector";
@@ -22,10 +22,10 @@ async function bootstrap() {
   const limit = new DailyLimit(storage, config.dailyLimit);
   const logger = new Logger();
   logger.addSink(new ConsoleSink());
-  // Письмо профиля резюме приоритетнее универсального
-  const letters = new StaticTemplateProvider(
+  // Письмо от backend под вакансию приоритетнее письма профиля резюме, а оно — универсального
+  const letters = new PreparedLetterProvider(new StaticTemplateProvider(
     (v) => config.resumes.find((r) => r.name === v?.resume)?.letter?.trim() || config.coverLetterTemplate,
-  );
+  ));
   const resumes = new ResumeSelector(() => config.resumes, logger);
   const questions = new QuestionStore(storage);
   const applications = new ApplicationStore(storage);

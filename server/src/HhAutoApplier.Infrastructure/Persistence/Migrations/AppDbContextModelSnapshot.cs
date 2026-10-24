@@ -83,6 +83,9 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text[]");
 
+                    b.Property<string>("LetterTemplate")
+                        .HasColumnType("text");
+
                     b.Property<string>("Match")
                         .IsRequired()
                         .HasColumnType("text");
@@ -152,6 +155,15 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Company")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CoverLetter")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("CoverLetterAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CoverLetterModel")
                         .HasColumnType("text");
 
                     b.Property<string>("Description")

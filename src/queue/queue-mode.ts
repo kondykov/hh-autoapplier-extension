@@ -6,6 +6,8 @@ export interface QueueItem {
   title: string;
   company: string;
   resume: string | null;
+  // Письмо под вакансию от LLM backend; нет — расширение берёт свой шаблон
+  letter?: string;
 }
 
 export type VacancyStatus = "Applied" | "Skipped" | "Failed";

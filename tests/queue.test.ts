@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BackendClient, type ApiSender } from "../src/api/client";
 import { attachLetterAndSubmit } from "../src/apply/submit";
+import type { Vacancy } from "../src/core/state";
 import { Logger } from "../src/infra/logger";
+import { PreparedLetterProvider, StaticTemplateProvider } from "../src/letters/letter-provider";
 import { isPageOf, pickNext, responseUrl, toStatusReport, type QueueItem } from "../src/queue/queue-mode";
 
 const item = (id: string): QueueItem => ({ id, title: `Вакансия ${id}`, company: "Acme", resume: ".NET" });
@@ -41,6 +43,15 @@ describe("BackendClient: очередь и статусы", () => {
     expect(await new BackendClient(send).getQueue()).toEqual({ ok: true, items: [{ id: "5", title: "C#", company: "Acme", resume: ".NET" }] });
   });
 
+  it("берёт из очереди письмо под вакансию, если backend его написал", async () => {
+    const body = JSON.stringify([
+      { id: "5", title: "C#", company: "Acme", resumeProfile: ".NET", coverLetter: "Здравствуйте, Acme!" },
+      { id: "6", title: "C#", company: "Beta", resumeProfile: null, coverLetter: null },
+    ]);
+    const res = await new BackendClient(async () => ({ status: 200, body })).getQueue();
+    expect(res.ok && res.items.map((i) => i.letter)).toEqual(["Здравствуйте, Acme!", undefined]);
+  });
+
   it("отправляет статус и сообщает об ошибках сервера", async () => {
     const calls: unknown[] = [];
     const ok = new BackendClient(async (req) => {
@@ -76,5 +87,17 @@ describe("attachLetterAndSubmit: пробный режим", () => {
     expect(await result).toBe("dry_run");
     expect(document.querySelector("textarea")!.value).toBe("Здравствуйте");
     expect(click).not.toHaveBeenCalled();
+  });
+});
+
+describe("PreparedLetterProvider", () => {
+  const fallback = new StaticTemplateProvider(() => "Шаблон для {{company}}");
+  const vacancy = (letter?: string): Vacancy => ({ title: "C#", company: "Acme", link: "", card: null, applyBtn: null, letter });
+
+  it("письмо от backend приоритетнее шаблона, пустое — шаблон", async () => {
+    const letters = new PreparedLetterProvider(fallback);
+    expect(await letters.getLetter(vacancy("  Письмо под вакансию \n"))).toBe("Письмо под вакансию");
+    expect(await letters.getLetter(vacancy(" "))).toBe("Шаблон для Acme");
+    expect(await letters.getLetter(vacancy())).toBe("Шаблон для Acme");
   });
 });

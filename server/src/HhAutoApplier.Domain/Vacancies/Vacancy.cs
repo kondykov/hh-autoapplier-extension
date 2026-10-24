@@ -62,6 +62,13 @@ public class Vacancy
 
     public DateTimeOffset? LlmEvaluatedAt { get; private set; }
 
+    // Сопроводительное письмо под вакансию от LLM; null — расширение берёт свой шаблон
+    public string? CoverLetter { get; private set; }
+
+    public string? CoverLetterModel { get; private set; }
+
+    public DateTimeOffset? CoverLetterAt { get; private set; }
+
     // Хранится тремя колонками, наружу — одним значением
     public Salary? Salary => Salary.From(SalaryFrom, SalaryTo, SalaryCurrency);
 
@@ -149,6 +156,20 @@ public class Vacancy
         StatusReason = verdict == Vacancies.LlmVerdict.Doubtful ? $"LLM сомневается: {reason}" : null;
     }
 
+    // Письмо готовится для вакансии в очереди, до отклика
+    public void SetCoverLetter(string text, string model, DateTimeOffset at)
+    {
+        if (Status != VacancyStatus.Queued)
+            throw new DomainException($"Письмо готовится только для вакансии в очереди, сейчас {Status}");
+
+        if (string.IsNullOrWhiteSpace(text))
+            throw new DomainException("Пустое сопроводительное письмо");
+
+        text = text.Trim();
+        CoverLetter = text.Length > MaxCoverLetterLength ? text[..MaxCoverLetterLength] : text;
+        (CoverLetterModel, CoverLetterAt) = (model, at);
+    }
+
     public void MarkApplied(string? resume, DateTimeOffset at)
     {
         if (Status is VacancyStatus.Applied or VacancyStatus.Rejected)
@@ -200,4 +221,7 @@ public class Vacancy
     }
 
     private const int MaxDescriptionLength = 4000;
+
+    // С запасом под лимит поля письма на hh.ru
+    private const int MaxCoverLetterLength = 4000;
 }

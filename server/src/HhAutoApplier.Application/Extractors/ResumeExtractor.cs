@@ -13,5 +13,6 @@ public class ResumeExtractor : IExtractor<ResumeProfile, ResumeDto>
         Match = source.Match,
         Keywords = source.Keywords,
         Summary = source.Summary,
+        LetterTemplate = source.LetterTemplate,
     };
 }

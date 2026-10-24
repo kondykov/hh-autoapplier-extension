@@ -20,12 +20,12 @@ public class SaveResumeCommandHandler(
         {
             if (resume is null)
             {
-                resume = ResumeProfile.Create(command.Name, command.Match, command.Keywords, command.Summary);
+                resume = ResumeProfile.Create(command.Name, command.Match, command.Keywords, command.Summary, command.LetterTemplate);
                 db.Resumes.Add(resume);
             }
             else
             {
-                resume.Update(command.Match, command.Keywords, command.Summary);
+                resume.Update(command.Match, command.Keywords, command.Summary, command.LetterTemplate);
             }
         }
         catch (DomainException e)

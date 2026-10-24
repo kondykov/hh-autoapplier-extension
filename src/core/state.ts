@@ -13,6 +13,8 @@ export interface VacancyItem {
 
 export interface Vacancy extends VacancyItem {
   text?: string;
+  // Готовое письмо с backend (режим «из очереди»)
+  letter?: string;
   card: Element | null;
   applyBtn: HTMLElement | null;
 }
