@@ -3,13 +3,26 @@
   "name": "HH AutoApplier",
   "version": "0.4.0",
   "description": "Полуавтоматические отклики на hh.ru",
-  "permissions": ["storage"],
-  "host_permissions": ["https://*.hh.ru/*"],
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://*.hh.ru/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
   "content_scripts": [
     {
-      "matches": ["https://*.hh.ru/*"],
-      "js": ["content.js"],
+      "matches": [
+        "https://*.hh.ru/*"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
 }

@@ -7,8 +7,8 @@
 ## Commands
 ```powershell
 npm run typecheck                 # tsc --noEmit
-npm test                          # vitest (33 теста)
-npm run build                     # dist/content.js (esbuild)
+npm test                          # vitest (41 тест)
+npm run build                     # dist/content.js + dist/background.js (esbuild)
 node scripts/dev-browser.mjs      # Chromium с расширением, профиль .profile, CDP :9222
 cd server; dotnet test            # xunit (18 тестов)
 cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:8080
@@ -24,6 +24,7 @@ cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:808
 ## Project Structure
 - `src/content/main.ts` — композиция; `src/core/` — Controller, config, selectors
 - `src/{apply,search,filter,resume,report,questions,rejects,letters,captcha,dom,infra,ui}` — модули
+- `src/api` — клиент backend и транспорт; `src/background/main.ts` — service worker, через который идут все запросы к backend (со страницы hh.ru Chrome блокирует запросы в локальную сеть)
 - `server/src/HhAutoApplier.{Domain,Application,Infrastructure,Api}` — DDD + CQRS: агрегаты, команды/запросы, EF и источники, контроллеры (`docs/adr/0001-backend-ddd-cqrs.md`)
 - `docs/` — для людей; план доработок — `docs/ROADMAP.md`
 

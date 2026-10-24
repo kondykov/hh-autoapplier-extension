@@ -3,7 +3,7 @@
 ## Перед «готово» (расширение)
 - [ ] `npm run typecheck` без ошибок
 - [ ] `npm test` проходит; новая логика покрыта
-- [ ] `npm run build` собирает `dist/content.js`
+- [ ] `npm run build` собирает `dist/content.js` и `dist/background.js`
 - [ ] Селекторы только в `src/core/selectors.ts`
 - [ ] Личные данные не попали в коммит (`git status`: нет `letter.local.txt`, `.profile/`)
 

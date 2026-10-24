@@ -1,3 +1,4 @@
+import { BackendClient, runtimeSender } from "../api/client";
 import { loadConfig } from "../core/config";
 import { Controller } from "../core/controller";
 import { DailyLimit } from "../core/daily-limit";
@@ -51,6 +52,8 @@ async function bootstrap() {
       onPresetSave: (name) => void controller.savePreset(name),
       onPresetDelete: (name) => void controller.deletePreset(name),
       onPresetApply: (name) => void controller.applyPreset(name),
+      onServerChange: (url, apiKey) => void controller.setServer(url, apiKey),
+      onServerCheck: () => void controller.checkServer(),
     },
     {
       url: config.searchRedirectUrl,
@@ -59,12 +62,14 @@ async function bootstrap() {
       presets: config.presets.map((p) => p.name),
       rules: config.rules,
       resumes: config.resumes,
+      server: config.server,
     },
   );
   logger.addSink(panel);
   await panel.mount();
 
-  controller = new Controller({ storage, config, state, repo, limit, logger, panel, letters, questions, applications, resumes });
+  const backend = new BackendClient(runtimeSender);
+  controller = new Controller({ storage, config, state, repo, limit, logger, panel, letters, questions, applications, resumes, backend });
   await controller.init();
   logger.log("Панель загружена");
 }

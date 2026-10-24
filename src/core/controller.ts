@@ -1,6 +1,7 @@
 import { CaptchaGuard } from "../captcha/guard";
 import { ApplyPipeline } from "../apply/pipeline";
 import { DELAYS, wait } from "./delays";
+import type { BackendClient } from "../api/client";
 import { saveConfig, type AppConfig } from "./config";
 import { DailyLimit } from "./daily-limit";
 import { nextEmptyPageAction } from "./retry-policy";
@@ -35,6 +36,7 @@ interface ControllerDeps {
   questions: QuestionStore;
   applications: ApplicationStore;
   resumes: ResumeSelector;
+  backend: BackendClient;
 }
 
 export class Controller {
@@ -377,6 +379,19 @@ export class Controller {
   async setResumes(resumes: ResumeProfile[]) {
     this.d.config.resumes = resumes;
     await saveConfig(this.d.storage, this.d.config);
+  }
+
+  async setServer(url: string, apiKey: string | null) {
+    this.d.config.server = { url, apiKey: apiKey ?? this.d.config.server.apiKey };
+    await saveConfig(this.d.storage, this.d.config);
+  }
+
+  async checkServer() {
+    const { panel, backend, logger } = this.d;
+    panel.setServerStatus("Проверяю...", true);
+    const result = await backend.check();
+    panel.setServerStatus(result.message, result.ok);
+    logger.log(result.message, result.ok ? "success" : "warn");
   }
 
   async setRules(rules: FilterRules) {

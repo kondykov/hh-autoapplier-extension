@@ -1,3 +1,4 @@
+import type { ServerSettings } from "../core/config";
 import type { KeyValueStorage } from "../infra/storage";
 import type { LogLevel, LogSink } from "../infra/logger";
 import { parseList, type FilterRules } from "../filter/rules";
@@ -33,6 +34,9 @@ export interface PanelHandlers {
   onPresetApply(name: string): void;
   onUrlChange(url: string): void;
   onLimitChange(limit: number): void;
+  // apiKey: null — не менять сохранённый ключ
+  onServerChange(url: string, apiKey: string | null): void;
+  onServerCheck(): void;
 }
 
 const POS_KEY = "hh_panel_pos";
@@ -43,7 +47,15 @@ export class Panel implements LogSink {
   constructor(
     private storage: KeyValueStorage,
     private handlers: PanelHandlers,
-    private initial: { url: string; limit: number; letter: string; presets: string[]; rules: FilterRules; resumes: ResumeProfile[] },
+    private initial: {
+      url: string;
+      limit: number;
+      letter: string;
+      presets: string[];
+      rules: FilterRules;
+      resumes: ResumeProfile[];
+      server: ServerSettings;
+    },
   ) {}
 
   async mount(): Promise<void> {
@@ -109,6 +121,12 @@ export class Panel implements LogSink {
           <textarea id="hh-input-resumes" class="hh-input" rows="8" spellcheck="false"></textarea>
           <div class="hh-step-label" id="hh-resumes-status"></div>
         </details>
+        <details class="hh-input-group"><summary>Сервер (backend)</summary>
+          <label for="hh-input-server-url">Адрес</label><input id="hh-input-server-url" class="hh-input" placeholder="http://127.0.0.1:8080" />
+          <label for="hh-input-server-key">Ключ API (X-Api-Key)</label><input id="hh-input-server-key" type="password" class="hh-input" autocomplete="off" />
+          <button class="hh-btn" id="hh-btn-server-check">Проверить связь</button>
+          <div class="hh-step-label" id="hh-server-status"></div>
+        </details>
         <div class="hh-input-group"><label for="hh-input-letter">Сопроводительное письмо</label><textarea id="hh-input-letter" class="hh-input" rows="5"></textarea></div>
         <div id="hh-autoapply-log"></div>
       </div>`;
@@ -164,6 +182,24 @@ export class Panel implements LogSink {
       const name = prompt("Название поиска");
       if (name?.trim()) this.handlers.onPresetSave(name.trim());
     };
+
+    const serverUrl = this.el<HTMLInputElement>("hh-input-server-url");
+    const serverKey = this.el<HTMLInputElement>("hh-input-server-key");
+    serverUrl.value = this.initial.server.url;
+    // Панель живёт в DOM страницы hh.ru: сохранённый ключ в поле не подставляем, чтобы его не прочитали скрипты страницы
+    const keyHint = (saved: boolean) => (serverKey.placeholder = saved ? "ключ сохранён — введите новый, чтобы заменить" : "не задан");
+    keyHint(this.initial.server.apiKey !== "");
+    const saveServer = () => {
+      const key = serverKey.value.trim();
+      this.handlers.onServerChange(serverUrl.value.trim(), key || null);
+      if (key) {
+        serverKey.value = "";
+        keyHint(true);
+      }
+    };
+    serverUrl.onchange = saveServer;
+    serverKey.onchange = saveServer;
+    this.el("hh-btn-server-check").onclick = () => this.handlers.onServerCheck();
 
     const url = this.el<HTMLInputElement>("hh-input-url");
     url.value = this.initial.url;
@@ -227,6 +263,12 @@ export class Panel implements LogSink {
 
   setNextEnabled(enabled: boolean): void {
     this.el<HTMLButtonElement>("hh-btn-next").disabled = !enabled;
+  }
+
+  setServerStatus(message: string, ok: boolean): void {
+    const status = this.el("hh-server-status");
+    status.textContent = message;
+    status.style.color = ok ? "#4CAF50" : "#F44336";
   }
 
   setAutoActive(active: boolean): void {
