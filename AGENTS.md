@@ -42,7 +42,7 @@ qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
 
 ## Git Workflow
 - Коммит в текущую ветку; в конце сообщения трейлер `Co-authored-by:` агента, который делал изменения
-- Рабочая ветка `kondykov-new-hh-autoapplier-repo`: коммит и `git push` в неё — без отдельного вопроса, после локальных typecheck/test/build (или `dotnet test`)
+- Рабочая ветка `develop` (до 2026-10-25 — `kondykov-new-hh-autoapplier-repo`): коммит и `git push` в неё — без отдельного вопроса, после локальных typecheck/test/build (или `dotnet test`)
 - После push дождаться CI; красный CI — чинить сразу, это часть задачи
 - Задачи — GitHub Issues, карта и порядок — `docs/ROADMAP.md`; в коммите `refs #N`; заводить issues под найденные задачи — можно, с метками
 - Статус задачи — поле Status в Project #5 (https://github.com/users/kondykov/projects/5), его ведёт агент:
