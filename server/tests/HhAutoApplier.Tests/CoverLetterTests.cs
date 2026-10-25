@@ -34,6 +34,13 @@ public class CoverLetterTests
 
         var withoutResume = VacancyAssessment.Serialize(CoverLetterWriting.BuildRequest(Queued(), null));
         Assert.Contains("не выбрано", withoutResume);
+
+        // Без описания и шаблона — ни имени, ни стажа: ключевые слова не выдаются за опыт
+        var bare = ResumeProfile.Create("PHP", "PHP", ["php", "laravel"]);
+        var text2 = VacancyAssessment.Serialize(CoverLetterWriting.BuildRequest(Queued(), bare));
+        Assert.Contains("опыт не известен", text2);
+        Assert.Contains("Шаблона письма нет — пиши без имени, подписи и контактов", text2);
+        Assert.Contains("имя кандидата, подпись и контакты — только из шаблона", text2);
     }
 
     [Fact]
@@ -60,7 +67,14 @@ public class CoverLetterTests
         Assert.Equal(("Здравствуйте!", "m", Now), (v.CoverLetter, v.CoverLetterModel, v.CoverLetterAt));
         Assert.Throws<DomainException>(() => v.SetCoverLetter(" ", "m", Now));
 
+        v.ResetCoverLetter();
+        Assert.Equal((null, null, null), (v.CoverLetter, v.CoverLetterModel, v.CoverLetterAt));
+        v.SetCoverLetter("Здравствуйте заново!", "m2", Now);
+
         v.MarkApplied(null, Now);
         Assert.Throws<DomainException>(() => v.SetCoverLetter("Здравствуйте!", "m", Now));
+        // Письмо отправленного отклика — история
+        Assert.Throws<DomainException>(v.ResetCoverLetter);
+        Assert.Equal("Здравствуйте заново!", v.CoverLetter);
     }
 }

@@ -173,6 +173,15 @@ public class Vacancy
         (CoverLetterModel, CoverLetterAt) = (model, at);
     }
 
+    // Сбросить письмо, чтобы LLM написала его заново (поменялись резюме, шаблон или промпт)
+    public void ResetCoverLetter()
+    {
+        if (Status is VacancyStatus.Applied or VacancyStatus.Rejected)
+            throw new DomainException("Отклик уже отправлен — письмо не переписать");
+
+        (CoverLetter, CoverLetterModel, CoverLetterAt) = (null, null, null);
+    }
+
     // Расширение встретило анкету: вопросы ждут ответов LLM, вакансия уходит из очереди.
     // Анкета могла поменяться — прежние ответы сбрасываются
     public void RequireAnswers(IReadOnlyCollection<VacancyQuestion> questions)
