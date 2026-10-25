@@ -106,7 +106,7 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
   });
 
   it("анкета: сохраняет вопросы, кладёт в аутлайн и не переходит на поиск в режиме очереди", async () => {
-    renderResponsePage({ outline: true });
+    renderResponsePage({ questionnaire: true });
     const { deps, pipeline } = setup();
 
     expect(await run(pipeline.applyOnPage(vacancy()))).toBe("outline");
@@ -114,6 +114,16 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
     expect(deps.state.outline).toHaveLength(1);
     expect(location.href).toBe(RESPONSE_URL);
     expect(submits).toBe(0);
+  });
+
+  // Живая страница 2026-10-25: подзаголовок про вопросы есть и у вакансий без анкеты
+  it("подзаголовок «ответить на вопросы» без самих вопросов — не анкета, отклик уходит", async () => {
+    renderResponsePage({ outline: true });
+    const { deps, pipeline } = setup();
+
+    expect(await run(pipeline.applyOnPage(vacancy()))).toBe("success");
+    expect(deps.onOutline).not.toHaveBeenCalled();
+    expect(submits).toBe(1);
   });
 
   it("уже откликались: засчитывает отклик без повторной отправки", async () => {

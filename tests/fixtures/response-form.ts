@@ -1,5 +1,5 @@
 // Разметка формы отклика hh.ru по живой странице (2026-10-24): резюме — [role=button] с [data-qa=resume-title],
-// варианты — [role=option], на странице отклика кнопка «Откликнуться» без data-qa, анкета — [data-qa=title-description]
+// варианты — [role=option], на странице отклика кнопка «Откликнуться» без data-qa; анкета — блоки [data-qa=task-body] (2026-10-25)
 
 export const PHP = "Fullstack Software Engineer | PHP / Nuxt";
 export const DOTNET = "Backend Software Engineer | C# .NET developer130 000 ₽";
@@ -12,6 +12,8 @@ export interface FormOptions {
   submitDisabled?: boolean;
   // Что делает hh.ru после нажатия «Отправить»
   afterSubmit?: "responded" | "close" | "nothing";
+  // Подзаголовок «Для отклика необходимо ответить на несколько вопросов»: на странице отклика он есть и без анкеты,
+  // во всплывающем окне — признак анкеты
   outline?: boolean;
   // Анкета работодателя прямо в форме (страница отклика): тест с одним вариантом, согласие, свободный текст
   questionnaire?: boolean;
