@@ -21,14 +21,19 @@ public static class CoverLetterWriting
     private const string System = """
         Ты помогаешь соискателю писать сопроводительные письма к откликам на hh.ru.
         Напиши письмо по-русски под конкретную вакансию: 3–6 предложений, до 900 знаков, деловой и живой тон без канцелярита.
-        Упомяни 1–3 навыка или опыта кандидата, которые прямо отвечают требованиям вакансии, и назови компанию или роль.
-        Опирайся только на факты из резюме и шаблона: не выдумывай опыт, проекты, цифры и навыки.
+        Упомяни 1–3 навыка или опыта кандидата из резюме, которые прямо отвечают требованиям вакансии, и назови компанию или роль.
+        Строго только факты из резюме и шаблона — письмо уходит работодателю от имени кандидата:
+        - имя кандидата, подпись и контакты — только из шаблона, дословно; без шаблона — письмо без имени, без подписи и без контактов;
+        - годы, стаж, проценты, сроки и другие цифры — только те, что написаны в резюме или шаблоне; иначе без цифр;
+        - навыки, технологии, места работы и проекты — только из резюме или шаблона; если требование вакансии в резюме не упомянуто, не приписывай его кандидату, а напиши об интересе к задаче;
+        - ключевые слова без описания резюме — это направления, а не подтверждённый опыт: не указывай по ним стаж и достижения.
         Если дан шаблон письма — сохрани его приветствие, стиль, подпись и контакты дословно, меняй только середину под вакансию.
         Ответь только текстом письма: без темы, заголовков, markdown, кавычек вокруг и заглушек вроде [Имя].
         """;
 
+    // Низкая температура: письмо ближе к фактам резюме и шаблону
     public static LlmRequest BuildRequest(Vacancy vacancy, ResumeProfile? resume) =>
-        new([LlmMessage.System(System), LlmMessage.User(Describe(vacancy, resume))], Temperature: 0.5, MaxTokens: MaxTokens);
+        new([LlmMessage.System(System), LlmMessage.User(Describe(vacancy, resume))], Temperature: 0.3, MaxTokens: MaxTokens);
 
     private static string Describe(Vacancy vacancy, ResumeProfile? resume)
     {
@@ -36,13 +41,15 @@ public static class CoverLetterWriting
         if (resume is not null)
         {
             text.AppendLine($"Резюме кандидата ({resume.Name}):")
-                .AppendLine(resume.Summary ?? $"подробного описания нет, ключевые слова: {string.Join(", ", resume.Keywords)}");
-            if (resume.LetterTemplate is { } template)
-                text.AppendLine().AppendLine("Шаблон письма кандидата:").AppendLine(template);
+                .AppendLine(resume.Summary
+                            ?? $"подробного описания нет — опыт не известен; ключевые слова (направления, не стаж): {string.Join(", ", resume.Keywords)}");
+            text.AppendLine().AppendLine(resume.LetterTemplate is { } template
+                ? $"Шаблон письма кандидата:\n{template}"
+                : "Шаблона письма нет — пиши без имени, подписи и контактов.");
         }
         else
         {
-            text.AppendLine("Резюме кандидата: не выбрано — пиши без конкретных фактов о кандидате.");
+            text.AppendLine("Резюме кандидата: не выбрано — пиши без фактов о кандидате, без имени, подписи и контактов.");
         }
 
         var description = vacancy.Description.Length > MaxDescription ? vacancy.Description[..MaxDescription] + "…" : vacancy.Description;

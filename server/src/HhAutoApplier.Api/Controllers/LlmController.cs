@@ -68,4 +68,18 @@ public class LlmController : ApiController
     {
         return FromResult((await handler.Handle(command, ct)).Value);
     }
+
+    /// <summary>
+    /// Сбросить письма вакансий в очереди (все или по списку id), чтобы LLM написала их заново — после правки резюме, шаблона или промпта.
+    /// Новые письма пишет POST /api/llm/letters или фоновый запуск; до этого расширение вставит свой шаблон. LLM не вызывает.
+    /// </summary>
+    [HttpPost("letters/reset")]
+    [ProducesResponseType(typeof(ResetCoverLettersResultDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ResetLetters(
+        [FromBody] ResetCoverLettersCommand command,
+        [FromServices] ResetCoverLettersCommandHandler handler,
+        CancellationToken ct)
+    {
+        return Ok(await handler.Handle(command, ct));
+    }
 }

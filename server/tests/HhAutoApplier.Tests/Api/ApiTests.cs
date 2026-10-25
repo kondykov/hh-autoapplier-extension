@@ -225,6 +225,18 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
         var prompts = await factory.WithDbAsync(db => Task.FromResult(db.LlmCalls.Where(c => c.Purpose == "cover-letter").Select(c => c.Prompt).ToList()));
         Assert.Equal(3, prompts.Count);
         Assert.All(prompts, p => Assert.Contains("С уважением, Иван", p));
+
+        // Сброс и повтор: письмо очереди пишется заново
+        var reset = await Json(await _api.PostAsJsonAsync("/api/llm/letters/reset", new { }));
+        Assert.Equal(1, reset.GetProperty("reset").GetInt32());
+        factory.Llm.Answers.Enqueue("Здравствуйте! Переписанное письмо под вакансию, без выдуманных фактов.\n\nС уважением, Иван");
+        factory.Llm.Answers.Enqueue("Здравствуйте! Второе письмо под вакансию, без выдуманных фактов.\n\nС уважением, Иван");
+        factory.Llm.Answers.Enqueue("Здравствуйте! Третье письмо под вакансию, без выдуманных фактов.\n\nС уважением, Иван");
+        var rewritten = await Json(await _api.PostAsJsonAsync("/api/llm/letters", new { limit = 10 }));
+        Assert.Equal((3, 0), (rewritten.GetProperty("written").GetInt32(), rewritten.GetProperty("remaining").GetInt32()));
+        var all = (await Json(await _api.GetAsync("/api/queue"))).EnumerateArray().Select(v => v.GetProperty("coverLetter").GetString()).ToList();
+        Assert.DoesNotContain(letter, all);
+        Assert.Equal(0, (await Json(await _api.PostAsJsonAsync("/api/llm/letters/reset", new { vacancyIds = new[] { "404" } }))).GetProperty("reset").GetInt32());
     }
 
     [Fact]
