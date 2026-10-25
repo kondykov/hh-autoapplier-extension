@@ -1,10 +1,11 @@
 # Task: текущий статус (динамический файл)
 
-Обновлено: 2026-10-25, после спринта 3 (PR #36 слит в `main`).
+Обновлено: 2026-10-25, после спринта 3 (PR #36 слит в `main`, ныне `master`).
 
 ## Расположение
 - Репозиторий — `kondykov/hh-autoapplier-extension` (https://github.com/kondykov/hh-autoapplier-extension); владелец позже переименует его в `kondykov/hh-autoapplier`. Код, ветки и issues — здесь
-- Ветки: `main` (релиз, merge только по просьбе) и рабочая `develop` (до 2026-10-25 — `kondykov-new-hh-autoapplier-repo`)
+- Ветки: `master` (релиз, merge только по просьбе; до 2026-10-25 — `main`, ветка по умолчанию) и рабочая `develop` (до 2026-10-25 — `kondykov-new-hh-autoapplier-repo`)
+- Репозиторий — форк [pant42/js_script](https://github.com/pant42/js_script) (основная ветка там — `main`). Вклад в исходный: ветка от его `main` (`git remote add upstream …`) и PR в `pant42/js_script:main`; истории сильно разошлись, а #30 перепишет нашу — общих коммитов почти не останется
 - Задачи — GitHub Issues; статусы — Project #5 https://github.com/users/kondykov/projects/5: Backlog → Todo (только спринт в работе) → In Progress → Waiting → Done (правила — `AGENTS.md`, «Git Workflow»); карта и порядок — `docs/ROADMAP.md`
 
 ## Готово (typecheck, 96 vitest, 49 xunit, сборка, CI)
@@ -45,7 +46,7 @@
 - В профиле dev-браузера старое PHP-письмо — заменить в панели; пробные прогоны добавили вакансии в «Аутлайн» расширения
 
 ## Следующие шаги
-- **Спринт 4 «Сервер дома» (Todo): #5 развёртывание, #6 VPN/firewall/TLS, #30 чистка истории git.** Перед стартом — решения владельца: где сервер и какой VPN (`docs/ROADMAP.md`, раздел E: рекомендуется Tailscale). #30 переписывает историю git (force push в `main` и `develop`) — только с явного согласия владельца
+- **Спринт 4 «Сервер дома» (Todo): #5 развёртывание, #6 VPN/firewall/TLS, #30 чистка истории git.** Перед стартом — решения владельца: где сервер и какой VPN (`docs/ROADMAP.md`, раздел E: рекомендуется Tailscale). #30 переписывает историю git (force push в `master` и `develop`) — только с явного согласия владельца
 - Waiting: #15 (настоящий прогон очереди владельцем)
 - Backlog: спринты 5–8 (#7–#10, #19, #20, #26–#28, #32, #33), подробный профиль кандидата #35, инструкция для пользователей #37
 - Решения владельца по LLM, проверке, анкетам — `docs/ROADMAP.md`, «Решения владельца»
