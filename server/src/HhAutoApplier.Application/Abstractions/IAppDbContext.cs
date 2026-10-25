@@ -2,6 +2,7 @@ using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Llm;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Searches;
+using HhAutoApplier.Domain.Users;
 using HhAutoApplier.Domain.Vacancies;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
@@ -19,6 +20,8 @@ public interface IAppDbContext
     DbSet<ResumeProfile> Resumes { get; }
 
     DbSet<LlmCall> LlmCalls { get; }
+
+    DbSet<ApiToken> ApiTokens { get; }
 
     // Сброс отслеживания после неудачного сохранения (сбор продолжает со следующего поиска)
     ChangeTracker ChangeTracker { get; }

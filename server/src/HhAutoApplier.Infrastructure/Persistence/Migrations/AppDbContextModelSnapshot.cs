@@ -227,6 +227,46 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.ToTable("Searches", (string)null);
                 });
 
+            modelBuilder.Entity("HhAutoApplier.Domain.Users.ApiToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Prefix")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Hash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("ApiTokens");
+                });
+
             modelBuilder.Entity("HhAutoApplier.Domain.Vacancies.Vacancy", b =>
                 {
                     b.Property<string>("Id")
@@ -632,6 +672,15 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                         });
 
                     b.Navigation("Rules")
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("HhAutoApplier.Domain.Users.ApiToken", b =>
+                {
+                    b.HasOne("HhAutoApplier.Infrastructure.Identity.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
