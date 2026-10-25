@@ -19,12 +19,15 @@ export function isAlreadyRespondedOnPage(): boolean {
 }
 
 export function isOutlineDetected(): boolean {
+  // На странице отклика подзаголовок «Для отклика необходимо ответить на несколько вопросов» есть всегда,
+  // и у вакансий без анкеты (проверено вживую 2026-10-25) — анкету выдают только блоки вопросов
+  if (detectPageType() === "response")
+    return !!(qs(SELECTORS.taskBody) || qs(SELECTORS.employerAskingForTest));
   const modal = qs(SELECTORS.responseModal);
   if (modal && normalizeText(modal.textContent).includes(OUTLINE_SHORT)) return true;
   if ((qs(SELECTORS.employerAskingForTest) || qs(SELECTORS.taskBody)) && !modal) return true;
   const desc = qs(SELECTORS.titleDescription);
   if (desc && normalizeText(desc.textContent).includes(OUTLINE_SHORT)) return true;
-  if (detectPageType() === "response" && pageText().includes(OUTLINE_SHORT)) return true;
   return pageText().includes(OUTLINE_FULL);
 }
 
