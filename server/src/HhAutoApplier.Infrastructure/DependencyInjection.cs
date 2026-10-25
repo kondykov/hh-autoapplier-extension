@@ -1,9 +1,11 @@
 using System.Net;
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Infrastructure.Collecting;
+using HhAutoApplier.Infrastructure.Identity;
 using HhAutoApplier.Infrastructure.Llm;
 using HhAutoApplier.Infrastructure.Persistence;
 using HhAutoApplier.Infrastructure.Sources.Hh;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,6 +19,27 @@ public static class DependencyInjection
         services.Configure<CollectorOptions>(config.GetSection(CollectorOptions.Section));
         services.AddDbContext<AppDbContext>(o => o.UseNpgsql(config.GetConnectionString("Default")));
         services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AppDbContext>());
+
+        // Пользователи и роли: ASP.NET Core Identity поверх той же базы. Схемы входа (cookie, ключ API) — в Api
+        services.Configure<AdminOptions>(config.GetSection(AdminOptions.Section));
+        services.AddIdentityCore<AppUser>(o =>
+            {
+                // Длина важнее набора классов символов; пароль задаёт человек, не генератор
+                o.Password.RequiredLength = 10;
+                o.Password.RequiredUniqueChars = 4;
+                o.Password.RequireDigit = false;
+                o.Password.RequireLowercase = false;
+                o.Password.RequireUppercase = false;
+                o.Password.RequireNonAlphanumeric = false;
+                o.User.RequireUniqueEmail = true;
+                o.Lockout.MaxFailedAccessAttempts = 5;
+                o.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+            })
+            .AddRoles<IdentityRole<Guid>>()
+            .AddEntityFrameworkStores<AppDbContext>()
+            .AddSignInManager<AppSignInManager>()
+            .AddErrorDescriber<RussianIdentityErrorDescriber>();
+        services.AddScoped<IUserService, UserService>();
 
         // Источники вакансий: новый агрегатор = своя реализация IVacancySource и регистрация здесь
         var hh = config.GetSection(HhOptions.Section);

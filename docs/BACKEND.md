@@ -2,7 +2,7 @@
 
 ASP.NET Core 10 + PostgreSQL. Собирает вакансии, фильтрует/оценивает их, выбирает резюме и отдаёт клиенту готовую очередь.
 
-Архитектура — DDD и простой CQRS без MediatR, решение и примеры: [adr/0001-backend-ddd-cqrs.md](adr/0001-backend-ddd-cqrs.md). Документация API: `http://127.0.0.1:8080/scalar` (без ключа).
+Архитектура — DDD и простой CQRS без MediatR, решение и примеры: [adr/0001-backend-ddd-cqrs.md](adr/0001-backend-ddd-cqrs.md). Документация API: `http://127.0.0.1:8080/scalar` (без входа).
 
 ```
 server/
@@ -12,7 +12,8 @@ server/
                                     Errors/, порты Abstractions/ (IAppDbContext, IVacancySource)
   src/HhAutoApplier.Infrastructure  EF Core (Npgsql, Configurations/, миграции, DbSeeder); Sources/Hh — источник hh.ru;
                                     Collecting/ — фоновый сбор по расписанию
-  src/HhAutoApplier.Api             контроллеры, X-Api-Key, OpenAPI + Scalar
+  src/HhAutoApplier.Api             контроллеры, Auth/ (cookie и X-Api-Key), OpenAPI + Scalar
+                                    (Identity — в Infrastructure/Identity, роли — Domain/Users)
   tests/HhAutoApplier.Tests         xunit: домен, правила, разбор страниц hh.ru; Api/ — интеграционные тесты
                                     API (WebApplicationFactory + Postgres 17 в Testcontainers, нужен Docker)
   docker-compose.yml, Dockerfile    postgres:17 + api
@@ -22,7 +23,7 @@ server/
 
 ```powershell
 cd server
-copy .env.example .env        # задайте POSTGRES_PASSWORD, API_KEY
+copy .env.example .env        # задайте POSTGRES_PASSWORD, API_KEY, ADMIN_EMAIL, ADMIN_PASSWORD
 docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:${DB_PORT:-5433}
 ```
 
@@ -56,16 +57,36 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 
 **Письма под вакансию (#23).** После оценки (и по `POST /api/llm/letters`) `WriteCoverLettersCommandHandler` пишет письма для вакансий `Queued` без письма, лучшие по баллу первыми. LLM получает резюме, выбранное для вакансии (`Summary` или ключевые слова), его шаблон письма `LetterTemplate` и вакансию. С шаблоном LLM сохраняет приветствие, стиль, подпись и контакты и меняет середину под вакансию; без шаблона пишет сама. Ответ — текст письма; пустой, слишком короткий или JSON не сохраняется, вакансия ждёт следующего запуска. Промпт строгий: имя, подпись и контакты — только из шаблона (без шаблона — письмо без них), цифры, стаж, навыки и места работы — только из резюме и шаблона, ключевые слова без `Summary` не выдаются за опыт (живая проверка 2026-10-25: без `Summary` LLM выдумывала имя и стаж). Письмо (`coverLetter`) уходит в расширение вместе с `/api/queue` и в режиме «из очереди» важнее шаблонов расширения. Без LLM писем нет. Переписать письма очереди после правки резюме, шаблона или промпта: `POST /api/llm/letters/reset` (все или `{vacancyIds}`), затем `POST /api/llm/letters` или фоновый запуск.
 
-**Ручная проверка (#25).** LLM сомневается (`doubtful`) — вакансия получает статус `Review` и в очередь расширения не идёт; правило поиска `skipReview: true` — сразу в очередь, как раньше. Письма пишутся и для `Review`, чтобы их было видно на проверке. Страница `/review.html` (wwwroot, отдаётся без ключа — ключ она спрашивает сама и хранит в `localStorage` браузера): список `GET /api/vacancies?status=Review`, у карточки — описание, причина LLM, анкета, письмо в поле для правки; «Одобрить» → `POST /api/vacancies/{id}/review` `{approve: true, coverLetter?}` — в очередь, поправленное письмо сохраняется с моделью `manual`; «Отклонить» → `{approve: false, reason?}` — `Skipped` «отклонено вручную: …». Анкеты на проверку не идут (решение владельца 2026-10-25). Telegram-бот (#28) подключится к тому же эндпоинту.
+**Ручная проверка (#25).** LLM сомневается (`doubtful`) — вакансия получает статус `Review` и в очередь расширения не идёт; правило поиска `skipReview: true` — сразу в очередь, как раньше. Письма пишутся и для `Review`, чтобы их было видно на проверке. Страница `/review.html` (wwwroot, отдаётся без входа — сама спрашивает email и пароль администратора, дальше работает по cookie): список `GET /api/vacancies?status=Review`, у карточки — описание, причина LLM, анкета, письмо в поле для правки; «Одобрить» → `POST /api/vacancies/{id}/review` `{approve: true, coverLetter?}` — в очередь, поправленное письмо сохраняется с моделью `manual`; «Отклонить» → `{approve: false, reason?}` — `Skipped` «отклонено вручную: …». Анкеты на проверку не идут (решение владельца 2026-10-25). Telegram-бот (#28) подключится к тому же эндпоинту.
 
 **Анкеты работодателей (#24).** Вопросы анкеты видны только со входом на hh.ru: без входа страница отклика ведёт на регистрацию, а страница вакансии знает только `test.hasTests` (проверено 2026-10-25). Поэтому их присылает расширение: `POST /api/vacancies/{id}/questionnaire` с `{questions: [{question, type: Radio|Checkbox|Text|Unknown, options}]}` → статус `Questionnaire`, прежние ответы сбрасываются. После оценки (и по `POST /api/llm/answers`) `AnswerQuestionnairesCommandHandler` отправляет LLM резюме вакансии, пожелания из правил поиска (зарплата, формат), вакансию и пронумерованные вопросы; ответ — JSON `{answers: [...]}` по порядку вопросов. Агрегат проверяет ответы: вариант — только из анкеты (без учёта регистра, сохраняется в написании анкеты), radio — ровно один, checkbox — хотя бы один, текст — непустой. Всё сошлось — вакансия в очереди с ответами (`questions[].answer`, причина «анкета: ответы LLM»); нет — `Skipped` с причиной, догадки работодателю не уходят. Ответы идут в очередь без ручной проверки — решение владельца 2026-10-25. Анкета хранится в `Vacancies.Questions` (jsonb).
 
-## API (заголовок `X-Api-Key`, если задан `Api:Key`)
+## Пользователи и вход (#7)
+
+ASP.NET Core Identity (таблицы `AspNet*` в той же БД, миграция `Identity`). Роли `Admin` и `User` (`Domain/Users/Roles.cs`).
+- Пользователей создаёт только администратор, саморегистрации нет (решение владельца 2026-10-25)
+- Первый администратор создаётся при старте из `Admin:Email`/`Admin:Password` (`.env`: `ADMIN_EMAIL`, `ADMIN_PASSWORD`), только пока администраторов нет; после входа пароль сменить
+- Вход по email и паролю → cookie `hh_auth` (HttpOnly, SameSite=Strict, 14 дней, продлевается при работе). Без входа — 401, без прав — 403 (без перенаправлений)
+- Пароль: не короче 10 символов, 4 разных символа, без требований к классам. 5 неудачных попыток — вход закрыт на 15 минут
+- Блокировка, смена роли или пароля обрывают сессии пользователя не позже чем через минуту (security stamp)
+- Общий ключ `X-Api-Key` (`Api:Key`, `.env`: `API_KEY`) — обработчик аутентификации `Api/Auth/ApiKeyAuthenticationHandler`: вход с ролью `Admin` без учётной записи (`/api/auth/me` → `id = null`). Пустой ключ выключает только вход по ключу, вход по паролю остаётся. До #7 пустой ключ отключал проверку совсем — теперь расширение без ключа получает 401: задайте `API_KEY` в `.env` и тот же ключ в панели расширения. Cookie и ключ проходят через один `[Authorize]`; в #10 персональный токен заменит только поиск ключа (токен из БД → его владелец)
+- До #9 (владельцы данных) все эндпоинты данных — только `Admin` (fallback-политика); `User` может войти, смотреть `/api/auth/me` и менять свой пароль
+- Без входа: `/health`, `/scalar`, `/openapi`, `/review.html`, `POST /api/auth/login`
+
+## API (cookie `hh_auth` или заголовок `X-Api-Key`; без пометки — только `Admin`)
 
 | Метод | Путь | Назначение |
 |---|---|---|
-| GET | `/health` | проверка |
-| GET | `/review.html` | страница ручной проверки (без ключа) |
+| GET | `/health` | проверка (без входа) |
+| GET | `/review.html` | страница ручной проверки (без входа, вход на самой странице) |
+| POST | `/api/auth/login` | `{email, password}` → cookie `hh_auth` (без входа; 401 — неверно, заблокирован или вход закрыт) |
+| POST | `/api/auth/logout` | выйти (любой вошедший) |
+| GET | `/api/auth/me` | кто выполняет запрос (любой вошедший) |
+| POST | `/api/auth/password` | `{currentPassword, newPassword}`: сменить свой пароль, остальные сессии обрываются (любой вошедший; 409 — вход по ключу) |
+| GET/POST | `/api/users` | список; создать `{email, password, role}` |
+| PUT | `/api/users/{id}/role` | `{role}`: `Admin` или `User` |
+| PUT | `/api/users/{id}/blocked` | `{blocked}`: заблокировать / разблокировать |
+| PUT | `/api/users/{id}/password` | `{password}`: задать пароль пользователю |
 | GET | `/api/queue?search=&resume=&limit=` | очередь на отклик (лучшие сверху) |
 | GET | `/api/vacancies?status=&search=&skip=&take=` | список |
 | POST | `/api/vacancies/{id}/status` | `{status, reason?, resume?}`: Applied, Skipped, Failed... |
@@ -87,4 +108,4 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 
 ## Дальше
 
-Режим «из очереди» в расширении, LLM, другие агрегаторы, пользователи и Telegram-бот: см. `ROADMAP.md`.
+Отклик пользователя `Application` (#8), владельцы данных (#9), персональные токены (#10), другие агрегаторы и Telegram-бот: см. `ROADMAP.md`.

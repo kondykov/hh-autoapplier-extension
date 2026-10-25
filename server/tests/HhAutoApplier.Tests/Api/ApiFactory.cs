@@ -1,8 +1,10 @@
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Vacancies;
+using HhAutoApplier.Infrastructure.Identity;
 using HhAutoApplier.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +19,10 @@ namespace HhAutoApplier.Tests.Api;
 public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     public const string ApiKey = "test-key";
+
+    public const string AdminEmail = "admin@test.local";
+
+    public const string AdminPassword = "admin-password-1";
 
     private readonly PostgreSqlContainer _db = new PostgreSqlBuilder("postgres:17-alpine").Build();
 
@@ -36,6 +42,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         builder.UseSetting("ConnectionStrings:Default", _db.GetConnectionString());
         builder.UseSetting("Api:Key", ApiKey);
+        builder.UseSetting("Admin:Email", AdminEmail);
+        builder.UseSetting("Admin:Password", AdminPassword);
         builder.UseSetting("Hh:Enabled", "false");
         builder.UseSetting("Collector:CollectOnStartup", "false");
         builder.UseSetting("Collector:IntervalMinutes", "10080");
@@ -48,6 +56,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             services.AddSingleton<IVacancySource>(Source);
             services.RemoveAll<ILlmClient>();
             services.AddSingleton<ILlmClient>(Llm);
+            // Блокировка и смена пароля обрывают сессию сразу, а не через минуту
+            services.Configure<SecurityStampValidatorOptions>(o => o.ValidationInterval = TimeSpan.Zero);
         });
     }
 
@@ -63,8 +73,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         await using var scope = Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Database.ExecuteSqlRawAsync("""TRUNCATE "Vacancies", "Searches", "Resumes", "LlmCalls" RESTART IDENTITY""");
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE "Vacancies", "Searches", "Resumes", "LlmCalls", "AspNetUsers", "AspNetRoles" RESTART IDENTITY CASCADE""");
         await DbSeeder.SeedAsync(db);
+        await IdentitySeeder.SeedAsync(scope.ServiceProvider);
         Source.Reset();
         Llm.Reset();
     }
