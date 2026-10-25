@@ -35,6 +35,22 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
     private Task<HttpResponseMessage> SetStatus(string id, string status, string? reason = null) =>
         _api.PostAsJsonAsync($"/api/vacancies/{id}/status", new { status, reason });
 
+    // CORS выключен по умолчанию (#20): чужой сайт не получает разрешения ни на preflight, ни на обычный запрос
+    [Fact]
+    public async Task Cors_ForeignOrigin_NotAllowedByDefault()
+    {
+        var client = factory.CreateClient();
+        var preflight = new HttpRequestMessage(HttpMethod.Options, "/api/stats");
+        preflight.Headers.Add("Origin", "https://evil.example");
+        preflight.Headers.Add("Access-Control-Request-Method", "GET");
+        preflight.Headers.Add("Access-Control-Request-Headers", "X-Api-Key");
+        Assert.False((await client.SendAsync(preflight)).Headers.Contains("Access-Control-Allow-Origin"));
+
+        var simple = new HttpRequestMessage(HttpMethod.Get, "/health");
+        simple.Headers.Add("Origin", "chrome-extension://abcdefghijklmnop");
+        Assert.False((await client.SendAsync(simple)).Headers.Contains("Access-Control-Allow-Origin"));
+    }
+
     [Fact]
     public async Task ApiKey_RequiredExceptHealthAndDocs()
     {

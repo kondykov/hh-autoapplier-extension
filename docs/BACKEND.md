@@ -135,4 +135,6 @@ ASP.NET Core Identity (таблицы `AspNet*` в той же БД, мигра�
 
 ## Дальше
 
-Персональные токены (#10), CORS (#20), другие агрегаторы и Telegram-бот: см. `ROADMAP.md`.
+**CORS (#20)** выключен по умолчанию: расширение ходит из service worker с `host_permissions` (Chrome CORS не проверяет), страницы backend — с того же адреса. Чужие источники — только явно: `CORS_ORIGINS` (`Cors:Origins`, через запятую, например `chrome-extension://<id>`).
+
+Другие агрегаторы и Telegram-бот: см. `ROADMAP.md`.

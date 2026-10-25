@@ -13,7 +13,10 @@ builder.Services.AddAuth(builder.Configuration);
 builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddOpenApi();
-builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
+// CORS по умолчанию выключен: расширение ходит из service worker с host_permissions (Chrome CORS не проверяет),
+// страницы backend — с того же адреса. Чужой источник — только явно: Cors:Origins (CORS_ORIGINS через запятую), например chrome-extension://<id>
+var corsOrigins = (builder.Configuration["Cors:Origins"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
 
