@@ -47,6 +47,9 @@
     .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
     .actions input { flex: 1 1 200px; min-width: 0; }
     .empty { color: var(--muted); text-align: center; padding: 48px 0; }
+    .result { align-self: center; font-weight: 600; }
+    .decided { opacity: .55; }
+    .decided .result { opacity: 1; color: var(--accent); }
   </style>
 </head>
 <body>
@@ -111,6 +114,7 @@
     reason.setAttribute("aria-label", "Причина отказа");
     const approve = el("button", { className: "approve", textContent: "Одобрить" });
     const decline = el("button", { className: "decline", textContent: "Отклонить" });
+    const result = el("span", { className: "result" });
 
     const node = el("article", { className: "card" },
       el("h2", {}, el("a", { href: v.url, target: "_blank", rel: "noopener", textContent: v.title })),
@@ -122,18 +126,21 @@
         ...v.questions.map((q) => el("div", { className: "qa" }, el("b", { textContent: q.question }), q.answer.length ? q.answer.join("; ") : "ответа нет"))) : null,
       el("label", { className: "field", htmlFor: letter.id, textContent: v.coverLetterModel ? `Письмо (${v.coverLetterModel === "manual" ? "ваше" : v.coverLetterModel})` : "Письмо" }),
       letter,
-      el("div", { className: "actions" }, approve, reason, decline));
+      el("div", { className: "actions" }, approve, reason, decline, result));
 
+    // Карточка после решения остаётся на месте с итогом: если убрать её, следующая подъедет под курсор
+    // и лишний клик решит за неё
     async function act(body, done) {
-      approve.disabled = decline.disabled = true;
+      approve.disabled = decline.disabled = reason.disabled = letter.disabled = true;
       try {
         await api(`/api/vacancies/${encodeURIComponent(v.id)}/review`, { method: "POST", body: JSON.stringify(body) });
-        node.remove();
-        setStatus(`«${v.title}»: ${done}. Осталось ${list.children.length}`);
-        if (!list.children.length) showEmpty();
+        node.classList.add("decided");
+        result.textContent = done;
+        const left = list.querySelectorAll("article.card:not(.decided)").length;
+        setStatus(`«${v.title}»: ${done}. Без решения: ${left}`);
       } catch (e) {
         setStatus(`«${v.title}»: ${e.message}`, true);
-        approve.disabled = decline.disabled = false;
+        approve.disabled = decline.disabled = reason.disabled = letter.disabled = false;
       }
     }
 
