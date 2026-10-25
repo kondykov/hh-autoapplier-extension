@@ -1,0 +1,141 @@
+import type { ApplyResult } from "../apply/pipeline";
+import { DELAYS, wait } from "../core/delays";
+import type { AppState, Vacancy } from "../core/state";
+import type { PageType } from "../dom/page-type";
+import { isPageOf, pickNext, responseUrl, toStatusReport, type QueueItem } from "../queue/queue-mode";
+import { extractVacancyInfo } from "./vacancy-info";
+import { stopAuto, stopQueue, type PageStep, type StepContext } from "./step-context";
+
+// Режим «из очереди»: следующая одобренная вакансия с backend → страница отклика → исход на сервер → следующая
+export class QueueStep implements PageStep {
+  readonly name = "очередь";
+
+  constructor(private ctx: StepContext) {}
+
+  // Очередь сама решает, что делать на любой странице: открыть текущую вакансию или перейти к следующей
+  accepts(_page: PageType, state: AppState): boolean {
+    return state.queueRunning;
+  }
+
+  async toggle(): Promise<void> {
+    const { state, panel, logger, config } = this.ctx;
+    if (state.queueRunning) {
+      stopQueue(this.ctx, "Режим «из очереди» остановлен");
+      await this.ctx.persist();
+      return;
+    }
+
+    if (state.running)
+      stopAuto(this.ctx);
+    state.queueRunning = true;
+    state.queueCurrent = null;
+    state.queueTried = [];
+    panel.setQueueActive(true);
+    logger.log(
+      config.queueDryRun ? "Очередь: пробный режим — «Отправить» не нажимается, статусы на сервер не уходят" : "Очередь: отклики отправляются",
+      config.queueDryRun ? "warn" : "step",
+    );
+    await this.ctx.persist();
+    await this.openNext();
+  }
+
+  async resume(): Promise<void> {
+    const { state, logger, panel, captcha, pipeline, nav } = this.ctx;
+    await captcha.waitUntilClear();
+    const current = state.queueCurrent;
+    if (!current) {
+      await this.openNext();
+      return;
+    }
+    if (!isPageOf(nav.url(), current.id)) {
+      // hh.ru не открыл форму отклика (вакансия в архиве, перенаправил на другую страницу) — идём дальше
+      logger.log(`Форма отклика для "${current.title}" не открылась`, "warn");
+      await this.finish(current, "skipped");
+      return;
+    }
+
+    const info = extractVacancyInfo();
+    const vacancy: Vacancy = {
+      ...info,
+      title: current.title || info.title,
+      company: current.company || info.company,
+      link: nav.url(),
+      card: null,
+      applyBtn: null,
+      resume: current.resume ?? undefined,
+      letter: current.letter,
+    };
+    panel.setStep(`Очередь: отклик на "${vacancy.title}"`);
+
+    let result: ApplyResult;
+    try {
+      result = await pipeline.applyOnPage(vacancy);
+    } catch (e) {
+      stopQueue(this.ctx, `Ошибка: ${(e as Error).message}`);
+      await this.ctx.persist();
+      return;
+    }
+
+    if (result === "disabled") {
+      stopQueue(this.ctx, 'Кнопка "Отправить" неактивна — проверьте форму вручную');
+      await this.ctx.persist();
+      return;
+    }
+    if (result === "dry_run")
+      logger.log(`Пробный режим: "${vacancy.title}" готов к отправке`, "success");
+    await this.finish(current, result, vacancy.resume);
+  }
+
+  private async openNext(): Promise<void> {
+    const { state, panel, logger, backend, limit, nav } = this.ctx;
+    if (await limit.isReached()) {
+      stopQueue(this.ctx, `Достигнут дневной лимит (${limit.limit})`);
+      await this.ctx.persist();
+      return;
+    }
+
+    const queue = await backend.getQueue();
+    if (!queue.ok) {
+      stopQueue(this.ctx, `Очередь недоступна: ${queue.error}`);
+      await this.ctx.persist();
+      return;
+    }
+
+    const next = pickNext(queue.items, state.queueTried);
+    if (!next) {
+      stopQueue(this.ctx, "Очередь пуста: одобренных вакансий больше нет");
+      await this.ctx.persist();
+      return;
+    }
+
+    state.queueCurrent = next;
+    state.queueTried.push(next.id);
+    await this.ctx.persist();
+    panel.setStep(`Очередь: "${next.title}"`);
+    logger.log(`Очередь: открываю "${next.title}" (${next.company})`, "step");
+    await wait(DELAYS.step);
+    // Пока ждали, режим могли остановить кнопкой
+    if (state.queueRunning)
+      nav.go(responseUrl(next.id));
+  }
+
+  // Сообщить исход на сервер (кроме пробного режима) и перейти к следующей вакансии
+  private async finish(item: QueueItem, result: ApplyResult, resume?: string): Promise<void> {
+    const { state, logger, backend, config } = this.ctx;
+    const report = state.queueRunning && !config.queueDryRun ? toStatusReport(result) : null;
+    if (report) {
+      const sent = await backend.reportStatus(item.id, report, resume ?? item.resume);
+      if (!sent.ok) {
+        stopQueue(this.ctx, `Статус "${item.title}" не дошёл до сервера: ${sent.error}`);
+        await this.ctx.persist();
+        return;
+      }
+      logger.log(`Сервер: "${item.title}" → ${report.status}`, report.status === "Applied" ? "success" : "warn");
+    }
+
+    state.queueCurrent = null;
+    await this.ctx.persist();
+    if (state.queueRunning)
+      await this.openNext();
+  }
+}

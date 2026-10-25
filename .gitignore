@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.log
+.profile/
+letter.local.txt
+
+server/.tools/
+server/**/bin/
+server/**/obj/
+server/.env
+.tools/
+server/.idea/

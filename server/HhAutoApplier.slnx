@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/HhAutoApplier.Domain/HhAutoApplier.Domain.csproj" />
+    <Project Path="src/HhAutoApplier.Application/HhAutoApplier.Application.csproj" />
+    <Project Path="src/HhAutoApplier.Infrastructure/HhAutoApplier.Infrastructure.csproj" />
+    <Project Path="src/HhAutoApplier.Api/HhAutoApplier.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/HhAutoApplier.Tests/HhAutoApplier.Tests.csproj" />
+  </Folder>
+</Solution>

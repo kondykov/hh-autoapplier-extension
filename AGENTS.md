@@ -1,0 +1,56 @@
+# AGENTS.md — hh-autoapplier
+
+Личный полуавтоматический инструмент откликов на hh.ru: MV3-расширение (TypeScript) + backend (ASP.NET Core 10, PostgreSQL). Общаться по-русски, кратко.
+
+Файл для любых ИИ-агентов. Это единственный источник инструкций: файлы конкретных инструментов (`CLAUDE.md`) только ссылаются сюда, отдельные копии правил не заводить.
+
+## Commands
+```powershell
+npm run typecheck                 # tsc --noEmit
+npm test                          # vitest (83 теста)
+npm run build                     # dist/content.js + dist/background.js (esbuild)
+node scripts/dev-browser.mjs      # Chromium с расширением, профиль .profile, CDP :9222
+cd server; dotnet test            # xunit (41 тест; нужен запущенный Docker — Postgres для тестов API в Testcontainers)
+cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:8080
+```
+Расширение читается только при старте браузера: после `build` браузер перезапускать (спросить, если у владельца открыта страница).
+
+## Testing
+- Чистая логика — тесты в `tests/` (vitest + happy-dom), без живого hh.ru; разметка формы отклика hh.ru — `tests/fixtures/response-form.ts` (по живой странице), её же брать для новых тестов конвейера
+- Backend — `server/tests/HhAutoApplier.Tests`
+- Перед «готово»: typecheck + test + build (или `dotnet test`); то же гоняет CI (`.github/workflows/ci.yml`) на каждый push, плюс проверку, что модель EF совпадает с миграциями
+- Живую страницу проверять read-only через CDP; не нажимать «Отправить». Перед открытием вакансии убедиться, что авто-режим выключен (кнопка панели «Авто») — он переживает перезапуск браузера
+
+## Project Structure
+- `src/content/main.ts` — композиция; `src/core/` — Controller (сборка и выбор шага), settings, config, selectors; `src/pages/*-step.ts` — шаги страниц (выдача, вакансия, очередь, отказы) на `StepContext`
+- `src/{apply,search,filter,resume,report,questions,rejects,letters,captcha,dom,infra,ui}` — модули
+- `src/api` — клиент backend и транспорт; `src/background/main.ts` — service worker, через который идут все запросы к backend (со страницы hh.ru Chrome блокирует запросы в локальную сеть)
+- `server/src/HhAutoApplier.{Domain,Application,Infrastructure,Api}` — DDD + CQRS: агрегаты, команды/запросы, EF и источники, контроллеры (`docs/adr/0001-backend-ddd-cqrs.md`)
+- `docs/` — для людей; план доработок — `docs/ROADMAP.md`
+
+## Code Style
+```ts
+// ✅ селектор из реестра src/core/selectors.ts
+qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
+// ❌ document.querySelector('[data-qa="..."]') в логике
+```
+```csharp
+// ✅ сценарий = Command/Query + Handler в Application; правила — в методах агрегатов Domain; контроллер только вызывает обработчик
+// ❌ логика в контроллере или Program.cs; публичные сеттеры у агрегатов; HasData (сидировать через DbSeeder)
+```
+Новое поле конфига — и в дефолты, и в слияние `loadConfig`.
+
+## Git Workflow
+- Коммит в текущую ветку; в конце сообщения трейлер `Co-authored-by:` агента, который делал изменения
+- Рабочая ветка `kondykov-new-hh-autoapplier-repo`: коммит и `git push` в неё — без отдельного вопроса, после локальных typecheck/test/build (или `dotnet test`)
+- После push дождаться CI; красный CI — чинить сразу, это часть задачи
+- Задачи — GitHub Issues, карта и порядок — `docs/ROADMAP.md`; в коммите `refs #N`. Issue закрывать после зелёного CI с комментарием о коммите и о том, что проверено и что нет; заводить issues под найденные задачи — можно, с метками
+- PR, merge в `main`, удаление веток и issues — только по просьбе
+
+## Boundaries
+- ✅ Править `src/`, `server/`, `tests/`, `docs/`; запускать тесты/сборку; локальный docker compose
+- ✅ Без вопроса (разрешение владельца от 2026-10-24): push в рабочую ветку, закрытие сделанных issues, запуск Docker Desktop и dev-браузера, read-only проверки на hh.ru
+- ⚠️ Спросить: новые зависимости, миграции EF, смена задержек/лимитов, перезапуск dev-браузера, если у владельца открыта страница
+- ❌ Реальные отклики без согласия (режим «из очереди» проверять только в пробном режиме — галочка в панели); коммит `letter.local.txt`, `server/.env`, `.profile/`, токенов; обход/автоматическое решение капчи
+
+→ Full rules: .rules/ (начать с `.rules/_index.md`, статус — `.rules/context/task.md`, план — `docs/ROADMAP.md`)
