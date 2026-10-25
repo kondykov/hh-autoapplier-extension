@@ -6,6 +6,7 @@ import { qs } from "../dom/query";
 import type { Logger } from "../infra/logger";
 import type { ResumeSelector } from "../resume/selector";
 import type { LetterProvider } from "../letters/letter-provider";
+import { fillQuestionnaire } from "../questions/fill";
 import { waitForApplyOutcome, type ApplyOutcome } from "./outcome-detector";
 import { attachLetterAndSubmit } from "./submit";
 
@@ -71,7 +72,9 @@ export class ApplyPipeline {
     const { state, logger } = this.deps;
     logger.log(`Исход отклика: ${outcome}`);
 
-    if (outcome === "outline") return this.saveOutline(vacancy);
+    // Анкета с ответами backend заполняется ниже, после выбора резюме; без ответов — в «Аутлайн»
+    const questionnaire = outcome === "outline";
+    if (questionnaire && !vacancy.answers?.length) return this.saveOutline(vacancy);
     if (outcome === "responded") {
       await this.deps.onApplied(vacancy);
       return "success";
@@ -89,8 +92,18 @@ export class ApplyPipeline {
       return "failed";
     }
     if (chosen.profile) vacancy.resume = chosen.profile.name;
+    if (questionnaire) {
+      const filled = fillQuestionnaire(vacancy.answers ?? []);
+      if (!filled.ok) {
+        // Анкета на странице не совпала с ответами (работодатель её поменял) — не отправляем
+        logger.log(`Анкета: нет ответа на ${filled.missing.length} вопр.: ${filled.missing.join(" | ").slice(0, 200)}`, "warn");
+        return this.saveOutline(vacancy);
+      }
+      logger.log("Анкета заполнена ответами с сервера", "success");
+      await wait(DELAYS.small);
+    }
     const letter = await this.deps.letters.getLetter(vacancy);
-    const result = await attachLetterAndSubmit(vacancy, letter, logger, this.deps.dryRun());
+    const result = await attachLetterAndSubmit(vacancy, letter, logger, this.deps.dryRun(), questionnaire);
     switch (result) {
       case "outline":
         return this.saveOutline(vacancy);

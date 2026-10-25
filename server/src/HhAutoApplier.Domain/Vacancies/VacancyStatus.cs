@@ -10,4 +10,6 @@ public enum VacancyStatus
     Failed = 5,
     // Прошла правила, ждёт LLM-оценки
     Pending = 6,
+    // У работодателя анкета: расширение прислало вопросы, ждёт ответов LLM
+    Questionnaire = 7,
 }

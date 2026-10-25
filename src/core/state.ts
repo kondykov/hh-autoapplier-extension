@@ -1,4 +1,5 @@
 import type { KeyValueStorage } from "../infra/storage";
+import type { QuestionAnswer } from "../questions/fill";
 import type { QueueItem } from "../queue/queue-mode";
 
 export interface VacancyItem {
@@ -15,6 +16,8 @@ export interface Vacancy extends VacancyItem {
   text?: string;
   // Готовое письмо с backend (режим «из очереди»)
   letter?: string;
+  // Ответы на анкету работодателя с backend
+  answers?: QuestionAnswer[];
   card: Element | null;
   applyBtn: HTMLElement | null;
 }

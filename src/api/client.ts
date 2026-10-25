@@ -1,3 +1,4 @@
+import type { QuestionAnswer, ServerQuestion } from "../questions/fill";
 import type { QueueItem, StatusReport } from "../queue/queue-mode";
 import type { ApiRequest, ApiResponse } from "./transport";
 
@@ -21,6 +22,7 @@ interface VacancyDto {
   company: string;
   resumeProfile: string | null;
   coverLetter?: string | null;
+  questions?: { question: string; answer: string[] }[];
 }
 
 // Клиент backend для content script
@@ -53,8 +55,20 @@ export class BackendClient {
       company: v.company,
       resume: v.resumeProfile,
       letter: v.coverLetter ?? undefined,
+      answers: answered(v.questions),
     }));
     return { ok: true, items };
+  }
+
+  // Анкета работодателя: вопросы на сервер, ответы подготовит LLM, вакансия вернётся в очередь с ними
+  async submitQuestionnaire(id: string, questions: ServerQuestion[]): Promise<ReportResult> {
+    const res = await this.call({
+      type: "hh-api",
+      path: `/api/vacancies/${encodeURIComponent(id)}/questionnaire`,
+      method: "POST",
+      body: { questions },
+    });
+    return res.status === 200 ? { ok: true } : { ok: false, error: describe(res) };
   }
 
   async reportStatus(id: string, report: StatusReport, resume: string | null): Promise<ReportResult> {
@@ -75,6 +89,12 @@ export class BackendClient {
       return { status: 0, body: "", error: (e as Error).message };
     }
   }
+}
+
+// Ответы — только если отвечено на всё: неполную анкету конвейер всё равно не отправит
+function answered(questions: VacancyDto["questions"]): QuestionAnswer[] | undefined {
+  if (!questions?.length || questions.some((q) => q.answer.length === 0)) return undefined;
+  return questions.map((q) => ({ question: q.question, answer: q.answer }));
 }
 
 function describe(res: ApiResponse): string {

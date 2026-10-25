@@ -16,5 +16,12 @@ public class VacancyConfiguration : IEntityTypeConfiguration<Vacancy>
 
         // Value object собирается из колонок SalaryFrom/SalaryTo/SalaryCurrency
         builder.Ignore(x => x.Salary);
+
+        // Анкета с ответами — одной колонкой jsonb
+        builder.OwnsMany(x => x.Questions, o =>
+        {
+            o.ToJson();
+            o.Property(q => q.Type).HasConversion<string>();
+        });
     }
 }

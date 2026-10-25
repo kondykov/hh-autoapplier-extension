@@ -36,5 +36,6 @@ public class VacancyExtractor : IExtractor<Vacancy, VacancyDto>
         CoverLetter = source.CoverLetter,
         CoverLetterModel = source.CoverLetterModel,
         CoverLetterAt = source.CoverLetterAt,
+        Questions = source.Questions.Select(q => new VacancyQuestionDto(q.Text, q.Type, q.Options, q.Answer)).ToList(),
     };
 }

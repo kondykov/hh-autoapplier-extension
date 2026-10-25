@@ -60,4 +60,6 @@ public record VacancyDto
     public string? CoverLetterModel { get; init; }
 
     public DateTimeOffset? CoverLetterAt { get; init; }
+
+    public List<VacancyQuestionDto> Questions { get; init; } = [];
 }

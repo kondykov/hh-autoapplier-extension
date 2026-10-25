@@ -2,6 +2,7 @@ import type { ApplyResult } from "../apply/pipeline";
 import { DELAYS, wait } from "../core/delays";
 import type { AppState, Vacancy } from "../core/state";
 import type { PageType } from "../dom/page-type";
+import { toServerQuestions } from "../questions/fill";
 import { isPageOf, pickNext, responseUrl, toStatusReport, type QueueItem } from "../queue/queue-mode";
 import { extractVacancyInfo } from "./vacancy-info";
 import { stopAuto, stopQueue, type PageStep, type StepContext } from "./step-context";
@@ -64,6 +65,7 @@ export class QueueStep implements PageStep {
       applyBtn: null,
       resume: current.resume ?? undefined,
       letter: current.letter,
+      answers: current.answers,
     };
     panel.setStep(`Очередь: отклик на "${vacancy.title}"`);
 
@@ -83,7 +85,32 @@ export class QueueStep implements PageStep {
     }
     if (result === "dry_run")
       logger.log(`Пробный режим: "${vacancy.title}" готов к отправке`, "success");
+    if (result === "outline") {
+      const sent = await this.sendQuestionnaire(current);
+      if (sent === "stopped") return;
+      if (sent === "sent") {
+        await this.advance();
+        return;
+      }
+    }
     await this.finish(current, result, vacancy.resume);
+  }
+
+  // Анкета без ответов (или поменялась): вопросы на сервер — LLM ответит, вакансия вернётся в очередь.
+  // Уходит и в пробном режиме: это не отклик работодателю, а подготовка к нему
+  private async sendQuestionnaire(item: QueueItem): Promise<"sent" | "none" | "stopped"> {
+    const { logger, backend } = this.ctx;
+    const questions = toServerQuestions();
+    if (questions.length === 0) return "none";
+
+    const sent = await backend.submitQuestionnaire(item.id, questions);
+    if (!sent.ok) {
+      stopQueue(this.ctx, `Анкета "${item.title}" не дошла до сервера: ${sent.error}`);
+      await this.ctx.persist();
+      return "stopped";
+    }
+    logger.log(`Анкета "${item.title}": ${questions.length} вопр. на сервере, вакансия вернётся в очередь с ответами LLM`, "warn");
+    return "sent";
   }
 
   private async openNext(): Promise<void> {
@@ -132,7 +159,11 @@ export class QueueStep implements PageStep {
       }
       logger.log(`Сервер: "${item.title}" → ${report.status}`, report.status === "Applied" ? "success" : "warn");
     }
+    await this.advance();
+  }
 
+  private async advance(): Promise<void> {
+    const { state } = this.ctx;
     state.queueCurrent = null;
     await this.ctx.persist();
     if (state.queueRunning)
