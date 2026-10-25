@@ -8,12 +8,18 @@ namespace HhAutoApplier.Application.Queries.Searches;
 
 public class GetSearchesQueryHandler(
     IAppDbContext db,
-    IExtractor<SearchProfile, SearchDto> extractor
-) : IQueryHandler<GetSearchesQuery, IReadOnlyList<SearchDto>>
+    IExtractor<SearchProfile, SearchDto> extractor,
+    ICurrentUser current
+) : IQueryHandler<GetSearchesQuery, GetSearchesResult>
 {
-    public async Task<IReadOnlyList<SearchDto>> Handle(GetSearchesQuery query, CancellationToken ct = default)
+    public async Task<GetSearchesResult> Handle(GetSearchesQuery query, CancellationToken ct = default)
     {
-        var rows = await db.Searches.AsNoTracking().OrderBy(s => s.Name).ToListAsync(ct);
+        var scope = OwnerScope.Resolve(current, query.UserId);
+        if (scope.IsT1)
+            return scope.AsT1;
+
+        var owner = scope.AsT0;
+        var rows = await db.Searches.AsNoTracking().Where(s => s.UserId == owner).OrderBy(s => s.Name).ToListAsync(ct);
         return rows.Select(extractor.Extract).ToList();
     }
 }

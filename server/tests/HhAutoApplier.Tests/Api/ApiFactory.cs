@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Vacancies;
@@ -6,6 +7,7 @@ using HhAutoApplier.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Mvc.Testing.Handlers;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -61,7 +63,15 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         });
     }
 
-    public HttpClient CreateApiClient()
+    // Клиент администратора: вход по паролю (cookie) при первом запросе — уже после ResetAsync, когда учётка пересоздана
+    public HttpClient CreateApiClient() => CreateLoggedInClient(AdminEmail, AdminPassword);
+
+    // Клиент с входом по паролю при первом запросе; cookie сессии сохраняются между запросами
+    public HttpClient CreateLoggedInClient(string email, string password) =>
+        CreateDefaultClient(new Uri("http://localhost"), new LoginHandler(email, password), new CookieContainerHandler());
+
+    // Клиент по общему ключу API (X-Api-Key): действует от имени администратора из Admin:Email, но с ролью User
+    public HttpClient CreateKeyClient()
     {
         var client = CreateClient();
         client.DefaultRequestHeaders.Add("X-Api-Key", ApiKey);
@@ -84,6 +94,30 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         await using var scope = Services.CreateAsyncScope();
         return await action(scope.ServiceProvider.GetRequiredService<AppDbContext>());
+    }
+}
+
+// Перед первым запросом клиента входит по паролю; ответ входа проверяется, чтобы тест падал с понятной причиной
+public sealed class LoginHandler(string email, string password) : DelegatingHandler
+{
+    private bool _loggedIn;
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        if (!_loggedIn)
+        {
+            var login = new HttpRequestMessage(HttpMethod.Post, new Uri(request.RequestUri!, "/api/auth/login"))
+            {
+                Content = JsonContent.Create(new { email, password }),
+            };
+            var response = await base.SendAsync(login, ct);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException($"Вход {email} не удался: {(int)response.StatusCode} {await response.Content.ReadAsStringAsync(ct)}");
+
+            _loggedIn = true;
+        }
+
+        return await base.SendAsync(request, ct);
     }
 }
 

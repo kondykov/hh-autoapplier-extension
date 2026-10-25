@@ -43,6 +43,7 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, (await anonymous.GetAsync("/openapi/v1.json")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/stats")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await _api.GetAsync("/api/stats")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await factory.CreateKeyClient().GetAsync("/api/stats")).StatusCode);
     }
 
     [Fact]

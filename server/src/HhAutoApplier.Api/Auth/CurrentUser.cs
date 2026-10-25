@@ -12,4 +12,6 @@ public class CurrentUser(IHttpContextAccessor accessor) : ICurrentUser
     public string Name => Principal?.Identity?.Name ?? "";
 
     public string Role => Principal?.FindFirstValue(ClaimTypes.Role) ?? "";
+
+    public bool ViaApiKey => Principal?.FindFirstValue(AuthClaims.Method) == ApiKeyAuthenticationHandler.Name;
 }

@@ -135,4 +135,45 @@ public class DomainTests
         Assert.Equal(("C#", null, "work_format=REMOTE"), (search.Query, search.Area, search.ExtraParams));
         Assert.Equal(["c#", ".net"], ResumeProfile.Create(".NET", "C#", ["c#", " .net ", "C#", ""]).Keywords);
     }
+
+    // Ссылка из импорта открывается на страницах backend: только https на hh.ru и его поддоменах, иначе — стандартная
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("http://hh.ru/vacancy/1")]
+    [InlineData("https://evil.com/vacancy/1")]
+    [InlineData("https://evilhh.ru/vacancy/1")]
+    [InlineData("https://hh.ru.evil.com/vacancy/1")]
+    [InlineData("/vacancy/1")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void Vacancy_UnsafeUrl_ReplacedWithDefault(string? url)
+    {
+        var vacancy = Vacancy.Create("1", "C# разработчик", url!, "dotnet", Now, imported: true);
+
+        Assert.Equal("https://hh.ru/vacancy/1", vacancy.Url);
+        Assert.True(vacancy.Imported);
+    }
+
+    [Theory]
+    [InlineData("https://hh.ru/vacancy/1")]
+    [InlineData("https://spb.hh.ru/vacancy/1")]
+    public void Vacancy_HhUrl_Kept(string url) =>
+        Assert.Equal(url, Vacancy.Create("1", "C# разработчик", url, "dotnet", Now).Url);
+
+    [Fact]
+    public void Vacancy_AcceptSourceCard_ReplacesClientCard()
+    {
+        var imported = Vacancy.Create("1", "Чужой заголовок", "javascript:alert(1)", "dotnet", Now, imported: true);
+        imported.UpdateCard("Фейк", "Нигде", new Salary(1, 2, "RUR"), "OFFICE", true, Now);
+        var card = Vacancy.Create("1", "C# разработчик", "https://spb.hh.ru/vacancy/1", "dotnet", Now);
+        card.UpdateCard("Acme", "Москва", null, "REMOTE", false, Now.AddDays(-1));
+
+        imported.AcceptSourceCard(card);
+
+        Assert.Equal(("C# разработчик", "https://spb.hh.ru/vacancy/1", "Acme", "Москва", "REMOTE", false, Now.AddDays(-1)),
+            (imported.Title, imported.Url, imported.Company, imported.Area, imported.WorkFormat, imported.HasTest, imported.PublishedAt));
+        Assert.Null(imported.Salary);
+        Assert.False(imported.Imported);
+        Assert.Throws<DomainException>(() => imported.AcceptSourceCard(Vacancy.Create("2", "x", "", "dotnet", Now)));
+    }
 }

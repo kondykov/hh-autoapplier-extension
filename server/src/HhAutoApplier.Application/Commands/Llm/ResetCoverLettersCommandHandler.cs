@@ -11,7 +11,7 @@ public class ResetCoverLettersCommandHandler(IAppDbContext db) : ICommandHandler
     // Только очередь и проверка: письма отправленных откликов — история, их не трогаем
     public async Task<ResetCoverLettersResultDto> Handle(ResetCoverLettersCommand command, CancellationToken ct = default)
     {
-        var q = db.Applications().Where(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter != null);
+        var q = db.AllApplications().Where(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter != null);
         if (command.VacancyIds.Count > 0)
             q = q.Where(a => command.VacancyIds.Contains(a.VacancyId));
 

@@ -10,14 +10,19 @@ namespace HhAutoApplier.Application.Queries.Reports;
 
 public class GetApplicationsReportQueryHandler(
     IAppDbContext db,
-    IExtractor<JobApplication, VacancyDto> extractor
+    IExtractor<JobApplication, VacancyDto> extractor,
+    ICurrentUser current
 ) : IQueryHandler<GetApplicationsReportQuery, ApplicationsReportResult>
 {
     private const string Header = "Вакансия;Стек;Компания;Оплата;Формат;Ссылка;Дата;Резюме";
 
     public async Task<ApplicationsReportResult> Handle(GetApplicationsReportQuery query, CancellationToken ct = default)
     {
-        var rows = await db.Applications().AsNoTracking().Where(a => a.Status == VacancyStatus.Applied)
+        var scope = OwnerScope.Resolve(current, query.UserId);
+        if (scope.IsT1)
+            return scope.AsT1;
+
+        var rows = await db.Applications(scope.AsT0).AsNoTracking().Where(a => a.Status == VacancyStatus.Applied)
             .OrderByDescending(a => a.AppliedAt).ToListAsync(ct);
 
         if (!string.Equals(query.Format, "csv", StringComparison.OrdinalIgnoreCase))

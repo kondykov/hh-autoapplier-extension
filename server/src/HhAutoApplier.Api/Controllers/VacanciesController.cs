@@ -31,13 +31,14 @@ public class VacanciesController : ApiController
     /// </summary>
     [HttpGet("vacancies")]
     [ProducesResponseType(typeof(IReadOnlyList<VacancyDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ForbiddenError), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetVacancies(
         [FromQuery] GetVacanciesQuery query,
         [FromServices] GetVacanciesQueryHandler handler,
         CancellationToken ct
     )
     {
-        return Ok(await handler.Handle(query, ct));
+        return FromResult((await handler.Handle(query, ct)).Value);
     }
 
     /// <summary>
@@ -114,9 +115,10 @@ public class VacanciesController : ApiController
     /// </summary>
     [HttpGet("stats")]
     [ProducesResponseType(typeof(IReadOnlyDictionary<string, int>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetStats([FromServices] GetStatsQueryHandler handler, CancellationToken ct)
+    [ProducesResponseType(typeof(ForbiddenError), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetStats(Guid? userId, [FromServices] GetStatsQueryHandler handler, CancellationToken ct)
     {
-        return Ok(await handler.Handle(new GetStatsQuery(), ct));
+        return FromResult((await handler.Handle(new GetStatsQuery(userId), ct)).Value);
     }
 
     /// <summary>

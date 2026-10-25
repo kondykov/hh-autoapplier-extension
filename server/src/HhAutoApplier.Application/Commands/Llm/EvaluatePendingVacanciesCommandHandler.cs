@@ -14,6 +14,7 @@ public class EvaluatePendingVacanciesCommandHandler(
     IAppDbContext db,
     ILlmClient llm,
     TimeProvider clock,
+    IUserService users,
     ILogger<EvaluatePendingVacanciesCommandHandler> logger
 ) : ICommandHandler<EvaluatePendingVacanciesCommand, EvaluatePendingResult>
 {
@@ -22,16 +23,17 @@ public class EvaluatePendingVacanciesCommandHandler(
         if (!llm.IsConfigured)
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
 
-        var pending = await db.Applications().Where(a => a.Status == VacancyStatus.Pending)
+        var pending = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct)).Where(a => a.Status == VacancyStatus.Pending)
             .OrderBy(a => a.Vacancy.CollectedAt).Take(command.Limit).ToListAsync(ct);
-        var resumes = await db.Resumes.AsNoTracking().ToListAsync(ct);
-        var searches = await db.Searches.AsNoTracking().ToDictionaryAsync(s => s.Name, ct);
+        // Резюме — владельца отклика, правила — поиска, который нашёл вакансию
+        var resumesByOwner = (await db.Resumes.AsNoTracking().ToListAsync(ct)).ToLookup(r => r.UserId);
 
         int fit = 0, doubtful = 0, rejected = 0;
         string? stoppedBy = null;
         foreach (var application in pending)
         {
-            var rules = searches.TryGetValue(application.Vacancy.SearchName, out var search) ? search.Rules : new();
+            var rules = application.Rules;
+            var resumes = resumesByOwner[application.UserId].ToList();
             var request = VacancyAssessment.BuildRequest(application.Vacancy, resumes, rules);
             var prompt = VacancyAssessment.Serialize(request);
 
@@ -73,7 +75,7 @@ public class EvaluatePendingVacanciesCommandHandler(
             }
         }
 
-        var remaining = await db.Applications().CountAsync(a => a.Status == VacancyStatus.Pending, ct);
+        var remaining = await db.JobApplications.CountAsync(a => a.Status == VacancyStatus.Pending, ct);
         logger.LogInformation("LLM-оценка: подходит {Fit}, сомнительно {Doubtful}, не подходит {Rejected}, ждут {Remaining}",
             fit, doubtful, rejected, remaining);
         return new LlmEvaluationResultDto(fit + doubtful + rejected, fit, doubtful, rejected, remaining, stoppedBy);

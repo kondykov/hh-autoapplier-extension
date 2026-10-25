@@ -18,6 +18,7 @@ public class CollectVacanciesCommandHandler(
     VacancyEvaluator evaluator,
     IOptions<CollectorOptions> options,
     TimeProvider clock,
+    IUserService users,
     ILogger<CollectVacanciesCommandHandler> logger
 ) : ICommandHandler<CollectVacanciesCommand, CollectVacanciesResult>
 {
@@ -25,8 +26,12 @@ public class CollectVacanciesCommandHandler(
 
     public async Task<CollectVacanciesResult> Handle(CollectVacanciesCommand command, CancellationToken ct = default)
     {
-        var searches = await db.Searches.AsNoTracking().Where(s => s.Enabled).ToListAsync(ct);
-        var resumes = await db.Resumes.AsNoTracking().ToListAsync(ct);
+        // Поиски всех пользователей; отклик получает владелец поиска — с его правилами и резюме
+        // Заблокированных пропускаем: ни запросов к источнику, ни LLM за их счёт
+        var blocked = await users.GetBlockedIdsAsync(ct);
+        var searches = (await db.Searches.AsNoTracking().Where(s => s.Enabled).ToListAsync(ct))
+            .Where(s => s.UserId is not { } owner || !blocked.Contains(owner)).ToList();
+        var resumes = (await db.Resumes.AsNoTracking().ToListAsync(ct)).ToLookup(r => r.UserId);
         int seen = 0, added = 0, queued = 0, skipped = 0;
 
         try
@@ -45,19 +50,37 @@ public class CollectVacanciesCommandHandler(
 
                     seen += found.Count;
 
+                    // Вакансия общая: известную не загружаем заново. Новое — то, на что у владельца поиска ещё нет отклика
                     var ids = found.Select(v => v.Id).ToList();
-                    var known = (await db.Vacancies.Where(v => ids.Contains(v.Id)).Select(v => v.Id).ToListAsync(ct)).ToHashSet();
-                    var fresh = found.DistinctBy(v => v.Id).Where(v => !known.Contains(v.Id)).ToList();
-                    foreach (var vacancy in fresh)
+                    var known = await db.Vacancies.Where(v => ids.Contains(v.Id)).ToDictionaryAsync(v => v.Id, ct);
+
+                    // Карточки из импорта источник подтверждает сам: данные клиента не идут дальше в чужие отклики и промпты
+                    foreach (var card in found.DistinctBy(v => v.Id).Where(v => known.TryGetValue(v.Id, out var k) && k.Imported))
                     {
+                        var imported = known[card.Id];
+                        imported.AcceptSourceCard(card);
                         await PauseAsync(ct);
-                        if (!await source.LoadDetailsAsync(vacancy, ct))
-                            continue;
+                        await source.LoadDetailsAsync(imported, ct);
+                    }
+
+                    var applied = (await db.JobApplications.Where(a => a.UserId == search.UserId && ids.Contains(a.VacancyId))
+                        .Select(a => a.VacancyId).ToListAsync(ct)).ToHashSet();
+                    var fresh = found.DistinctBy(v => v.Id).Where(v => !applied.Contains(v.Id)).ToList();
+                    foreach (var card in fresh)
+                    {
+                        if (!known.TryGetValue(card.Id, out var vacancy))
+                        {
+                            await PauseAsync(ct);
+                            if (!await source.LoadDetailsAsync(card, ct))
+                                continue;
+
+                            vacancy = card;
+                            db.Vacancies.Add(vacancy);
+                        }
 
                         var now = clock.GetUtcNow();
-                        var application = JobApplication.Create(vacancy, null, now);
-                        application.Evaluate(evaluator, search.Rules, resumes, now, awaitLlm: llm.IsConfigured);
-                        db.Vacancies.Add(vacancy);
+                        var application = JobApplication.Create(vacancy, search.UserId, now, search.Id);
+                        application.Evaluate(evaluator, search.Rules, resumes[search.UserId], now, awaitLlm: llm.IsConfigured);
                         db.JobApplications.Add(application);
                         added++;
                         if (application.Status is VacancyStatus.Queued or VacancyStatus.Pending)
@@ -66,7 +89,18 @@ public class CollectVacanciesCommandHandler(
                             skipped++;
                     }
 
-                    await db.SaveChangesAsync(ct);
+                    // Импорт того же пользователя мог успеть создать тот же отклик (уникальный индекс): страницу пропускаем,
+                    // остальные поиски идут дальше; пропущенное найдётся при следующем сборе
+                    try
+                    {
+                        await db.SaveChangesAsync(ct);
+                    }
+                    catch (DbUpdateException e)
+                    {
+                        db.ChangeTracker.Clear();
+                        logger.LogWarning(e, "Сбор: страница {Page} поиска {Search} не сохранена", page, search.Id);
+                        break;
+                    }
 
                     // Выдача отсортирована по дате: страница без новых — дальше только известные
                     if (fresh.Count == 0)

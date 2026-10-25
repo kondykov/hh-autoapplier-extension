@@ -40,10 +40,14 @@ public class Vacancy
 
     public string SearchName { get; private set; } = "";
 
+    // Карточка пришла от клиента (импорт), а не от источника: карточка общая, поэтому первый же сбор,
+    // встретивший вакансию, перезаписывает её данными источника — чужие правки не доходят до других пользователей
+    public bool Imported { get; private set; }
+
     // Хранится тремя колонками, наружу — одним значением
     public Salary? Salary => Salary.From(SalaryFrom, SalaryTo, SalaryCurrency);
 
-    public static Vacancy Create(string id, string title, string url, string searchName, DateTimeOffset collectedAt)
+    public static Vacancy Create(string id, string title, string url, string searchName, DateTimeOffset collectedAt, bool imported = false)
     {
         if (string.IsNullOrWhiteSpace(id)) throw new DomainException("У вакансии нет идентификатора");
 
@@ -51,11 +55,33 @@ public class Vacancy
         {
             Id = id,
             Title = title.Trim(),
-            Url = url,
+            Url = SafeUrl(id, url),
             SearchName = searchName,
             CollectedAt = collectedAt,
             PublishedAt = collectedAt,
+            Imported = imported,
         };
+    }
+
+    // Источник подтвердил вакансию: карточка — с его выдачи, подробности источник загрузит следом
+    public void AcceptSourceCard(Vacancy card)
+    {
+        if (card.Id != Id)
+            throw new DomainException($"Карточка {card.Id} не от вакансии {Id}");
+
+        (Title, Url, Company, Area, WorkFormat, HasTest, PublishedAt) =
+            (card.Title, card.Url, card.Company, card.Area, card.WorkFormat, card.HasTest, card.PublishedAt);
+        (SalaryFrom, SalaryTo, SalaryCurrency) = (card.SalaryFrom, card.SalaryTo, card.SalaryCurrency);
+        Imported = false;
+    }
+
+    // Ссылка открывается на страницах backend и в расширении: только https на hh.ru, иначе — стандартная страница вакансии
+    // (javascript: и чужие сайты из импорта не проходят)
+    private static string SafeUrl(string id, string? url)
+    {
+        var hh = Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps
+                 && (uri.Host == "hh.ru" || uri.Host.EndsWith(".hh.ru", StringComparison.Ordinal));
+        return hh ? uri!.ToString() : $"https://hh.ru/vacancy/{Uri.EscapeDataString(id)}";
     }
 
     // Данные карточки: с выдачи источника или из импорта

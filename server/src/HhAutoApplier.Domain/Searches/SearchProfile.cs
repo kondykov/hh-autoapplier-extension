@@ -10,6 +10,9 @@ public class SearchProfile
 
     public int Id { get; private set; }
 
+    // Владелец поиска; null — владелец по умолчанию, пока нет пользователей (данные переходят первому администратору)
+    public Guid? UserId { get; private set; }
+
     public string Name { get; private set; } = "";
 
     public string Query { get; private set; } = "";
@@ -24,12 +27,12 @@ public class SearchProfile
 
     public FilterRules Rules { get; private set; } = new();
 
-    public static SearchProfile Create(string name, string query, string? area, string? extraParams, FilterRules? rules, bool enabled)
+    public static SearchProfile Create(string name, string query, string? area, string? extraParams, FilterRules? rules, bool enabled, Guid? userId = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new DomainException("У поиска нет имени");
 
-        var search = new SearchProfile { Name = name.Trim() };
+        var search = new SearchProfile { Name = name.Trim(), UserId = userId };
         search.Update(query, area, extraParams, rules, enabled);
         return search;
     }

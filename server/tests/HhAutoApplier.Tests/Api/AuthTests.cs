@@ -78,13 +78,20 @@ public class AuthTests(ApiFactory factory) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ApiKey_ActsAsAdminWithoutAccount_WrongKeyRejected()
+    public async Task ApiKey_ActsAsAdminEmailUserWithUserRole_WrongKeyRejected()
     {
-        var me = await Json(await _api.GetAsync("/api/auth/me"));
-        Assert.Equal("api-key", me.GetProperty("name").GetString());
-        Assert.Equal("Admin", me.GetProperty("role").GetString());
-        Assert.Equal(JsonValueKind.Null, me.GetProperty("id").ValueKind);
-        Assert.Equal(HttpStatusCode.Conflict, (await _api.PostAsJsonAsync("/api/auth/password", new { currentPassword = "x", newPassword = "y" })).StatusCode);
+        var admins = await Json(await _api.GetAsync("/api/users"));
+        var adminId = admins.EnumerateArray().Single().GetProperty("id").GetString();
+        var key = factory.CreateKeyClient();
+
+        // Ключ действует от имени администратора из Admin:Email, но с ролью User: пользователями не управлять
+        var me = await Json(await key.GetAsync("/api/auth/me"));
+        Assert.Equal(ApiFactory.AdminEmail, me.GetProperty("name").GetString());
+        Assert.Equal("User", me.GetProperty("role").GetString());
+        Assert.Equal(adminId, me.GetProperty("id").GetString());
+        Assert.True(me.GetProperty("viaApiKey").GetBoolean());
+        Assert.Equal(HttpStatusCode.Forbidden, (await key.GetAsync("/api/users")).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await key.PostAsJsonAsync("/api/auth/password", new { currentPassword = "x", newPassword = "y" })).StatusCode);
 
         var wrong = factory.CreateClient();
         wrong.DefaultRequestHeaders.Add("X-Api-Key", "not-the-key");
@@ -92,14 +99,17 @@ public class AuthTests(ApiFactory factory) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task UserRole_OnlyOwnAccount_NoSharedDataOrUsers()
+    public async Task UserRole_OwnDataOnly_NoUsersCollectOrLlm()
     {
         await CreateUser("user@test.local");
         var user = await LoggedIn("user@test.local", UserPassword);
 
         Assert.Equal("User", (await Json(await user.GetAsync("/api/auth/me"))).GetProperty("role").GetString());
-        Assert.Equal(HttpStatusCode.Forbidden, (await user.GetAsync("/api/stats")).StatusCode);
+        // Свои данные доступны, общее — пользователи, сбор, LLM — только администратору
+        Assert.Equal(HttpStatusCode.OK, (await user.GetAsync("/api/stats")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await user.GetAsync("/api/users")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await user.PostAsync("/api/collect", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await user.PostAsync("/api/llm/check", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await factory.CreateClient().GetAsync("/api/users")).StatusCode);
     }
 

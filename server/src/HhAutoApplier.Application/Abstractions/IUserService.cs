@@ -13,6 +13,13 @@ public interface IUserService
 
     Task<UserDto?> FindAsync(Guid id, CancellationToken ct = default);
 
+    Task<UserDto?> FindByEmailAsync(string email, CancellationToken ct = default);
+
+    Task<bool> AnyAsync(CancellationToken ct = default);
+
+    // Заблокированные: фоновые проходы (сбор, LLM) их пропускают
+    Task<IReadOnlyList<Guid>> GetBlockedIdsAsync(CancellationToken ct = default);
+
     // Незаблокированные администраторы
     Task<int> CountActiveAdminsAsync(CancellationToken ct = default);
 

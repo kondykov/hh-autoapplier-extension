@@ -21,8 +21,13 @@ public class JobApplication
     // Карточка вакансии — только для чтения: правила оценки и промпты LLM смотрят на неё
     public Vacancy Vacancy { get; private set; } = null!;
 
-    // Владелец отклика; null — владелец по умолчанию, пока у поисков нет владельцев (#9)
+    // Владелец отклика — владелец поиска, который нашёл вакансию; null — владелец по умолчанию, пока нет пользователей
     public Guid? UserId { get; private set; }
+
+    // Поиск владельца, нашедший вакансию: его правила — для оценки и анкеты. null — поиск удалён
+    public int? SearchId { get; private set; }
+
+    public SearchProfile? Search { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
 
@@ -59,11 +64,12 @@ public class JobApplication
     // Переходы между статусами, по порядку
     public List<ApplicationEvent> History { get; private set; } = [];
 
-    public static JobApplication Create(Vacancy vacancy, Guid? userId, DateTimeOffset at) => new()
+    public static JobApplication Create(Vacancy vacancy, Guid? userId, DateTimeOffset at, int? searchId = null) => new()
     {
         Vacancy = vacancy,
         VacancyId = vacancy.Id,
         UserId = userId,
+        SearchId = searchId,
         CreatedAt = at,
         Status = VacancyStatus.New,
         History = [new ApplicationEvent { At = at, To = VacancyStatus.New }],
@@ -232,6 +238,9 @@ public class JobApplication
             History = [.. History, new ApplicationEvent { At = at, From = Status, To = status, Reason = reason }];
         (Status, StatusReason) = (status, reason);
     }
+
+    // Правила поиска для оценки и анкеты; поиск удалён или не загружен — правила по умолчанию
+    public FilterRules Rules => Search?.Rules ?? new FilterRules();
 
     // Модель письма, поправленного человеком на ручной проверке
     public const string ManualLetter = "manual";

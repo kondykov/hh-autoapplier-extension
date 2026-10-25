@@ -110,6 +110,16 @@
     return node;
   }
 
+  // Ссылка — только http(s): javascript: и прочее из данных не попадает в href
+  function safeUrl(url) {
+    try {
+      const u = new URL(url);
+      return u.protocol === "https:" || u.protocol === "http:" ? u.href : "#";
+    } catch {
+      return "#";
+    }
+  }
+
   function salary(v) {
     if (v.salaryFrom == null && v.salaryTo == null) return "зарплата не указана";
     const range = [v.salaryFrom != null ? `от ${v.salaryFrom.toLocaleString("ru-RU")}` : "", v.salaryTo != null ? `до ${v.salaryTo.toLocaleString("ru-RU")}` : ""];
@@ -126,7 +136,7 @@
     const result = el("span", { className: "result" });
 
     const node = el("article", { className: "card" },
-      el("h2", {}, el("a", { href: v.url, target: "_blank", rel: "noopener", textContent: v.title })),
+      el("h2", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title })),
       el("div", { className: "meta", textContent: [v.company, v.area, salary(v), v.workFormat, `балл ${v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.hasTest && "есть тест"].filter(Boolean).join(" · ") }),
       el("div", { className: "verdict", textContent: v.statusReason ?? v.llmReason ?? "LLM сомневается" }),
       v.stack?.length ? el("div", { className: "meta", textContent: `Стек: ${v.stack.join(", ")}` }) : null,

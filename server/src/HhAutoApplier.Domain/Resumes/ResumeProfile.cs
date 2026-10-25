@@ -10,6 +10,9 @@ public class ResumeProfile
 
     public int Id { get; private set; }
 
+    // Владелец резюме; null — владелец по умолчанию, пока нет пользователей (данные переходят первому администратору)
+    public Guid? UserId { get; private set; }
+
     public string Name { get; private set; } = "";
 
     // Подстрока названия резюме на hh.ru
@@ -24,12 +27,12 @@ public class ResumeProfile
     // Пусто — LLM пишет письмо сама по Summary
     public string? LetterTemplate { get; private set; }
 
-    public static ResumeProfile Create(string name, string match, IEnumerable<string> keywords, string? summary = null, string? letterTemplate = null)
+    public static ResumeProfile Create(string name, string match, IEnumerable<string> keywords, string? summary = null, string? letterTemplate = null, Guid? userId = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new DomainException("У резюме нет имени");
 
-        var resume = new ResumeProfile { Name = name.Trim() };
+        var resume = new ResumeProfile { Name = name.Trim(), UserId = userId };
         resume.Update(match, keywords, summary, letterTemplate);
         return resume;
     }

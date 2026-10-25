@@ -15,9 +15,10 @@ public class ResumesController : ApiController
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<ResumeDto>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAll([FromServices] GetResumesQueryHandler handler, CancellationToken ct)
+    [ProducesResponseType(typeof(ForbiddenError), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetAll(Guid? userId, [FromServices] GetResumesQueryHandler handler, CancellationToken ct)
     {
-        return Ok(await handler.Handle(new GetResumesQuery(), ct));
+        return FromResult((await handler.Handle(new GetResumesQuery(userId), ct)).Value);
     }
 
     /// <summary>

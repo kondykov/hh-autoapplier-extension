@@ -10,17 +10,18 @@ namespace HhAutoApplier.Application.Commands.Searches;
 
 public class SaveSearchCommandHandler(
     IAppDbContext db,
-    IExtractor<SearchProfile, SearchDto> extractor
+    IExtractor<SearchProfile, SearchDto> extractor,
+    ICurrentUser current
 ) : ICommandHandler<SaveSearchCommand, SaveSearchResult>
 {
     public async Task<SaveSearchResult> Handle(SaveSearchCommand command, CancellationToken ct = default)
     {
-        var search = await db.Searches.FirstOrDefaultAsync(s => s.Name == command.Name, ct);
+        var search = await db.Searches.FirstOrDefaultAsync(s => s.UserId == current.Id && s.Name == command.Name, ct);
         try
         {
             if (search is null)
             {
-                search = SearchProfile.Create(command.Name, command.Query, command.Area, command.ExtraParams, command.Rules, command.Enabled);
+                search = SearchProfile.Create(command.Name, command.Query, command.Area, command.ExtraParams, command.Rules, command.Enabled, current.Id);
                 db.Searches.Add(search);
             }
             else

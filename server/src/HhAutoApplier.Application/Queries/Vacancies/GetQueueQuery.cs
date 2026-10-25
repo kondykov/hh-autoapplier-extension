@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace HhAutoApplier.Application.Queries.Vacancies;
 
-// Очередь на отклик: лучшие вакансии с уже выбранным резюме
+// Своя очередь на отклик: лучшие вакансии с уже выбранным резюме. Чужие очереди не отдаются даже администратору — их читает расширение
 public record GetQueueQuery
 {
     public string? Search { get; init; }

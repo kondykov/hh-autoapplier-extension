@@ -9,35 +9,42 @@ using Microsoft.EntityFrameworkCore;
 
 namespace HhAutoApplier.Application.Commands.Vacancies;
 
+// Импорт в свой поиск: вакансия общая — новая создаётся, известная берётся из базы; отклик — свой, если его ещё нет
 public class ImportVacanciesCommandHandler(
     IAppDbContext db,
     VacancyEvaluator evaluator,
     ILlmClient llm,
-    TimeProvider clock
+    TimeProvider clock,
+    ICurrentUser current
 ) : ICommandHandler<ImportVacanciesCommand, ImportVacanciesResult>
 {
     public async Task<ImportVacanciesResult> Handle(ImportVacanciesCommand command, CancellationToken ct = default)
     {
-        var search = await db.Searches.AsNoTracking().FirstOrDefaultAsync(s => s.Name == command.Search, ct);
+        var search = await db.Searches.AsNoTracking().FirstOrDefaultAsync(s => s.UserId == current.Id && s.Name == command.Search, ct);
         if (search is null)
             return new ValidationError($"поиск «{command.Search}» не найден");
 
-        var resumes = await db.Resumes.AsNoTracking().ToListAsync(ct);
+        var resumes = await db.Resumes.AsNoTracking().Where(r => r.UserId == current.Id).ToListAsync(ct);
         var ids = command.Vacancies.Select(v => v.Id).Distinct().ToList();
-        var known = (await db.Vacancies.Where(v => ids.Contains(v.Id)).Select(v => v.Id).ToListAsync(ct)).ToHashSet();
+        var known = await db.Vacancies.Where(v => ids.Contains(v.Id)).ToDictionaryAsync(v => v.Id, ct);
+        var applied = (await db.JobApplications.Where(a => a.UserId == current.Id && ids.Contains(a.VacancyId))
+            .Select(a => a.VacancyId).ToListAsync(ct)).ToHashSet();
 
         var now = clock.GetUtcNow();
         int added = 0, queued = 0;
-        foreach (var item in command.Vacancies.DistinctBy(v => v.Id).Where(v => !known.Contains(v.Id)))
+        foreach (var item in command.Vacancies.DistinctBy(v => v.Id).Where(v => !applied.Contains(v.Id)))
         {
-            var vacancy = Vacancy.Create(item.Id, item.Title, item.Url ?? $"https://hh.ru/vacancy/{item.Id}", search.Name, now);
-            vacancy.UpdateCard(item.Company, item.Area, Salary.From(item.SalaryFrom, item.SalaryTo, item.SalaryCurrency),
-                item.WorkFormat, item.HasTest, item.PublishedAt?.ToUniversalTime());
-            vacancy.UpdateDetails(null, item.Description ?? "", item.Stack ?? []);
-            var application = JobApplication.Create(vacancy, null, now);
-            application.Evaluate(evaluator, search.Rules, resumes, now, awaitLlm: llm.IsConfigured);
+            if (!known.TryGetValue(item.Id, out var vacancy))
+            {
+                vacancy = Vacancy.Create(item.Id, item.Title, item.Url ?? "", search.Name, now, imported: true);
+                vacancy.UpdateCard(item.Company, item.Area, Salary.From(item.SalaryFrom, item.SalaryTo, item.SalaryCurrency),
+                    item.WorkFormat, item.HasTest, item.PublishedAt?.ToUniversalTime());
+                vacancy.UpdateDetails(null, item.Description ?? "", item.Stack ?? []);
+                db.Vacancies.Add(vacancy);
+            }
 
-            db.Vacancies.Add(vacancy);
+            var application = JobApplication.Create(vacancy, current.Id, now, search.Id);
+            application.Evaluate(evaluator, search.Rules, resumes, now, awaitLlm: llm.IsConfigured);
             db.JobApplications.Add(application);
             added++;
             if (application.Status is VacancyStatus.Queued or VacancyStatus.Pending)

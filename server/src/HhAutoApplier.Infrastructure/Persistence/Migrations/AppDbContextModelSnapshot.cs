@@ -67,6 +67,9 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.Property<int>("Score")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("SearchId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -83,6 +86,8 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("SearchId");
 
                     b.HasIndex("UserId");
 
@@ -171,10 +176,15 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.Property<string>("Summary")
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("Name")
+                    b.HasIndex("UserId", "Name")
                         .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("UserId", "Name"), false);
 
                     b.ToTable("Resumes", (string)null);
                 });
@@ -204,10 +214,15 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("Name")
+                    b.HasIndex("UserId", "Name")
                         .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("UserId", "Name"), false);
 
                     b.ToTable("Searches", (string)null);
                 });
@@ -233,6 +248,9 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                         .HasColumnType("text");
 
                     b.Property<bool>("HasTest")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("Imported")
                         .HasColumnType("boolean");
 
                     b.Property<DateTimeOffset>("PublishedAt")
@@ -479,6 +497,11 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("HhAutoApplier.Domain.Applications.JobApplication", b =>
                 {
+                    b.HasOne("HhAutoApplier.Domain.Searches.SearchProfile", "Search")
+                        .WithMany()
+                        .HasForeignKey("SearchId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("HhAutoApplier.Infrastructure.Identity.AppUser", null)
                         .WithMany()
                         .HasForeignKey("UserId")
@@ -553,11 +576,26 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
 
                     b.Navigation("Questions");
 
+                    b.Navigation("Search");
+
                     b.Navigation("Vacancy");
+                });
+
+            modelBuilder.Entity("HhAutoApplier.Domain.Resumes.ResumeProfile", b =>
+                {
+                    b.HasOne("HhAutoApplier.Infrastructure.Identity.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade);
                 });
 
             modelBuilder.Entity("HhAutoApplier.Domain.Searches.SearchProfile", b =>
                 {
+                    b.HasOne("HhAutoApplier.Infrastructure.Identity.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
                     b.OwnsOne("HhAutoApplier.Domain.Searches.FilterRules", "Rules", b1 =>
                         {
                             b1.Property<int>("SearchProfileId");

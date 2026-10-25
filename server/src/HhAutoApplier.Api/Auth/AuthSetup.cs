@@ -12,7 +12,7 @@ public static class AuthSetup
     private const string Selector = "CookieOrApiKey";
 
     // Два способа войти: cookie после входа по паролю (страницы backend) и заголовок X-Api-Key (расширение).
-    // Без атрибутов эндпоинт доступен только Admin: данные пока общие и принадлежат владельцу, свои — после #9
+    // Без атрибутов эндпоинт доступен любому вошедшему: данные у каждого свои (#9). Общее — пользователи, сбор, LLM — только Admin
     public static IServiceCollection AddAuth(this IServiceCollection services, IConfiguration config)
     {
         services.AddAuthentication(Selector)
@@ -20,7 +20,11 @@ public static class AuthSetup
                 context.Request.Headers.ContainsKey(ApiKeyAuthenticationHandler.Header)
                     ? ApiKeyAuthenticationHandler.SchemeName
                     : IdentityConstants.ApplicationScheme)
-            .AddScheme<ApiKeyAuthenticationOptions, ApiKeyAuthenticationHandler>(ApiKeyAuthenticationHandler.SchemeName, o => o.Key = config["Api:Key"])
+            .AddScheme<ApiKeyAuthenticationOptions, ApiKeyAuthenticationHandler>(ApiKeyAuthenticationHandler.SchemeName, o =>
+            {
+                o.Key = config["Api:Key"];
+                o.User = string.IsNullOrWhiteSpace(config["Api:KeyUser"]) ? config["Admin:Email"] : config["Api:KeyUser"];
+            })
             .AddIdentityCookies();
 
         services.ConfigureApplicationCookie(o =>
@@ -41,7 +45,7 @@ public static class AuthSetup
         services.Configure<SecurityStampValidatorOptions>(o => o.ValidationInterval = TimeSpan.FromMinutes(1));
 
         services.AddAuthorizationBuilder()
-            .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireRole(Roles.Admin).Build());
+            .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
 
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, CurrentUser>();

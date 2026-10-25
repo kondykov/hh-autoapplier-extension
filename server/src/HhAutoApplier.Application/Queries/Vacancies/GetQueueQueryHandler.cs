@@ -9,14 +9,15 @@ namespace HhAutoApplier.Application.Queries.Vacancies;
 
 public class GetQueueQueryHandler(
     IAppDbContext db,
-    IExtractor<JobApplication, VacancyDto> extractor
+    IExtractor<JobApplication, VacancyDto> extractor,
+    ICurrentUser current
 ) : IQueryHandler<GetQueueQuery, IReadOnlyList<VacancyDto>>
 {
     public async Task<IReadOnlyList<VacancyDto>> Handle(GetQueueQuery query, CancellationToken ct = default)
     {
-        var q = db.Applications().AsNoTracking().Where(a => a.Status == VacancyStatus.Queued);
+        var q = db.Applications(current.Id).AsNoTracking().Where(a => a.Status == VacancyStatus.Queued);
         if (!string.IsNullOrWhiteSpace(query.Search))
-            q = q.Where(a => a.Vacancy.SearchName == query.Search);
+            q = q.Where(a => a.Search != null && a.Search.Name == query.Search);
 
         if (!string.IsNullOrWhiteSpace(query.Resume))
             q = q.Where(a => a.ResumeProfile == query.Resume);

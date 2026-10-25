@@ -41,6 +41,17 @@ public class UserService(
         return user is null ? null : await ToDtoAsync(user);
     }
 
+    public async Task<UserDto?> FindByEmailAsync(string email, CancellationToken ct = default)
+    {
+        var user = await users.FindByEmailAsync(email);
+        return user is null ? null : await ToDtoAsync(user);
+    }
+
+    public Task<bool> AnyAsync(CancellationToken ct = default) => db.Users.AnyAsync(ct);
+
+    public async Task<IReadOnlyList<Guid>> GetBlockedIdsAsync(CancellationToken ct = default) =>
+        await db.Users.Where(u => u.Blocked).Select(u => u.Id).ToListAsync(ct);
+
     public async Task<int> CountActiveAdminsAsync(CancellationToken ct = default) =>
         (await users.GetUsersInRoleAsync(Roles.Admin)).Count(u => !u.Blocked);
 

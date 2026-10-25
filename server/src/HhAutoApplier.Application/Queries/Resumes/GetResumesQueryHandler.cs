@@ -8,12 +8,18 @@ namespace HhAutoApplier.Application.Queries.Resumes;
 
 public class GetResumesQueryHandler(
     IAppDbContext db,
-    IExtractor<ResumeProfile, ResumeDto> extractor
-) : IQueryHandler<GetResumesQuery, IReadOnlyList<ResumeDto>>
+    IExtractor<ResumeProfile, ResumeDto> extractor,
+    ICurrentUser current
+) : IQueryHandler<GetResumesQuery, GetResumesResult>
 {
-    public async Task<IReadOnlyList<ResumeDto>> Handle(GetResumesQuery query, CancellationToken ct = default)
+    public async Task<GetResumesResult> Handle(GetResumesQuery query, CancellationToken ct = default)
     {
-        var rows = await db.Resumes.AsNoTracking().OrderBy(r => r.Name).ToListAsync(ct);
+        var scope = OwnerScope.Resolve(current, query.UserId);
+        if (scope.IsT1)
+            return scope.AsT1;
+
+        var owner = scope.AsT0;
+        var rows = await db.Resumes.AsNoTracking().Where(r => r.UserId == owner).OrderBy(r => r.Name).ToListAsync(ct);
         return rows.Select(extractor.Extract).ToList();
     }
 }

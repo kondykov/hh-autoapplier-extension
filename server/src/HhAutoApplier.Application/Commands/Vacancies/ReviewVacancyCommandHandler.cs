@@ -10,12 +10,13 @@ namespace HhAutoApplier.Application.Commands.Vacancies;
 public class ReviewVacancyCommandHandler(
     IAppDbContext db,
     IExtractor<JobApplication, VacancyDto> extractor,
-    TimeProvider clock
+    TimeProvider clock,
+    ICurrentUser current
 ) : ICommandHandler<ReviewVacancyCommand, ReviewVacancyResult>
 {
     public async Task<ReviewVacancyResult> Handle(ReviewVacancyCommand command, CancellationToken ct = default)
     {
-        var application = await db.FindApplicationAsync(command.VacancyId, ct);
+        var application = await db.FindApplicationAsync(current.Id, command.VacancyId, ct);
         if (application is null)
             return new NotFoundError($"Вакансия {command.VacancyId} не найдена");
 

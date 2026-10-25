@@ -26,7 +26,8 @@ public class VacancyExtractor : IExtractor<JobApplication, VacancyDto>
             HasTest = vacancy.HasTest,
             PublishedAt = vacancy.PublishedAt,
             CollectedAt = vacancy.CollectedAt,
-            SearchName = vacancy.SearchName,
+            // Свой поиск, нашедший вакансию; удалён — пусто (имя чужого поиска из общей карточки не показываем)
+            SearchName = source.Search?.Name ?? "",
             Status = source.Status,
             Score = source.Score,
             StatusReason = source.StatusReason,

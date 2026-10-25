@@ -15,6 +15,7 @@ public class AnswerQuestionnairesCommandHandler(
     IAppDbContext db,
     ILlmClient llm,
     TimeProvider clock,
+    IUserService users,
     ILogger<AnswerQuestionnairesCommandHandler> logger
 ) : ICommandHandler<AnswerQuestionnairesCommand, AnswerQuestionnairesResult>
 {
@@ -23,17 +24,17 @@ public class AnswerQuestionnairesCommandHandler(
         if (!llm.IsConfigured)
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
 
-        var waiting = await db.Applications().Where(a => a.Status == VacancyStatus.Questionnaire)
+        var waiting = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct)).Where(a => a.Status == VacancyStatus.Questionnaire)
             .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
-        var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => r.Name, ct);
-        var searches = await db.Searches.AsNoTracking().ToDictionaryAsync(s => s.Name, ct);
+        // Резюме ищется у владельца отклика: имена у разных пользователей совпадают
+        var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => (r.UserId, r.Name), ct);
 
         int answered = 0, failed = 0;
         string? stoppedBy = null;
         foreach (var application in waiting)
         {
-            var resume = application.ResumeProfile is { } name ? resumes.GetValueOrDefault(name) : null;
-            var rules = searches.TryGetValue(application.Vacancy.SearchName, out var search) ? search.Rules : new();
+            var resume = application.ResumeProfile is { } name ? resumes.GetValueOrDefault((application.UserId, name)) : null;
+            var rules = application.Rules;
             var request = QuestionnaireAnswering.BuildRequest(application, resume, rules);
             var prompt = VacancyAssessment.Serialize(request);
 
@@ -70,7 +71,7 @@ public class AnswerQuestionnairesCommandHandler(
             await db.SaveChangesAsync(ct);
         }
 
-        var remaining = await db.Applications().CountAsync(a => a.Status == VacancyStatus.Questionnaire, ct);
+        var remaining = await db.JobApplications.CountAsync(a => a.Status == VacancyStatus.Questionnaire, ct);
         logger.LogInformation("Анкеты LLM: с ответами {Answered}, не разобрано {Failed}, ждут {Remaining}", answered, failed, remaining);
         return new QuestionnaireAnswersResultDto(answered, failed, remaining, stoppedBy);
     }

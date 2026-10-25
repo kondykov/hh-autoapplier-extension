@@ -20,6 +20,9 @@ public class JobApplicationConfiguration : IEntityTypeConfiguration<JobApplicati
         builder.HasOne(x => x.Vacancy).WithMany().HasForeignKey(x => x.VacancyId).OnDelete(DeleteBehavior.Cascade);
         // Пользователь — сущность Identity из Infrastructure: домен знает только его Id
         builder.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        // Удалённый поиск не стирает отклики: остаются с правилами по умолчанию
+        builder.HasOne(x => x.Search).WithMany().HasForeignKey(x => x.SearchId).OnDelete(DeleteBehavior.SetNull);
+        builder.Ignore(x => x.Rules);
 
         // Анкета с ответами и история переходов — колонками jsonb
         builder.OwnsMany(x => x.Questions, o =>

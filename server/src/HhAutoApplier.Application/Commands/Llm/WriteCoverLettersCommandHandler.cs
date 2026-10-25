@@ -14,6 +14,7 @@ public class WriteCoverLettersCommandHandler(
     IAppDbContext db,
     ILlmClient llm,
     TimeProvider clock,
+    IUserService users,
     ILogger<WriteCoverLettersCommandHandler> logger
 ) : ICommandHandler<WriteCoverLettersCommand, WriteCoverLettersResult>
 {
@@ -22,15 +23,16 @@ public class WriteCoverLettersCommandHandler(
         if (!llm.IsConfigured)
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
 
-        var queued = await db.Applications().Where(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter == null)
+        var queued = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct)).Where(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter == null)
             .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
-        var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => r.Name, ct);
+        // Резюме ищется у владельца отклика: имена у разных пользователей совпадают
+        var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => (r.UserId, r.Name), ct);
 
         int written = 0, failed = 0;
         string? stoppedBy = null;
         foreach (var application in queued)
         {
-            var resume = application.ResumeProfile is { } name ? resumes.GetValueOrDefault(name) : null;
+            var resume = application.ResumeProfile is { } name ? resumes.GetValueOrDefault((application.UserId, name)) : null;
             var request = CoverLetterWriting.BuildRequest(application.Vacancy, resume);
             var prompt = VacancyAssessment.Serialize(request);
 
@@ -65,7 +67,7 @@ public class WriteCoverLettersCommandHandler(
             await db.SaveChangesAsync(ct);
         }
 
-        var remaining = await db.Applications().CountAsync(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter == null, ct);
+        var remaining = await db.JobApplications.CountAsync(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter == null, ct);
         logger.LogInformation("Письма LLM: написано {Written}, не разобрано {Failed}, без письма в очереди {Remaining}",
             written, failed, remaining);
         return new CoverLettersResultDto(written, failed, remaining, stoppedBy);

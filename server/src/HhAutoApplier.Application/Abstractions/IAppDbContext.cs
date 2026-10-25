@@ -4,6 +4,7 @@ using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Vacancies;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 
 namespace HhAutoApplier.Application.Abstractions;
 
@@ -18,6 +19,9 @@ public interface IAppDbContext
     DbSet<ResumeProfile> Resumes { get; }
 
     DbSet<LlmCall> LlmCalls { get; }
+
+    // Сброс отслеживания после неудачного сохранения (сбор продолжает со следующего поиска)
+    ChangeTracker ChangeTracker { get; }
 
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

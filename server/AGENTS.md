@@ -22,7 +22,7 @@ Domain (агрегаты, value objects, доменные сервисы; без
 - Только nuget.org (`nuget.config`): в глобальном конфиге владельца недоступный источник
 - Вакансии собирает сервер через источники-плагины `IVacancySource`; hh.ru — публичные страницы без токена (`HhWebSource`), разбор только в `HhPageParser` + тест на фикстуре. `api.hh.ru` не использовать (403 без токена)
 - Не ускорять сбор: паузы `Collector:DelayMinMs/MaxMs`, лимит страниц; при капче/403/429 — остановка (`SourceBlockedException`), не обход
-- Доступ: без атрибутов эндпоинт только для `Admin` (fallback-политика); открыть — `[Authorize]` (любой вошедший) или `[AllowAnonymous]`. Текущий пользователь — `ICurrentUser` (при `X-Api-Key` id = null). Подробно — `../docs/BACKEND.md`, «Пользователи и вход»
+- Доступ: без атрибутов эндпоинт — любой вошедший (fallback-политика); только для `Admin` — `[Authorize(Roles = Roles.Admin)]` на контроллере (`Users`, `Collector`, `Llm`), без входа — `[AllowAnonymous]`. Обработчики данных фильтруют по `ICurrentUser.Id` (`null` — владелец по умолчанию, пока нет пользователей; `X-Api-Key` — пользователь ключа с ролью `User`); чтение чужого по `?userId=` — только через `OwnerScope.Resolve`. Подробно — `../docs/BACKEND.md`, «Владельцы данных и доступ»
 - Секреты (`API_KEY`, `ADMIN_PASSWORD`, пароль БД) только в `.env`
 
 ## Boundaries

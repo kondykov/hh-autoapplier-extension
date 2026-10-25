@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
+using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Domain.Users;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
@@ -12,10 +13,16 @@ public class ApiKeyAuthenticationOptions : AuthenticationSchemeOptions
 {
     // Общий ключ из Api:Key (API_KEY в .env); пусто — вход по ключу выключен, остаётся вход по паролю
     public string? Key { get; set; }
+
+    // Чей ключ: email пользователя — Api:KeyUser (API_KEY_USER), а если пусто — первый администратор Admin:Email (ADMIN_EMAIL)
+    public string? User { get; set; }
 }
 
-// Вход по общему ключу в заголовке X-Api-Key: права Admin без учётной записи. Так работает расширение до персональных
-// токенов (#10) — тогда меняется только поиск ключа: токен из базы вместо Api:Key, и принципал — его владелец
+// Вход по общему ключу в заголовке X-Api-Key — так работает расширение до персональных токенов (#10). Владелец задан явно:
+// ключ не переходит к другому администратору, если владельца заблокировали или понизили.
+// Ключ действует от имени пользователя, но всегда с ролью User: по нему нельзя управлять пользователями, запускать сбор и LLM
+// и читать чужие данные — утёкший ключ даёт не больше, чем расширение. Пользователей ещё нет — данные владельца по умолчанию.
+// В #10 меняется только поиск владельца: токен из базы вместо Api:Key
 public class ApiKeyAuthenticationHandler(
     IOptionsMonitor<ApiKeyAuthenticationOptions> options,
     ILoggerFactory logger,
@@ -28,19 +35,45 @@ public class ApiKeyAuthenticationHandler(
 
     public const string Name = "api-key";
 
-    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         if (!Request.Headers.TryGetValue(Header, out var provided))
-            return Task.FromResult(AuthenticateResult.NoResult());
+            return AuthenticateResult.NoResult();
 
         if (string.IsNullOrEmpty(Options.Key) || !Matches(provided.ToString(), Options.Key))
-            return Task.FromResult(AuthenticateResult.Fail("Неверный ключ API"));
+            return AuthenticateResult.Fail("Неверный ключ API");
 
-        var identity = new ClaimsIdentity([new Claim(ClaimTypes.Name, Name), new Claim(ClaimTypes.Role, Roles.Admin)], SchemeName);
-        return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
+        var users = Context.RequestServices.GetRequiredService<IUserService>();
+        var claims = new List<Claim> { new(ClaimTypes.Role, Roles.User), new(AuthClaims.Method, Name) };
+        var owner = string.IsNullOrWhiteSpace(Options.User) ? null : await users.FindByEmailAsync(Options.User.Trim(), Context.RequestAborted);
+
+        if (owner is { Blocked: false })
+        {
+            claims.Add(new Claim(ClaimTypes.NameIdentifier, owner.Id.ToString()));
+            claims.Add(new Claim(ClaimTypes.Name, owner.Email));
+        }
+        else if (owner is not null || await users.AnyAsync(Context.RequestAborted))
+        {
+            // Владелец ключа заблокирован, не найден или не задан — ключ не действует, а не переходит к чужим данным
+            return AuthenticateResult.Fail("Владелец ключа API не найден или заблокирован");
+        }
+        else
+        {
+            // Пользователей нет совсем: данные владельца по умолчанию, как до #7
+            claims.Add(new Claim(ClaimTypes.Name, Name));
+        }
+
+        var identity = new ClaimsIdentity(claims, SchemeName);
+        return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName));
     }
 
     // Сравнение за постоянное время: по времени ответа ключ не подобрать
     private static bool Matches(string provided, string key) =>
         CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(provided), Encoding.UTF8.GetBytes(key));
+}
+
+public static class AuthClaims
+{
+    // Способ входа: api-key; у cookie входа claim нет
+    public const string Method = "hh:auth";
 }
