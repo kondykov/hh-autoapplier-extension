@@ -69,6 +69,9 @@ public class Vacancy
 
     public DateTimeOffset? CoverLetterAt { get; private set; }
 
+    // Анкета работодателя с ответами. Видна только со входом на hh.ru — её присылает расширение
+    public List<VacancyQuestion> Questions { get; private set; } = [];
+
     // Хранится тремя колонками, наружу — одним значением
     public Salary? Salary => Salary.From(SalaryFrom, SalaryTo, SalaryCurrency);
 
@@ -133,9 +136,10 @@ public class Vacancy
             Status = VacancyStatus.Pending;
     }
 
-    // LLM-оценка под резюме: подходящие и сомнительные — в очередь, неподходящие — пропуск с причиной.
+    // LLM-оценка под резюме: подходящие — в очередь, сомнительные — на ручную проверку (Review; reviewDoubtful = false —
+    // правило поиска «без проверки», сразу в очередь), неподходящие — пропуск с причиной.
     // resume — имя профиля, выбранное LLM; null — оставить выбор правил
-    public void ApplyLlmEvaluation(LlmVerdict verdict, int score, string reason, string? resume, string model, DateTimeOffset at)
+    public void ApplyLlmEvaluation(LlmVerdict verdict, int score, string reason, string? resume, string model, DateTimeOffset at, bool reviewDoubtful)
     {
         if (Status != VacancyStatus.Pending)
             throw new DomainException($"LLM-оценка возможна только для вакансии в статусе Pending, сейчас {Status}");
@@ -152,15 +156,38 @@ public class Vacancy
             return;
         }
 
-        Status = VacancyStatus.Queued;
-        StatusReason = verdict == Vacancies.LlmVerdict.Doubtful ? $"LLM сомневается: {reason}" : null;
+        var doubtful = verdict == Vacancies.LlmVerdict.Doubtful;
+        Status = doubtful && reviewDoubtful ? VacancyStatus.Review : VacancyStatus.Queued;
+        StatusReason = doubtful ? $"LLM сомневается: {reason}" : null;
     }
 
-    // Письмо готовится для вакансии в очереди, до отклика
+    // Ручная проверка: одобрить — в очередь; coverLetter — письмо, поправленное человеком (null — оставить письмо LLM)
+    public void Approve(string? coverLetter, DateTimeOffset at)
+    {
+        if (Status != VacancyStatus.Review)
+            throw new DomainException($"Одобрить можно только вакансию на проверке, сейчас {Status}");
+
+        if (!string.IsNullOrWhiteSpace(coverLetter))
+            SetCoverLetter(coverLetter, ManualLetter, at);
+        Status = VacancyStatus.Queued;
+        StatusReason = "одобрено вручную";
+    }
+
+    // Ручная проверка: отклонить — пропуск с причиной
+    public void Decline(string? reason)
+    {
+        if (Status != VacancyStatus.Review)
+            throw new DomainException($"Отклонить можно только вакансию на проверке, сейчас {Status}");
+
+        Status = VacancyStatus.Skipped;
+        StatusReason = string.IsNullOrWhiteSpace(reason) ? "отклонено вручную" : $"отклонено вручную: {reason.Trim()}";
+    }
+
+    // Письмо готовится до отклика: для вакансии в очереди или на проверке
     public void SetCoverLetter(string text, string model, DateTimeOffset at)
     {
-        if (Status != VacancyStatus.Queued)
-            throw new DomainException($"Письмо готовится только для вакансии в очереди, сейчас {Status}");
+        if (Status is not (VacancyStatus.Queued or VacancyStatus.Review))
+            throw new DomainException($"Письмо готовится только для вакансии в очереди или на проверке, сейчас {Status}");
 
         if (string.IsNullOrWhiteSpace(text))
             throw new DomainException("Пустое сопроводительное письмо");
@@ -168,6 +195,50 @@ public class Vacancy
         text = text.Trim();
         CoverLetter = text.Length > MaxCoverLetterLength ? text[..MaxCoverLetterLength] : text;
         (CoverLetterModel, CoverLetterAt) = (model, at);
+    }
+
+    // Сбросить письмо, чтобы LLM написала его заново (поменялись резюме, шаблон или промпт)
+    public void ResetCoverLetter()
+    {
+        if (Status is VacancyStatus.Applied or VacancyStatus.Rejected)
+            throw new DomainException("Отклик уже отправлен — письмо не переписать");
+
+        (CoverLetter, CoverLetterModel, CoverLetterAt) = (null, null, null);
+    }
+
+    // Расширение встретило анкету: вопросы ждут ответов LLM, вакансия уходит из очереди.
+    // Анкета могла поменяться — прежние ответы сбрасываются
+    public void RequireAnswers(IReadOnlyCollection<VacancyQuestion> questions)
+    {
+        if (Status is VacancyStatus.Applied or VacancyStatus.Rejected)
+            throw new DomainException("Отклик на вакансию уже отправлен");
+
+        if (questions.Count == 0)
+            throw new DomainException("В анкете нет вопросов");
+
+        Questions = questions.ToList();
+        Status = VacancyStatus.Questionnaire;
+        StatusReason = "анкета: ждёт ответов LLM";
+    }
+
+    // Ответы в порядке вопросов. Неполные или с несуществующим вариантом — DomainException, вакансия остаётся ждать.
+    // Решение владельца: анкета видна только со входом, поэтому с ответами — сразу в очередь, без ручной проверки
+    public void AnswerQuestions(IReadOnlyList<IReadOnlyCollection<string>> answers)
+    {
+        if (Status != VacancyStatus.Questionnaire)
+            throw new DomainException($"Ответы на анкету возможны только в статусе Questionnaire, сейчас {Status}");
+
+        if (answers.Count != Questions.Count)
+            throw new DomainException($"Ответов {answers.Count}, а вопросов {Questions.Count}");
+
+        // Сначала проверить все, чтобы при ошибке не остались ответы наполовину
+        var answered = Questions.Select(q => VacancyQuestion.Create(q.Text, q.Type, q.Options)).ToList();
+        for (var i = 0; i < answered.Count; i++)
+            answered[i].SetAnswer(answers[i]);
+
+        Questions = answered;
+        Status = VacancyStatus.Queued;
+        StatusReason = "анкета: ответы LLM";
     }
 
     public void MarkApplied(string? resume, DateTimeOffset at)
@@ -221,6 +292,9 @@ public class Vacancy
     }
 
     private const int MaxDescriptionLength = 4000;
+
+    // Модель письма, поправленного человеком на ручной проверке
+    public const string ManualLetter = "manual";
 
     // С запасом под лимит поля письма на hh.ru
     private const int MaxCoverLetterLength = 4000;

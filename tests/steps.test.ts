@@ -10,6 +10,7 @@ import { SearchStep } from "../src/pages/search-step";
 import { pickStep, type StepContext } from "../src/pages/step-context";
 import { VacancyStep } from "../src/pages/vacancy-step";
 import type { QueueItem } from "../src/queue/queue-mode";
+import { renderResponsePage } from "./fixtures/response-form";
 
 const item = (id: string): QueueItem => ({ id, title: `Вакансия ${id}`, company: "Acme", resume: ".NET" });
 const RESPONSE = (id: string) => `https://hh.ru/applicant/vacancy_response?vacancyId=${id}`;
@@ -39,6 +40,7 @@ function context(opts: { url?: string; queue?: QueueItem[]; result?: ApplyResult
     backend: {
       getQueue: vi.fn(async () => ({ ok: true as const, items: opts.queue ?? [] })),
       reportStatus: vi.fn(async () => ({ ok: true as const })),
+      submitQuestionnaire: vi.fn(async () => ({ ok: true as const })),
     },
     pipeline: {
       applyOnPage: vi.fn(async (_v: Vacancy) => opts.result ?? "success"),
@@ -132,6 +134,29 @@ describe("QueueStep", () => {
 
     expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
     expect(visited).toEqual([RESPONSE("2")]);
+  });
+
+  it("анкета без ответов: вопросы на сервер, статус не отправляется, очередь идёт дальше", async () => {
+    renderResponsePage({ questionnaire: true });
+    const { ctx, visited } = context({ url: RESPONSE("1"), queue: [item("1"), item("2")], result: "outline", config: { queueDryRun: false } });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"] });
+
+    await run(new QueueStep(ctx).resume());
+
+    expect(ctx.backend.submitQuestionnaire).toHaveBeenCalledWith("1", expect.arrayContaining([expect.objectContaining({ type: "Radio" })]));
+    expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
+    expect(visited).toEqual([RESPONSE("2")]);
+  });
+
+  it("анкета не распозналась — Skipped, как раньше", async () => {
+    document.body.innerHTML = "";
+    const { ctx } = context({ url: RESPONSE("1"), queue: [item("1")], result: "outline", config: { queueDryRun: false } });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"] });
+
+    await run(new QueueStep(ctx).resume());
+
+    expect(ctx.backend.submitQuestionnaire).not.toHaveBeenCalled();
+    expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", expect.objectContaining({ status: "Skipped" }), ".NET");
   });
 
   it("hh.ru не открыл форму: Failed без запуска конвейера", async () => {

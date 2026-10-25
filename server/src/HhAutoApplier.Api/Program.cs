@@ -19,6 +19,8 @@ var app = builder.Build();
 await app.Services.InitializeDatabaseAsync();
 
 app.UseCors();
+// Страница ручной проверки (wwwroot) — без ключа: данных в ней нет, ключ она спрашивает сама и шлёт в X-Api-Key
+app.UseStaticFiles();
 app.UseMiddleware<ApiKeyMiddleware>();
 
 app.MapOpenApi();

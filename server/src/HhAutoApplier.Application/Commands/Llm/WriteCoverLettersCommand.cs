@@ -5,7 +5,7 @@ using OneOf;
 
 namespace HhAutoApplier.Application.Commands.Llm;
 
-// Письма для вакансий в очереди, у которых письма ещё нет: лучшие по баллу первыми, не больше Limit за запуск
+// Письма для вакансий в очереди и на проверке, у которых письма ещё нет: лучшие по баллу первыми, не больше Limit за запуск
 public record WriteCoverLettersCommand
 {
     [Range(1, 200)]

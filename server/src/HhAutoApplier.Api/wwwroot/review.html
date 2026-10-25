@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ручная проверка — hh-autoapplier</title>
+  <style>
+    :root {
+      --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #667085; --border: #dfe3ea;
+      --accent: #2f6fde; --ok: #1f8a4c; --bad: #c4372f; --warn-bg: #fff6e0; --warn: #8a5a00;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #14171d; --card: #1d2129; --text: #e6e9ef; --muted: #98a2b3; --border: #2e3440;
+        --accent: #6b9cf0; --ok: #4cc283; --bad: #f0746c; --warn-bg: #3a2f14; --warn: #f2c66d;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 920px; margin: 0 auto; padding: 24px 16px 64px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .sub { color: var(--muted); margin: 0 0 20px; }
+    .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 20px; }
+    input, textarea, button { font: inherit; color: inherit; }
+    input, textarea { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+    input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    button { border: 1px solid var(--border); background: var(--card); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .approve { background: var(--ok); border-color: var(--ok); color: #fff; }
+    .decline { color: var(--bad); border-color: var(--bad); }
+    #status { color: var(--muted); }
+    #status.error { color: var(--bad); }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .card h2 { font-size: 17px; margin: 0; }
+    .card h2 a { color: var(--accent); text-decoration: none; }
+    .card h2 a:hover { text-decoration: underline; }
+    .meta { color: var(--muted); font-size: 14px; margin: 2px 0 10px; }
+    .verdict { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; font-size: 14px; }
+    details { margin: 8px 0; }
+    summary { cursor: pointer; color: var(--muted); }
+    .desc { white-space: pre-wrap; font-size: 14px; max-height: 320px; overflow: auto; padding: 8px 0; }
+    .qa { font-size: 14px; margin: 4px 0; }
+    .qa b { display: block; }
+    label.field { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+    textarea { width: 100%; min-height: 180px; resize: vertical; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .actions input { flex: 1 1 200px; min-width: 0; }
+    .empty { color: var(--muted); text-align: center; padding: 48px 0; }
+    .result { align-self: center; font-weight: 600; }
+    .decided { opacity: .55; }
+    .decided .result { opacity: 1; color: var(--accent); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Ручная проверка</h1>
+  <p class="sub">Вакансии, в которых LLM сомневается (#25). «Одобрить» — в очередь расширения с письмом из поля, «Отклонить» — пропуск с причиной.</p>
+
+  <div class="bar">
+    <input id="key" type="password" placeholder="Ключ API (X-Api-Key)" autocomplete="off" aria-label="Ключ API">
+    <button id="load" class="primary">Загрузить</button>
+    <span id="status" role="status"></span>
+  </div>
+
+  <div id="list"></div>
+</main>
+
+<script>
+  "use strict";
+  const KEY = "hh-review-api-key";
+  const keyInput = document.getElementById("key");
+  const list = document.getElementById("list");
+  const status = document.getElementById("status");
+
+  try { keyInput.value = localStorage.getItem(KEY) ?? ""; } catch { /* приватный режим — ключ вводится каждый раз */ }
+
+  function setStatus(text, error = false) {
+    status.textContent = text;
+    status.className = error ? "error" : "";
+  }
+
+  async function api(path, options = {}) {
+    const res = await fetch(path, {
+      ...options,
+      headers: { "X-Api-Key": keyInput.value.trim(), "Content-Type": "application/json" },
+    });
+    if (res.status === 401) throw new Error("неверный ключ API");
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.message ?? `сервер ответил ${res.status}`);
+    }
+    return res.json();
+  }
+
+  // Данные вакансии — только текстом: описание приходит с hh.ru
+  function el(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    Object.assign(node, props);
+    for (const child of children) if (child != null) node.append(child);
+    return node;
+  }
+
+  function salary(v) {
+    if (v.salaryFrom == null && v.salaryTo == null) return "зарплата не указана";
+    const range = [v.salaryFrom != null ? `от ${v.salaryFrom.toLocaleString("ru-RU")}` : "", v.salaryTo != null ? `до ${v.salaryTo.toLocaleString("ru-RU")}` : ""];
+    return `${range.filter(Boolean).join(" ")} ${v.salaryCurrency ?? ""}`.trim();
+  }
+
+  function card(v) {
+    const letter = el("textarea", { value: v.coverLetter ?? "", id: `letter-${v.id}`,
+      placeholder: "LLM ещё не написала письмо. Напишите своё или одобрите без письма — расширение возьмёт шаблон." });
+    const reason = el("input", { placeholder: "Причина отказа (необязательно)" });
+    reason.setAttribute("aria-label", "Причина отказа");
+    const approve = el("button", { className: "approve", textContent: "Одобрить" });
+    const decline = el("button", { className: "decline", textContent: "Отклонить" });
+    const result = el("span", { className: "result" });
+
+    const node = el("article", { className: "card" },
+      el("h2", {}, el("a", { href: v.url, target: "_blank", rel: "noopener", textContent: v.title })),
+      el("div", { className: "meta", textContent: [v.company, v.area, salary(v), v.workFormat, `балл ${v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.hasTest && "есть тест"].filter(Boolean).join(" · ") }),
+      el("div", { className: "verdict", textContent: v.statusReason ?? v.llmReason ?? "LLM сомневается" }),
+      v.stack?.length ? el("div", { className: "meta", textContent: `Стек: ${v.stack.join(", ")}` }) : null,
+      el("details", {}, el("summary", { textContent: "Описание вакансии" }), el("div", { className: "desc", textContent: v.description || "описания нет" })),
+      v.questions?.length ? el("details", {}, el("summary", { textContent: `Анкета (${v.questions.length})` }),
+        ...v.questions.map((q) => el("div", { className: "qa" }, el("b", { textContent: q.question }), q.answer.length ? q.answer.join("; ") : "ответа нет"))) : null,
+      el("label", { className: "field", htmlFor: letter.id, textContent: v.coverLetterModel ? `Письмо (${v.coverLetterModel === "manual" ? "ваше" : v.coverLetterModel})` : "Письмо" }),
+      letter,
+      el("div", { className: "actions" }, approve, reason, decline, result));
+
+    // Карточка после решения остаётся на месте с итогом: если убрать её, следующая подъедет под курсор
+    // и лишний клик решит за неё
+    async function act(body, done) {
+      approve.disabled = decline.disabled = reason.disabled = letter.disabled = true;
+      try {
+        await api(`/api/vacancies/${encodeURIComponent(v.id)}/review`, { method: "POST", body: JSON.stringify(body) });
+        node.classList.add("decided");
+        result.textContent = done;
+        const left = list.querySelectorAll("article.card:not(.decided)").length;
+        setStatus(`«${v.title}»: ${done}. Без решения: ${left}`);
+      } catch (e) {
+        setStatus(`«${v.title}»: ${e.message}`, true);
+        approve.disabled = decline.disabled = reason.disabled = letter.disabled = false;
+      }
+    }
+
+    // Письмо уходит, только если его поправили: иначе остаётся письмо LLM с её моделью
+    approve.onclick = () => {
+      const text = letter.value.trim();
+      act({ approve: true, coverLetter: text && text !== (v.coverLetter ?? "").trim() ? text : null }, "одобрено, в очереди");
+    };
+    decline.onclick = () => act({ approve: false, reason: reason.value.trim() || null }, "отклонено");
+    return node;
+  }
+
+  function showEmpty() {
+    list.replaceChildren(el("p", { className: "empty", textContent: "На проверке ничего нет." }));
+  }
+
+  async function load() {
+    try { localStorage.setItem(KEY, keyInput.value.trim()); } catch { /* без сохранения ключа */ }
+    setStatus("Загружаю…");
+    try {
+      const items = await api("/api/vacancies?status=Review&take=200");
+      if (!items.length) {
+        showEmpty();
+        setStatus("");
+        return;
+      }
+      list.replaceChildren(...items.sort((a, b) => b.score - a.score).map(card));
+      setStatus(`На проверке: ${items.length}`);
+    } catch (e) {
+      list.replaceChildren();
+      setStatus(e.message, true);
+    }
+  }
+
+  document.getElementById("load").onclick = load;
+  keyInput.onkeydown = (e) => { if (e.key === "Enter") load(); };
+  if (keyInput.value) load();
+</script>
+</body>
+</html>

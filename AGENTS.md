@@ -7,10 +7,10 @@
 ## Commands
 ```powershell
 npm run typecheck                 # tsc --noEmit
-npm test                          # vitest (83 теста)
+npm test                          # vitest (95 тестов)
 npm run build                     # dist/content.js + dist/background.js (esbuild)
 node scripts/dev-browser.mjs      # Chromium с расширением, профиль .profile, CDP :9222
-cd server; dotnet test            # xunit (41 тест; нужен запущенный Docker — Postgres для тестов API в Testcontainers)
+cd server; dotnet test            # xunit (49 тестов; нужен запущенный Docker — Postgres для тестов API в Testcontainers)
 cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:8080
 ```
 Расширение читается только при старте браузера: после `build` браузер перезапускать (спросить, если у владельца открыта страница).
@@ -44,7 +44,14 @@ qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
 - Коммит в текущую ветку; в конце сообщения трейлер `Co-authored-by:` агента, который делал изменения
 - Рабочая ветка `kondykov-new-hh-autoapplier-repo`: коммит и `git push` в неё — без отдельного вопроса, после локальных typecheck/test/build (или `dotnet test`)
 - После push дождаться CI; красный CI — чинить сразу, это часть задачи
-- Задачи — GitHub Issues, карта и порядок — `docs/ROADMAP.md`; в коммите `refs #N`. Issue закрывать после зелёного CI с комментарием о коммите и о том, что проверено и что нет; заводить issues под найденные задачи — можно, с метками
+- Задачи — GitHub Issues, карта и порядок — `docs/ROADMAP.md`; в коммите `refs #N`; заводить issues под найденные задачи — можно, с метками
+- Статус задачи — поле Status в Project #5 (https://github.com/users/kondykov/projects/5), его ведёт агент:
+  - **Backlog** — пул всех задач вне спринта в работе: новые issues кладутся сюда
+  - **Todo** — только задачи спринта в работе (если у текущего остались одни Waiting — следующего). Спринт закрылся (все задачи Done) — задачи следующего из Backlog в Todo
+  - **Todo** → **In Progress** — в момент, когда берёшь задачу, до первой правки
+  - **In Progress** → **Waiting** — код запушен и CI зелёный, но задача ждёт проверки (живой прогон, проверка владельцем) или связанной задачи и в релиз ещё не может. Issue остаётся открытым; в комментарии — коммит, что проверено, чего ждёт
+  - → **Done** — всё проверено и ничего не ждёт: issue закрыть с комментарием о коммите и о том, что проверено и что нет; поставить «Начало»/«Срок»
+  - Варианты поля Status не менять через API: замена списка вариантов стирает статусы всех задач
 - PR, merge в `main`, удаление веток и issues — только по просьбе
 
 ## Boundaries

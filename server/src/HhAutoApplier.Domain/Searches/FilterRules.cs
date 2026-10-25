@@ -17,4 +17,7 @@ public class FilterRules
     public bool SkipWithTest { get; init; }
 
     public int MinScore { get; init; }
+
+    // Без ручной проверки: вакансии, в которых LLM сомневается, сразу идут в очередь (по умолчанию — на проверку, #25)
+    public bool SkipReview { get; init; }
 }

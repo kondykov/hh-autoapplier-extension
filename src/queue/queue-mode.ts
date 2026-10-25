@@ -1,4 +1,5 @@
 import type { ApplyResult } from "../apply/pipeline";
+import type { QuestionAnswer } from "../questions/fill";
 
 // Вакансия из очереди backend (GET /api/queue): только то, что нужно для отклика
 export interface QueueItem {
@@ -8,6 +9,8 @@ export interface QueueItem {
   resume: string | null;
   // Письмо под вакансию от LLM backend; нет — расширение берёт свой шаблон
   letter?: string;
+  // Ответы LLM на анкету работодателя; есть — конвейер заполнит анкету вместо пропуска
+  answers?: QuestionAnswer[];
 }
 
 export type VacancyStatus = "Applied" | "Skipped" | "Failed";

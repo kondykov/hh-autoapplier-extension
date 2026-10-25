@@ -38,6 +38,22 @@ public class LlmController : ApiController
     }
 
     /// <summary>
+    /// Ответить LLM на анкеты работодателей (Questionnaire), которые прислало расширение: с ответами — в очередь,
+    /// неполный ответ или вариант не из анкеты — Skipped с причиной. Каждая вакансия — один запрос дневного лимита.
+    /// </summary>
+    /// <response code="503">LLM не настроена.</response>
+    [HttpPost("answers")]
+    [ProducesResponseType(typeof(QuestionnaireAnswersResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(LlmUnavailableError), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> Answers(
+        [FromBody] AnswerQuestionnairesCommand command,
+        [FromServices] AnswerQuestionnairesCommandHandler handler,
+        CancellationToken ct)
+    {
+        return FromResult((await handler.Handle(command, ct)).Value);
+    }
+
+    /// <summary>
     /// Написать LLM сопроводительные письма для вакансий в очереди без письма: по резюме, выбранному для вакансии, и его шаблону письма.
     /// Письмо уходит в расширение вместе с очередью; каждая вакансия — один запрос дневного лимита.
     /// </summary>
@@ -51,5 +67,19 @@ public class LlmController : ApiController
         CancellationToken ct)
     {
         return FromResult((await handler.Handle(command, ct)).Value);
+    }
+
+    /// <summary>
+    /// Сбросить письма вакансий в очереди (все или по списку id), чтобы LLM написала их заново — после правки резюме, шаблона или промпта.
+    /// Новые письма пишет POST /api/llm/letters или фоновый запуск; до этого расширение вставит свой шаблон. LLM не вызывает.
+    /// </summary>
+    [HttpPost("letters/reset")]
+    [ProducesResponseType(typeof(ResetCoverLettersResultDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ResetLetters(
+        [FromBody] ResetCoverLettersCommand command,
+        [FromServices] ResetCoverLettersCommandHandler handler,
+        CancellationToken ct)
+    {
+        return Ok(await handler.Handle(command, ct));
     }
 }
