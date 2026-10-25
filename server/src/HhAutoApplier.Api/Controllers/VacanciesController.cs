@@ -67,6 +67,27 @@ public class VacanciesController : ApiController
     }
 
     /// <summary>
+    /// Ручная проверка вакансии в статусе Review: одобрить — в очередь (coverLetter — поправленное письмо, пусто — письмо LLM),
+    /// отклонить — Skipped с причиной. Список на проверке — GET /api/vacancies?status=Review, страница — /review.html.
+    /// </summary>
+    /// <response code="404">Вакансия не найдена.</response>
+    /// <response code="409">Вакансия не на проверке.</response>
+    [HttpPost("vacancies/{id}/review")]
+    [ProducesResponseType(typeof(VacancyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(NotFoundError), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ConflictError), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Review(
+        string id,
+        [FromBody] ReviewVacancyRequest request,
+        [FromServices] ReviewVacancyCommandHandler handler,
+        CancellationToken ct
+    )
+    {
+        var command = new ReviewVacancyCommand { VacancyId = id, Approve = request.Approve, CoverLetter = request.CoverLetter, Reason = request.Reason };
+        return FromResult((await handler.Handle(command, ct)).Value);
+    }
+
+    /// <summary>
     /// Анкета работодателя от расширения: вопросы ждут ответов LLM (статус Questionnaire), затем вакансия вернётся в очередь с ответами.
     /// Прежние ответы сбрасываются — анкета могла поменяться.
     /// </summary>
@@ -118,3 +139,5 @@ public class VacanciesController : ApiController
 public record SetVacancyStatusRequest(VacancyStatus Status, string? Reason, string? Resume);
 
 public record SubmitQuestionnaireRequest([Required, MinLength(1), MaxLength(50)] List<QuestionInput> Questions);
+
+public record ReviewVacancyRequest(bool Approve, [MaxLength(4000)] string? CoverLetter, [MaxLength(500)] string? Reason);

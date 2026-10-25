@@ -57,16 +57,50 @@ public class LlmAssessmentTests
     }
 
     [Fact]
-    public void Vacancy_PendingUntilLlm_ThenQueuedOrSkipped()
+    public void Vacancy_PendingUntilLlm_ThenQueuedReviewOrSkipped()
     {
         var fit = Pending();
         Assert.Equal(VacancyStatus.Pending, fit.Status);
-        fit.ApplyLlmEvaluation(LlmVerdict.Doubtful, 140, "не уверена", "PHP", "m", Now);
-        Assert.Equal((VacancyStatus.Queued, 100, "PHP", "LLM сомневается: не уверена"), (fit.Status, fit.Score, fit.ResumeProfile, fit.StatusReason));
-        Assert.Throws<DomainException>(() => fit.ApplyLlmEvaluation(LlmVerdict.Fit, 90, "", null, "m", Now));
+        fit.ApplyLlmEvaluation(LlmVerdict.Fit, 140, "стек совпадает", "PHP", "m", Now, reviewDoubtful: true);
+        Assert.Equal((VacancyStatus.Queued, 100, "PHP", null as string), (fit.Status, fit.Score, fit.ResumeProfile, fit.StatusReason));
+        Assert.Throws<DomainException>(() => fit.ApplyLlmEvaluation(LlmVerdict.Fit, 90, "", null, "m", Now, reviewDoubtful: true));
+
+        // Сомнительная — на ручную проверку; правило поиска «без проверки» — сразу в очередь
+        var doubtful = Pending();
+        doubtful.ApplyLlmEvaluation(LlmVerdict.Doubtful, 55, "не уверена", null, "m", Now, reviewDoubtful: true);
+        Assert.Equal((VacancyStatus.Review, "LLM сомневается: не уверена"), (doubtful.Status, doubtful.StatusReason));
+        var noReview = Pending();
+        noReview.ApplyLlmEvaluation(LlmVerdict.Doubtful, 55, "не уверена", null, "m", Now, reviewDoubtful: false);
+        Assert.Equal(VacancyStatus.Queued, noReview.Status);
 
         var reject = Pending();
-        reject.ApplyLlmEvaluation(LlmVerdict.Reject, 10, "1С", null, "m", Now);
+        reject.ApplyLlmEvaluation(LlmVerdict.Reject, 10, "1С", null, "m", Now, reviewDoubtful: true);
         Assert.Equal((VacancyStatus.Skipped, "LLM: 1С", "m"), (reject.Status, reject.StatusReason, reject.LlmModel));
+    }
+
+    [Fact]
+    public void Vacancy_ReviewApproveWithLetterOrDecline()
+    {
+        Vacancy Review()
+        {
+            var v = Pending();
+            v.ApplyLlmEvaluation(LlmVerdict.Doubtful, 55, "не уверена", null, "m", Now, reviewDoubtful: true);
+            v.SetCoverLetter("Письмо LLM", "m", Now);
+            return v;
+        }
+
+        var kept = Review();
+        kept.Approve(null, Now);
+        Assert.Equal((VacancyStatus.Queued, "Письмо LLM", "одобрено вручную"), (kept.Status, kept.CoverLetter, kept.StatusReason));
+        Assert.Throws<DomainException>(() => kept.Approve(null, Now));
+
+        var edited = Review();
+        edited.Approve("  Моё письмо  ", Now);
+        Assert.Equal(("Моё письмо", Vacancy.ManualLetter), (edited.CoverLetter, edited.CoverLetterModel));
+
+        var declined = Review();
+        declined.Decline(" не мой стек ");
+        Assert.Equal((VacancyStatus.Skipped, "отклонено вручную: не мой стек"), (declined.Status, declined.StatusReason));
+        Assert.Throws<DomainException>(() => declined.Decline(null));
     }
 }
