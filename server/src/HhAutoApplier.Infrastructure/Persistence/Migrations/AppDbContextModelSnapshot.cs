@@ -282,6 +282,42 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.Navigation("Rules")
                         .IsRequired();
                 });
+
+            modelBuilder.Entity("HhAutoApplier.Domain.Vacancies.Vacancy", b =>
+                {
+                    b.OwnsMany("HhAutoApplier.Domain.Vacancies.VacancyQuestion", "Questions", b1 =>
+                        {
+                            b1.Property<string>("VacancyId");
+
+                            b1.Property<int>("__synthesizedOrdinal")
+                                .ValueGeneratedOnAdd();
+
+                            b1.PrimitiveCollection<string>("Answer")
+                                .IsRequired();
+
+                            b1.PrimitiveCollection<string>("Options")
+                                .IsRequired();
+
+                            b1.Property<string>("Text")
+                                .IsRequired();
+
+                            b1.Property<string>("Type")
+                                .IsRequired();
+
+                            b1.HasKey("VacancyId", "__synthesizedOrdinal");
+
+                            b1.ToTable("Vacancies");
+
+                            b1
+                                .ToJson("Questions")
+                                .HasColumnType("jsonb");
+
+                            b1.WithOwner()
+                                .HasForeignKey("VacancyId");
+                        });
+
+                    b.Navigation("Questions");
+                });
 #pragma warning restore 612, 618
         }
     }

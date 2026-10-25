@@ -38,7 +38,7 @@ export interface StepContext {
   panel: StepPanel;
   logger: Logger;
   limit: DailyLimit;
-  backend: Pick<BackendClient, "getQueue" | "reportStatus">;
+  backend: Pick<BackendClient, "getQueue" | "reportStatus" | "submitQuestionnaire">;
   pipeline: Pick<ApplyPipeline, "applyFromSearch" | "applyOnPage">;
   captcha: Pick<CaptchaGuard, "waitUntilClear" | "consumeHit">;
   nav: Navigator;

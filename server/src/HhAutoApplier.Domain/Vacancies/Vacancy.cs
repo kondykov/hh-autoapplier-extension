@@ -69,6 +69,9 @@ public class Vacancy
 
     public DateTimeOffset? CoverLetterAt { get; private set; }
 
+    // Анкета работодателя с ответами. Видна только со входом на hh.ru — её присылает расширение
+    public List<VacancyQuestion> Questions { get; private set; } = [];
+
     // Хранится тремя колонками, наружу — одним значением
     public Salary? Salary => Salary.From(SalaryFrom, SalaryTo, SalaryCurrency);
 
@@ -168,6 +171,41 @@ public class Vacancy
         text = text.Trim();
         CoverLetter = text.Length > MaxCoverLetterLength ? text[..MaxCoverLetterLength] : text;
         (CoverLetterModel, CoverLetterAt) = (model, at);
+    }
+
+    // Расширение встретило анкету: вопросы ждут ответов LLM, вакансия уходит из очереди.
+    // Анкета могла поменяться — прежние ответы сбрасываются
+    public void RequireAnswers(IReadOnlyCollection<VacancyQuestion> questions)
+    {
+        if (Status is VacancyStatus.Applied or VacancyStatus.Rejected)
+            throw new DomainException("Отклик на вакансию уже отправлен");
+
+        if (questions.Count == 0)
+            throw new DomainException("В анкете нет вопросов");
+
+        Questions = questions.ToList();
+        Status = VacancyStatus.Questionnaire;
+        StatusReason = "анкета: ждёт ответов LLM";
+    }
+
+    // Ответы в порядке вопросов. Неполные или с несуществующим вариантом — DomainException, вакансия остаётся ждать.
+    // Решение владельца: анкета видна только со входом, поэтому с ответами — сразу в очередь, без ручной проверки
+    public void AnswerQuestions(IReadOnlyList<IReadOnlyCollection<string>> answers)
+    {
+        if (Status != VacancyStatus.Questionnaire)
+            throw new DomainException($"Ответы на анкету возможны только в статусе Questionnaire, сейчас {Status}");
+
+        if (answers.Count != Questions.Count)
+            throw new DomainException($"Ответов {answers.Count}, а вопросов {Questions.Count}");
+
+        // Сначала проверить все, чтобы при ошибке не остались ответы наполовину
+        var answered = Questions.Select(q => VacancyQuestion.Create(q.Text, q.Type, q.Options)).ToList();
+        for (var i = 0; i < answered.Count; i++)
+            answered[i].SetAnswer(answers[i]);
+
+        Questions = answered;
+        Status = VacancyStatus.Queued;
+        StatusReason = "анкета: ответы LLM";
     }
 
     public void MarkApplied(string? resume, DateTimeOffset at)

@@ -53,11 +53,12 @@ async function waitForSubmitResult(
   startPage: string,
   hadModal: boolean,
   timeoutMs: number,
+  questionnaire: boolean,
 ): Promise<SubmitResult> {
   const start = Date.now();
   let closedStreak = 0;
   while (Date.now() - start < timeoutMs) {
-    if (isOutlineDetected()) return "outline";
+    if (!questionnaire && isOutlineDetected()) return "outline";
     if (detectPageType() !== startPage) return "pending_response";
     if (isAlreadyRespondedOnPage()) return "success";
     if (vacancy?.card && isAlreadyResponded(vacancy.card)) return "success";
@@ -77,8 +78,10 @@ export async function attachLetterAndSubmit(
   letter: string,
   logger: Logger,
   dryRun = false,
+  // Анкета уже заполнена ответами: её вопросы на странице — не повод останавливаться
+  questionnaire = false,
 ): Promise<SubmitResult> {
-  if (isOutlineDetected()) return "outline";
+  if (!questionnaire && isOutlineDetected()) return "outline";
 
   let textarea = getCoverLetterField() ?? (await ensureCoverLetterFieldVisible());
   for (let i = 0; i < 8 && !textarea; i++) {
@@ -94,7 +97,7 @@ export async function attachLetterAndSubmit(
     logger.log("Поле письма не найдено, отправляю без письма", "warn");
   }
 
-  if (isOutlineDetected()) return "outline";
+  if (!questionnaire && isOutlineDetected()) return "outline";
 
   const submit = await findSubmitButton(vacancy?.card ?? null);
   if (!submit) {
@@ -118,5 +121,5 @@ export async function attachLetterAndSubmit(
   await wait(DELAYS.short);
   submit.click();
   logger.log('Нажата кнопка "Отправить"', "step");
-  return waitForSubmitResult(vacancy, startPage, hadModal, 8000);
+  return waitForSubmitResult(vacancy, startPage, hadModal, 8000, questionnaire);
 }

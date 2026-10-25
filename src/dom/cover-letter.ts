@@ -1,11 +1,13 @@
 import { setNativeValue } from "./input";
 import { DELAYS, wait } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
-import { qs } from "./query";
+import { qs, qsa } from "./query";
 
+// Текстовые вопросы анкеты работодателя лежат в той же обёртке textarea-native-wrapper — их поле письмом не считается
 export const getCoverLetterField = () =>
   qs<HTMLTextAreaElement>(SELECTORS.coverLetterInput) ??
-  qs<HTMLTextAreaElement>(SELECTORS.coverLetterInputAlt);
+  qsa<HTMLTextAreaElement>(SELECTORS.coverLetterInputAlt).find((t) => !t.closest(SELECTORS.taskBody)) ??
+  null;
 
 export function fillTextarea(textarea: HTMLTextAreaElement, text: string): void {
   textarea.focus();

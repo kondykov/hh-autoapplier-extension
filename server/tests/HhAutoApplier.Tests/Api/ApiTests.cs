@@ -228,6 +228,44 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Questionnaire_FromExtension_AnsweredByLlm_BackToQueue()
+    {
+        await SaveSearch();
+        await Json(await Import("dotnet", Card("1", "C# разработчик"), Card("2", "C# разработчик")));
+
+        // Расширение встретило анкеты: вакансии уходят из очереди ждать ответов
+        object Questions(string option) => new
+        {
+            questions = new object[]
+            {
+                new { question = "Какой принцип SOLID про абстракции?", type = "Radio", options = new[] { "SRP", option } },
+                new { question = "Зарплатные ожидания?", type = "Text" },
+            },
+        };
+        var submitted = await Json(await _api.PostAsJsonAsync("/api/vacancies/1/questionnaire", Questions("DIP")));
+        Assert.Equal("Questionnaire", submitted.GetProperty("status").GetString());
+        await Json(await _api.PostAsJsonAsync("/api/vacancies/2/questionnaire", Questions("DIP")));
+        Assert.Equal(HttpStatusCode.NotFound, (await _api.PostAsJsonAsync("/api/vacancies/404/questionnaire", Questions("DIP"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await _api.PostAsJsonAsync("/api/vacancies/1/questionnaire", new { questions = Array.Empty<object>() })).StatusCode);
+        Assert.Equal(0, (await Json(await _api.GetAsync("/api/queue"))).GetArrayLength());
+
+        // Порядок — по баллу, у обеих он одинаковый: подходящий ответ годится для любой, неподходящий вариант — пропуск
+        factory.Llm.Configured = true;
+        factory.Llm.Answers.Enqueue("""{"answers": ["dip", "от 250 000 ₽"]}""");
+        factory.Llm.Answers.Enqueue("""{"answers": ["LSP", "готов обсудить"]}""");
+        var res = await Json(await _api.PostAsJsonAsync("/api/llm/answers", new { limit = 10 }));
+        Assert.Equal((1, 1, 0), (res.GetProperty("answered").GetInt32(), res.GetProperty("failed").GetInt32(), res.GetProperty("remaining").GetInt32()));
+
+        var queued = Assert.Single((await Json(await _api.GetAsync("/api/queue"))).EnumerateArray());
+        var answers = queued.GetProperty("questions").EnumerateArray()
+            .Select(q => (q.GetProperty("type").GetString(), q.GetProperty("answer")[0].GetString())).ToList();
+        Assert.Equal([("Radio", "DIP"), ("Text", "от 250 000 ₽")], answers);
+
+        var skipped = Assert.Single((await Json(await _api.GetAsync("/api/vacancies?status=Skipped"))).EnumerateArray());
+        Assert.Contains("LSP", skipped.GetProperty("statusReason").GetString());
+    }
+
+    [Fact]
     public async Task Report_JsonAndCsv()
     {
         await SaveSearch();

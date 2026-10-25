@@ -38,6 +38,22 @@ public class LlmController : ApiController
     }
 
     /// <summary>
+    /// Ответить LLM на анкеты работодателей (Questionnaire), которые прислало расширение: с ответами — в очередь,
+    /// неполный ответ или вариант не из анкеты — Skipped с причиной. Каждая вакансия — один запрос дневного лимита.
+    /// </summary>
+    /// <response code="503">LLM не настроена.</response>
+    [HttpPost("answers")]
+    [ProducesResponseType(typeof(QuestionnaireAnswersResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(LlmUnavailableError), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> Answers(
+        [FromBody] AnswerQuestionnairesCommand command,
+        [FromServices] AnswerQuestionnairesCommandHandler handler,
+        CancellationToken ct)
+    {
+        return FromResult((await handler.Handle(command, ct)).Value);
+    }
+
+    /// <summary>
     /// Написать LLM сопроводительные письма для вакансий в очереди без письма: по резюме, выбранному для вакансии, и его шаблону письма.
     /// Письмо уходит в расширение вместе с очередью; каждая вакансия — один запрос дневного лимита.
     /// </summary>

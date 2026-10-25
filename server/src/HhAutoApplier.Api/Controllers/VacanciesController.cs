@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using HhAutoApplier.Application.Commands.Vacancies;
 using HhAutoApplier.Application.Dtos;
 using HhAutoApplier.Application.Errors;
@@ -66,6 +67,28 @@ public class VacanciesController : ApiController
     }
 
     /// <summary>
+    /// Анкета работодателя от расширения: вопросы ждут ответов LLM (статус Questionnaire), затем вакансия вернётся в очередь с ответами.
+    /// Прежние ответы сбрасываются — анкета могла поменяться.
+    /// </summary>
+    /// <response code="404">Вакансия не найдена.</response>
+    /// <response code="409">Отклик уже отправлен.</response>
+    [HttpPost("vacancies/{id}/questionnaire")]
+    [ProducesResponseType(typeof(VacancyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(NotFoundError), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ConflictError), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ValidationError), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> SubmitQuestionnaire(
+        string id,
+        [FromBody] SubmitQuestionnaireRequest request,
+        [FromServices] SubmitQuestionnaireCommandHandler handler,
+        CancellationToken ct
+    )
+    {
+        var command = new SubmitQuestionnaireCommand { VacancyId = id, Questions = request.Questions };
+        return FromResult((await handler.Handle(command, ct)).Value);
+    }
+
+    /// <summary>
     /// Число вакансий в каждом статусе.
     /// </summary>
     [HttpGet("stats")]
@@ -93,3 +116,5 @@ public class VacanciesController : ApiController
 }
 
 public record SetVacancyStatusRequest(VacancyStatus Status, string? Reason, string? Resume);
+
+public record SubmitQuestionnaireRequest([Required, MinLength(1), MaxLength(50)] List<QuestionInput> Questions);

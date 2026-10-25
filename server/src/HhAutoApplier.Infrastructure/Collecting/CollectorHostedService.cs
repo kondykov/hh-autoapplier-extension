@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 namespace HhAutoApplier.Infrastructure.Collecting;
 
 // Расписание сбора: сразу при старте (если включено) и дальше раз в интервал. Сам сбор — CollectVacanciesCommandHandler,
-// после него — LLM-оценка новых и письма для очереди (если LLM настроена)
+// после него — LLM-оценка новых, ответы на анкеты и письма для очереди (если LLM настроена)
 public class CollectorHostedService(
     IServiceScopeFactory scopes,
     IOptions<CollectorOptions> options,
@@ -38,6 +38,9 @@ public class CollectorHostedService(
                 {
                     var evaluate = scope.ServiceProvider.GetRequiredService<EvaluatePendingVacanciesCommandHandler>();
                     await evaluate.Handle(new EvaluatePendingVacanciesCommand { Limit = 200 }, stop);
+
+                    var answers = scope.ServiceProvider.GetRequiredService<AnswerQuestionnairesCommandHandler>();
+                    await answers.Handle(new AnswerQuestionnairesCommand { Limit = 200 }, stop);
 
                     var letters = scope.ServiceProvider.GetRequiredService<WriteCoverLettersCommandHandler>();
                     await letters.Handle(new WriteCoverLettersCommand { Limit = 200 }, stop);

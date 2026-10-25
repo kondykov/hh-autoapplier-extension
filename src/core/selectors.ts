@@ -26,6 +26,9 @@ export const SELECTORS = {
   taskQuestion: '[data-qa="task-question"]',
   testDescription: '[data-qa="test-description"]',
   taskBody: '[data-qa="task-body"]',
+  // Вариант ответа анкеты: label с input radio/checkbox и текстом (проверено вживую 2026-10-25)
+  taskOption: 'label[data-qa="cell"]',
+  taskOptionText: '[data-qa="cell-text-content"]',
   radioInput: 'input[type="radio"]',
   vacancyResponseForm: "#RESPONSE_MODAL_FORM_ID",
 
