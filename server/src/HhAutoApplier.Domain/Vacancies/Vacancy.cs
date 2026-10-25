@@ -136,9 +136,10 @@ public class Vacancy
             Status = VacancyStatus.Pending;
     }
 
-    // LLM-оценка под резюме: подходящие и сомнительные — в очередь, неподходящие — пропуск с причиной.
+    // LLM-оценка под резюме: подходящие — в очередь, сомнительные — на ручную проверку (Review; reviewDoubtful = false —
+    // правило поиска «без проверки», сразу в очередь), неподходящие — пропуск с причиной.
     // resume — имя профиля, выбранное LLM; null — оставить выбор правил
-    public void ApplyLlmEvaluation(LlmVerdict verdict, int score, string reason, string? resume, string model, DateTimeOffset at)
+    public void ApplyLlmEvaluation(LlmVerdict verdict, int score, string reason, string? resume, string model, DateTimeOffset at, bool reviewDoubtful)
     {
         if (Status != VacancyStatus.Pending)
             throw new DomainException($"LLM-оценка возможна только для вакансии в статусе Pending, сейчас {Status}");
@@ -155,15 +156,38 @@ public class Vacancy
             return;
         }
 
-        Status = VacancyStatus.Queued;
-        StatusReason = verdict == Vacancies.LlmVerdict.Doubtful ? $"LLM сомневается: {reason}" : null;
+        var doubtful = verdict == Vacancies.LlmVerdict.Doubtful;
+        Status = doubtful && reviewDoubtful ? VacancyStatus.Review : VacancyStatus.Queued;
+        StatusReason = doubtful ? $"LLM сомневается: {reason}" : null;
     }
 
-    // Письмо готовится для вакансии в очереди, до отклика
+    // Ручная проверка: одобрить — в очередь; coverLetter — письмо, поправленное человеком (null — оставить письмо LLM)
+    public void Approve(string? coverLetter, DateTimeOffset at)
+    {
+        if (Status != VacancyStatus.Review)
+            throw new DomainException($"Одобрить можно только вакансию на проверке, сейчас {Status}");
+
+        if (!string.IsNullOrWhiteSpace(coverLetter))
+            SetCoverLetter(coverLetter, ManualLetter, at);
+        Status = VacancyStatus.Queued;
+        StatusReason = "одобрено вручную";
+    }
+
+    // Ручная проверка: отклонить — пропуск с причиной
+    public void Decline(string? reason)
+    {
+        if (Status != VacancyStatus.Review)
+            throw new DomainException($"Отклонить можно только вакансию на проверке, сейчас {Status}");
+
+        Status = VacancyStatus.Skipped;
+        StatusReason = string.IsNullOrWhiteSpace(reason) ? "отклонено вручную" : $"отклонено вручную: {reason.Trim()}";
+    }
+
+    // Письмо готовится до отклика: для вакансии в очереди или на проверке
     public void SetCoverLetter(string text, string model, DateTimeOffset at)
     {
-        if (Status != VacancyStatus.Queued)
-            throw new DomainException($"Письмо готовится только для вакансии в очереди, сейчас {Status}");
+        if (Status is not (VacancyStatus.Queued or VacancyStatus.Review))
+            throw new DomainException($"Письмо готовится только для вакансии в очереди или на проверке, сейчас {Status}");
 
         if (string.IsNullOrWhiteSpace(text))
             throw new DomainException("Пустое сопроводительное письмо");
@@ -268,6 +292,9 @@ public class Vacancy
     }
 
     private const int MaxDescriptionLength = 4000;
+
+    // Модель письма, поправленного человеком на ручной проверке
+    public const string ManualLetter = "manual";
 
     // С запасом под лимит поля письма на hh.ru
     private const int MaxCoverLetterLength = 4000;

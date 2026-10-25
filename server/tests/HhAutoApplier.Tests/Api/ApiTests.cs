@@ -278,6 +278,41 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Review_DoubtfulWaitForHuman_ApproveWithLetterOrDecline()
+    {
+        factory.Llm.Configured = true;
+        await SaveSearch();
+        await Json(await _api.PutAsJsonAsync("/api/searches", new { name = "trusted", query = "C#", rules = new { skipReview = true } }));
+        await Json(await Import("dotnet", Card("1", "C# разработчик"), Card("2", "C# разработчик")));
+        await Json(await Import("trusted", Card("3", "C# разработчик")));
+        for (var i = 0; i < 3; i++)
+            factory.Llm.Answers.Enqueue("""{"verdict": "doubtful", "score": 55, "resume": ".NET", "reason": "мало опыта"}""");
+        await Json(await _api.PostAsJsonAsync("/api/llm/evaluate", new { limit = 10 }));
+
+        // Сомнительные ждут человека; поиск «без проверки» — сразу в очередь
+        Assert.Equal(["3"], (await Json(await _api.GetAsync("/api/queue"))).EnumerateArray().Select(v => v.GetProperty("id").GetString()));
+        var review = (await Json(await _api.GetAsync("/api/vacancies?status=Review"))).EnumerateArray().Select(v => v.GetProperty("id").GetString()).Order();
+        Assert.Equal(["1", "2"], review);
+
+        var approved = await Json(await _api.PostAsJsonAsync("/api/vacancies/1/review", new { approve = true, coverLetter = "Моё письмо" }));
+        Assert.Equal(("Queued", "Моё письмо", "manual"), (approved.GetProperty("status").GetString(),
+            approved.GetProperty("coverLetter").GetString(), approved.GetProperty("coverLetterModel").GetString()));
+        var declined = await Json(await _api.PostAsJsonAsync("/api/vacancies/2/review", new { approve = false, reason = "не мой стек" }));
+        Assert.Equal(("Skipped", "отклонено вручную: не мой стек"), (declined.GetProperty("status").GetString(), declined.GetProperty("statusReason").GetString()));
+
+        Assert.Equal(HttpStatusCode.Conflict, (await _api.PostAsJsonAsync("/api/vacancies/2/review", new { approve = true })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _api.PostAsJsonAsync("/api/vacancies/404/review", new { approve = true })).StatusCode);
+    }
+
+    [Fact]
+    public async Task ReviewPage_ServedWithoutKey()
+    {
+        var page = await factory.CreateClient().GetAsync("/review.html");
+        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+        Assert.Contains("Ручная проверка", await page.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Report_JsonAndCsv()
     {
         await SaveSearch();

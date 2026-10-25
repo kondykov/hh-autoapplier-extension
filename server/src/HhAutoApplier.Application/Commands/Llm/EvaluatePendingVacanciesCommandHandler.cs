@@ -55,7 +55,8 @@ public class EvaluatePendingVacanciesCommandHandler(
             // Неразобранный ответ — на ручную проверку, чтобы вакансия не застряла в Pending
             var assessment = VacancyAssessment.Parse(result.Content, resumes)
                              ?? new LlmAssessment(LlmVerdict.Doubtful, vacancy.Score, null, "ответ LLM не разобран — проверить вручную");
-            vacancy.ApplyLlmEvaluation(assessment.Verdict, assessment.Score, assessment.Reason, assessment.Resume, result.Model, clock.GetUtcNow());
+            vacancy.ApplyLlmEvaluation(assessment.Verdict, assessment.Score, assessment.Reason, assessment.Resume, result.Model, clock.GetUtcNow(),
+                reviewDoubtful: !rules.SkipReview);
             await db.SaveChangesAsync(ct);
 
             switch (assessment.Verdict)

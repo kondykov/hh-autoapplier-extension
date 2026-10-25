@@ -22,7 +22,7 @@ public class WriteCoverLettersCommandHandler(
         if (!llm.IsConfigured)
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
 
-        var queued = await db.Vacancies.Where(v => v.Status == VacancyStatus.Queued && v.CoverLetter == null)
+        var queued = await db.Vacancies.Where(v => (v.Status == VacancyStatus.Queued || v.Status == VacancyStatus.Review) && v.CoverLetter == null)
             .OrderByDescending(v => v.Score).ThenByDescending(v => v.PublishedAt).Take(command.Limit).ToListAsync(ct);
         var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => r.Name, ct);
 
@@ -65,7 +65,7 @@ public class WriteCoverLettersCommandHandler(
             await db.SaveChangesAsync(ct);
         }
 
-        var remaining = await db.Vacancies.CountAsync(v => v.Status == VacancyStatus.Queued && v.CoverLetter == null, ct);
+        var remaining = await db.Vacancies.CountAsync(v => (v.Status == VacancyStatus.Queued || v.Status == VacancyStatus.Review) && v.CoverLetter == null, ct);
         logger.LogInformation("Письма LLM: написано {Written}, не разобрано {Failed}, без письма в очереди {Remaining}",
             written, failed, remaining);
         return new CoverLettersResultDto(written, failed, remaining, stoppedBy);
