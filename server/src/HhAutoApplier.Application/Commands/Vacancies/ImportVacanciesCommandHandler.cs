@@ -2,6 +2,7 @@ using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Application.Cqrs;
 using HhAutoApplier.Application.Dtos;
 using HhAutoApplier.Application.Errors;
+using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Services;
 using HhAutoApplier.Domain.Vacancies;
 using Microsoft.EntityFrameworkCore;
@@ -33,11 +34,13 @@ public class ImportVacanciesCommandHandler(
             vacancy.UpdateCard(item.Company, item.Area, Salary.From(item.SalaryFrom, item.SalaryTo, item.SalaryCurrency),
                 item.WorkFormat, item.HasTest, item.PublishedAt?.ToUniversalTime());
             vacancy.UpdateDetails(null, item.Description ?? "", item.Stack ?? []);
-            vacancy.Evaluate(evaluator, search.Rules, resumes, awaitLlm: llm.IsConfigured);
+            var application = JobApplication.Create(vacancy, null, now);
+            application.Evaluate(evaluator, search.Rules, resumes, now, awaitLlm: llm.IsConfigured);
 
             db.Vacancies.Add(vacancy);
+            db.JobApplications.Add(application);
             added++;
-            if (vacancy.Status is VacancyStatus.Queued or VacancyStatus.Pending)
+            if (application.Status is VacancyStatus.Queued or VacancyStatus.Pending)
                 queued++;
         }
 

@@ -3,28 +3,28 @@ using HhAutoApplier.Application.Cqrs;
 using HhAutoApplier.Application.Dtos;
 using HhAutoApplier.Application.Errors;
 using HhAutoApplier.Domain;
-using HhAutoApplier.Domain.Vacancies;
+using HhAutoApplier.Domain.Applications;
 
 namespace HhAutoApplier.Application.Commands.Vacancies;
 
 public class ReviewVacancyCommandHandler(
     IAppDbContext db,
-    IExtractor<Vacancy, VacancyDto> extractor,
+    IExtractor<JobApplication, VacancyDto> extractor,
     TimeProvider clock
 ) : ICommandHandler<ReviewVacancyCommand, ReviewVacancyResult>
 {
     public async Task<ReviewVacancyResult> Handle(ReviewVacancyCommand command, CancellationToken ct = default)
     {
-        var vacancy = await db.Vacancies.FindAsync([command.VacancyId], ct);
-        if (vacancy is null)
+        var application = await db.FindApplicationAsync(command.VacancyId, ct);
+        if (application is null)
             return new NotFoundError($"Вакансия {command.VacancyId} не найдена");
 
         try
         {
             if (command.Approve)
-                vacancy.Approve(command.CoverLetter, clock.GetUtcNow());
+                application.Approve(command.CoverLetter, clock.GetUtcNow());
             else
-                vacancy.Decline(command.Reason);
+                application.Decline(command.Reason, clock.GetUtcNow());
         }
         catch (DomainException e)
         {
@@ -32,6 +32,6 @@ public class ReviewVacancyCommandHandler(
         }
 
         await db.SaveChangesAsync(ct);
-        return extractor.Extract(vacancy);
+        return extractor.Extract(application);
     }
 }

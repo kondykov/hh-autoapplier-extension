@@ -1,3 +1,4 @@
+using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Llm;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Searches;
@@ -9,6 +10,8 @@ namespace HhAutoApplier.Application.Abstractions;
 public interface IAppDbContext
 {
     DbSet<Vacancy> Vacancies { get; }
+
+    DbSet<JobApplication> JobApplications { get; }
 
     DbSet<SearchProfile> Searches { get; }
 

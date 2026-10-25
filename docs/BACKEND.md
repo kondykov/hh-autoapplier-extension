@@ -6,7 +6,7 @@ ASP.NET Core 10 + PostgreSQL. Собирает вакансии, фильтру�
 
 ```
 server/
-  src/HhAutoApplier.Domain          агрегаты Vacancy, SearchProfile, ResumeProfile; value objects Salary, FilterRules;
+  src/HhAutoApplier.Domain          агрегаты Vacancy, JobApplication, SearchProfile, ResumeProfile; value objects Salary, FilterRules;
                                     доменные сервисы VacancyEvaluator, ResumePicker, StackExtractor (без зависимостей)
   src/HhAutoApplier.Application     Commands/ и Queries/ по фичам (команда + обработчик), Dtos/, Extractors/,
                                     Errors/, порты Abstractions/ (IAppDbContext, IVacancySource)
@@ -42,6 +42,16 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 
 Запасной путь — **импорт** `POST /api/import` (`{search, vacancies[]}`): вакансии от любого клиента, например расширения.
 
+## Вакансия и отклик (#8)
+
+- `Vacancy` (`Domain/Vacancies`) — общая карточка: название, компания, зарплата, описание, стек, даты, поиск (`SearchName`). Статуса в ней нет
+- `JobApplication` (`Domain/Applications`) — отклик пользователя на вакансию: статус, балл, причина статуса, резюме, вердикт, балл, причина и модель LLM, письмо, анкета с ответами, дата отклика. Все правила статусов — в его методах (`Evaluate`, `ApplyLlmEvaluation`, `Approve`/`Decline`, `SetCoverLetter`, `RequireAnswers`/`AnswerQuestions`, `MarkApplied`/`Skip`/`Fail`/`Reject`/`Requeue`), время передаётся аргументом. Имя не `Application` — чтобы не путать со слоем `HhAutoApplier.Application` (решение владельца 2026-10-25)
+- История: каждая смена статуса добавляет в `History` событие `{at, from, to, reason}`
+- Таблица `JobApplications`: `VacancyId` → `Vacancies` и `UserId` → `AspNetUsers` (оба с каскадным удалением), анкета (`Questions`) и история (`History`) — колонки jsonb. Один отклик на пару (вакансия, пользователь), уникальный индекс `NULLS NOT DISTINCT`
+- `UserId = null` — владелец по умолчанию: до #9 у поисков нет владельцев, сборщик и импорт создают по одному отклику без пользователя на каждую новую вакансию. С #9 отклики станут у каждого пользователя свои
+- Миграция `JobApplications` перенесла данные: по отклику на вакансию, в истории — одно событие «перенос из вакансии (#8)»; `Down` копирует обратно. Статусы по-прежнему называются `VacancyStatus`
+- API не изменился: ответы вакансий и очереди — карточка и отклик одним плоским объектом, плюс поле `history`
+
 ## LLM
 
 Порт `ILlmClient` (Application) и `OpenAiCompatibleClient` (Infrastructure/Llm) — chat/completions любого OpenAI-совместимого провайдера; по умолчанию Groq. Настройки `Llm:*` (в `.env`: `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_DAILY_LIMIT`); без ключа LLM выключена. Повторы при 429 и 5xx (пауза — `Retry-After` или 1, 2, 4 с), таймаут, дневной лимит запросов (`LlmBudget`: счёт за сутки UTC, после перезапуска продолжается по журналу). Ключ Groq: https://console.groq.com/keys.
@@ -59,7 +69,7 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 
 **Ручная проверка (#25).** LLM сомневается (`doubtful`) — вакансия получает статус `Review` и в очередь расширения не идёт; правило поиска `skipReview: true` — сразу в очередь, как раньше. Письма пишутся и для `Review`, чтобы их было видно на проверке. Страница `/review.html` (wwwroot, отдаётся без входа — сама спрашивает email и пароль администратора, дальше работает по cookie): список `GET /api/vacancies?status=Review`, у карточки — описание, причина LLM, анкета, письмо в поле для правки; «Одобрить» → `POST /api/vacancies/{id}/review` `{approve: true, coverLetter?}` — в очередь, поправленное письмо сохраняется с моделью `manual`; «Отклонить» → `{approve: false, reason?}` — `Skipped` «отклонено вручную: …». Анкеты на проверку не идут (решение владельца 2026-10-25). Telegram-бот (#28) подключится к тому же эндпоинту.
 
-**Анкеты работодателей (#24).** Вопросы анкеты видны только со входом на hh.ru: без входа страница отклика ведёт на регистрацию, а страница вакансии знает только `test.hasTests` (проверено 2026-10-25). Поэтому их присылает расширение: `POST /api/vacancies/{id}/questionnaire` с `{questions: [{question, type: Radio|Checkbox|Text|Unknown, options}]}` → статус `Questionnaire`, прежние ответы сбрасываются. После оценки (и по `POST /api/llm/answers`) `AnswerQuestionnairesCommandHandler` отправляет LLM резюме вакансии, пожелания из правил поиска (зарплата, формат), вакансию и пронумерованные вопросы; ответ — JSON `{answers: [...]}` по порядку вопросов. Агрегат проверяет ответы: вариант — только из анкеты (без учёта регистра, сохраняется в написании анкеты), radio — ровно один, checkbox — хотя бы один, текст — непустой. Всё сошлось — вакансия в очереди с ответами (`questions[].answer`, причина «анкета: ответы LLM»); нет — `Skipped` с причиной, догадки работодателю не уходят. Ответы идут в очередь без ручной проверки — решение владельца 2026-10-25. Анкета хранится в `Vacancies.Questions` (jsonb).
+**Анкеты работодателей (#24).** Вопросы анкеты видны только со входом на hh.ru: без входа страница отклика ведёт на регистрацию, а страница вакансии знает только `test.hasTests` (проверено 2026-10-25). Поэтому их присылает расширение: `POST /api/vacancies/{id}/questionnaire` с `{questions: [{question, type: Radio|Checkbox|Text|Unknown, options}]}` → статус `Questionnaire`, прежние ответы сбрасываются. После оценки (и по `POST /api/llm/answers`) `AnswerQuestionnairesCommandHandler` отправляет LLM резюме вакансии, пожелания из правил поиска (зарплата, формат), вакансию и пронумерованные вопросы; ответ — JSON `{answers: [...]}` по порядку вопросов. Агрегат проверяет ответы: вариант — только из анкеты (без учёта регистра, сохраняется в написании анкеты), radio — ровно один, checkbox — хотя бы один, текст — непустой. Всё сошлось — вакансия в очереди с ответами (`questions[].answer`, причина «анкета: ответы LLM»); нет — `Skipped` с причиной, догадки работодателю не уходят. Ответы идут в очередь без ручной проверки — решение владельца 2026-10-25. Анкета хранится в отклике — `JobApplications.Questions` (jsonb; до #8 — `Vacancies.Questions`).
 
 ## Пользователи и вход (#7)
 
@@ -88,8 +98,8 @@ ASP.NET Core Identity (таблицы `AspNet*` в той же БД, мигра�
 | PUT | `/api/users/{id}/blocked` | `{blocked}`: заблокировать / разблокировать |
 | PUT | `/api/users/{id}/password` | `{password}`: задать пароль пользователю |
 | GET | `/api/queue?search=&resume=&limit=` | очередь на отклик (лучшие сверху) |
-| GET | `/api/vacancies?status=&search=&skip=&take=` | список |
-| POST | `/api/vacancies/{id}/status` | `{status, reason?, resume?}`: Applied, Skipped, Failed... |
+| GET | `/api/vacancies?status=&search=&skip=&take=` | список: карточка и отклик, с историей статусов `history` |
+| POST | `/api/vacancies/{id}/status` | `{status, reason?, resume?}`: Applied, Skipped, Failed... — меняет статус отклика |
 | GET/PUT/DELETE | `/api/searches` | сохранённые поиски с правилами (`FilterRules`) |
 | GET/PUT | `/api/resumes` | профили резюме (`match`, `keywords`; для LLM — `summary` и шаблон письма `letterTemplate`) |
 | POST | `/api/import` | `{search, vacancies[]}` |
@@ -108,4 +118,4 @@ ASP.NET Core Identity (таблицы `AspNet*` в той же БД, мигра�
 
 ## Дальше
 
-Отклик пользователя `Application` (#8), владельцы данных (#9), персональные токены (#10), другие агрегаторы и Telegram-бот: см. `ROADMAP.md`.
+Владельцы данных (#9: поиски и резюме у пользователей, отклики у каждого свои), персональные токены (#10), другие агрегаторы и Telegram-бот: см. `ROADMAP.md`.

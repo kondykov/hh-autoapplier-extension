@@ -1,5 +1,6 @@
 using HhAutoApplier.Application.Llm;
 using HhAutoApplier.Domain;
+using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Services;
@@ -17,12 +18,13 @@ public class LlmAssessmentTests
         ResumeProfile.Create("PHP", "PHP Laravel", ["php"]),
     ];
 
-    private static Vacancy Pending()
+    private static JobApplication Pending()
     {
         var v = Vacancy.Create("1", "C# разработчик", "https://hh.ru/vacancy/1", "dotnet", Now);
         v.UpdateDetails(null, "Пишем на ASP.NET Core", []);
-        v.Evaluate(VacancyEvaluator.Default, new FilterRules(), Resumes, awaitLlm: true);
-        return v;
+        var a = JobApplication.Create(v, null, Now);
+        a.Evaluate(VacancyEvaluator.Default, new FilterRules(), Resumes, Now, awaitLlm: true);
+        return a;
     }
 
     [Fact]
@@ -47,7 +49,7 @@ public class LlmAssessmentTests
     [Fact]
     public void BuildRequest_HasResumesRulesAndVacancy()
     {
-        var request = VacancyAssessment.BuildRequest(Pending(), Resumes, new FilterRules { MinSalaryRub = 200_000, ExcludeKeywords = ["1С"] });
+        var request = VacancyAssessment.BuildRequest(Pending().Vacancy, Resumes, new FilterRules { MinSalaryRub = 200_000, ExcludeKeywords = ["1С"] });
         Assert.True(request.Json);
         var text = VacancyAssessment.Serialize(request);
         Assert.Contains("5 лет на C#", text);
@@ -57,7 +59,7 @@ public class LlmAssessmentTests
     }
 
     [Fact]
-    public void Vacancy_PendingUntilLlm_ThenQueuedReviewOrSkipped()
+    public void Application_PendingUntilLlm_ThenQueuedReviewOrSkipped()
     {
         var fit = Pending();
         Assert.Equal(VacancyStatus.Pending, fit.Status);
@@ -79,9 +81,9 @@ public class LlmAssessmentTests
     }
 
     [Fact]
-    public void Vacancy_ReviewApproveWithLetterOrDecline()
+    public void Application_ReviewApproveWithLetterOrDecline()
     {
-        Vacancy Review()
+        JobApplication Review()
         {
             var v = Pending();
             v.ApplyLlmEvaluation(LlmVerdict.Doubtful, 55, "не уверена", null, "m", Now, reviewDoubtful: true);
@@ -96,11 +98,11 @@ public class LlmAssessmentTests
 
         var edited = Review();
         edited.Approve("  Моё письмо  ", Now);
-        Assert.Equal(("Моё письмо", Vacancy.ManualLetter), (edited.CoverLetter, edited.CoverLetterModel));
+        Assert.Equal(("Моё письмо", JobApplication.ManualLetter), (edited.CoverLetter, edited.CoverLetterModel));
 
         var declined = Review();
-        declined.Decline(" не мой стек ");
+        declined.Decline(" не мой стек ", Now);
         Assert.Equal((VacancyStatus.Skipped, "отклонено вручную: не мой стек"), (declined.Status, declined.StatusReason));
-        Assert.Throws<DomainException>(() => declined.Decline(null));
+        Assert.Throws<DomainException>(() => declined.Decline(null, Now));
     }
 }

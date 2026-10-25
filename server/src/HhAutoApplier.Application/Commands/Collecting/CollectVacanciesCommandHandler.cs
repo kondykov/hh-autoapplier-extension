@@ -2,6 +2,7 @@ using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Application.Cqrs;
 using HhAutoApplier.Application.Dtos;
 using HhAutoApplier.Application.Errors;
+using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Services;
 using HhAutoApplier.Domain.Vacancies;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +17,7 @@ public class CollectVacanciesCommandHandler(
     ILlmClient llm,
     VacancyEvaluator evaluator,
     IOptions<CollectorOptions> options,
+    TimeProvider clock,
     ILogger<CollectVacanciesCommandHandler> logger
 ) : ICommandHandler<CollectVacanciesCommand, CollectVacanciesResult>
 {
@@ -52,10 +54,13 @@ public class CollectVacanciesCommandHandler(
                         if (!await source.LoadDetailsAsync(vacancy, ct))
                             continue;
 
-                        vacancy.Evaluate(evaluator, search.Rules, resumes, awaitLlm: llm.IsConfigured);
+                        var now = clock.GetUtcNow();
+                        var application = JobApplication.Create(vacancy, null, now);
+                        application.Evaluate(evaluator, search.Rules, resumes, now, awaitLlm: llm.IsConfigured);
                         db.Vacancies.Add(vacancy);
+                        db.JobApplications.Add(application);
                         added++;
-                        if (vacancy.Status is VacancyStatus.Queued or VacancyStatus.Pending)
+                        if (application.Status is VacancyStatus.Queued or VacancyStatus.Pending)
                             queued++;
                         else
                             skipped++;

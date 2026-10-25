@@ -22,16 +22,16 @@ public class WriteCoverLettersCommandHandler(
         if (!llm.IsConfigured)
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
 
-        var queued = await db.Vacancies.Where(v => (v.Status == VacancyStatus.Queued || v.Status == VacancyStatus.Review) && v.CoverLetter == null)
-            .OrderByDescending(v => v.Score).ThenByDescending(v => v.PublishedAt).Take(command.Limit).ToListAsync(ct);
+        var queued = await db.Applications().Where(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter == null)
+            .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
         var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => r.Name, ct);
 
         int written = 0, failed = 0;
         string? stoppedBy = null;
-        foreach (var vacancy in queued)
+        foreach (var application in queued)
         {
-            var resume = vacancy.ResumeProfile is { } name ? resumes.GetValueOrDefault(name) : null;
-            var request = CoverLetterWriting.BuildRequest(vacancy, resume);
+            var resume = application.ResumeProfile is { } name ? resumes.GetValueOrDefault(name) : null;
+            var request = CoverLetterWriting.BuildRequest(application.Vacancy, resume);
             var prompt = VacancyAssessment.Serialize(request);
 
             LlmResult result;
@@ -42,19 +42,19 @@ public class WriteCoverLettersCommandHandler(
             catch (LlmUnavailableException e)
             {
                 // Лимит или провайдер недоступен: остальные остаются без письма до следующего запуска
-                db.LlmCalls.Add(LlmCall.Failed(CoverLetterWriting.Purpose, vacancy.Id, "", prompt, e.Message, clock.GetUtcNow()));
+                db.LlmCalls.Add(LlmCall.Failed(CoverLetterWriting.Purpose, application.VacancyId, "", prompt, e.Message, clock.GetUtcNow()));
                 await db.SaveChangesAsync(ct);
                 stoppedBy = e.Message;
                 break;
             }
 
-            db.LlmCalls.Add(LlmCall.Succeeded(CoverLetterWriting.Purpose, vacancy.Id, result.Model, prompt, result.Content,
+            db.LlmCalls.Add(LlmCall.Succeeded(CoverLetterWriting.Purpose, application.VacancyId, result.Model, prompt, result.Content,
                 result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()));
 
             // Не письмо — вакансия остаётся без письма: расширение возьмёт свой шаблон, если откликнется раньше
             if (CoverLetterWriting.Parse(result.Content) is { } letter)
             {
-                vacancy.SetCoverLetter(letter, result.Model, clock.GetUtcNow());
+                application.SetCoverLetter(letter, result.Model, clock.GetUtcNow());
                 written++;
             }
             else
@@ -65,7 +65,7 @@ public class WriteCoverLettersCommandHandler(
             await db.SaveChangesAsync(ct);
         }
 
-        var remaining = await db.Vacancies.CountAsync(v => (v.Status == VacancyStatus.Queued || v.Status == VacancyStatus.Review) && v.CoverLetter == null, ct);
+        var remaining = await db.Applications().CountAsync(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter == null, ct);
         logger.LogInformation("Письма LLM: написано {Written}, не разобрано {Failed}, без письма в очереди {Remaining}",
             written, failed, remaining);
         return new CoverLettersResultDto(written, failed, remaining, stoppedBy);

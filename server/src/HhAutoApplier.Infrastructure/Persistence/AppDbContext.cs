@@ -1,4 +1,5 @@
 using HhAutoApplier.Application.Abstractions;
+using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Llm;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Searches;
@@ -15,6 +16,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>(options), IAppDbContext
 {
     public DbSet<Vacancy> Vacancies => Set<Vacancy>();
+
+    public DbSet<JobApplication> JobApplications => Set<JobApplication>();
 
     public DbSet<SearchProfile> Searches => Set<SearchProfile>();
 

@@ -8,7 +8,7 @@ public class GetStatsQueryHandler(IAppDbContext db) : IQueryHandler<GetStatsQuer
 {
     public async Task<IReadOnlyDictionary<string, int>> Handle(GetStatsQuery query, CancellationToken ct = default)
     {
-        var rows = await db.Vacancies.GroupBy(v => v.Status)
+        var rows = await db.Applications().GroupBy(a => a.Status)
             .Select(g => new { Status = g.Key, Count = g.Count() })
             .ToListAsync(ct);
         return rows.ToDictionary(r => r.Status.ToString(), r => r.Count);

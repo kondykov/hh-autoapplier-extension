@@ -127,6 +127,12 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.Conflict, (await SetStatus("1", "Applied")).StatusCode);
         Assert.Equal("Rejected", (await Json(await SetStatus("1", "Rejected", "отказ"))).GetProperty("status").GetString());
+
+        // История отклика переживает сохранение в jsonb: создан → в очереди → отклик → отказ
+        var history = (await Json(await _api.GetAsync("/api/vacancies?status=Rejected"))).EnumerateArray().Single().GetProperty("history");
+        Assert.Equal(["New", "Queued", "Applied", "Rejected"], history.EnumerateArray().Select(e => e.GetProperty("to").GetString()));
+        Assert.Equal("отказ", history[3].GetProperty("reason").GetString());
+        Assert.Equal("Applied", history[3].GetProperty("from").GetString());
         Assert.Equal(HttpStatusCode.Conflict, (await SetStatus("2", "Rejected")).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await SetStatus("2", "New")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await SetStatus("404", "Skipped")).StatusCode);

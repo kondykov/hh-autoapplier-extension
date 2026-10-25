@@ -22,6 +22,80 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("HhAutoApplier.Domain.Applications.JobApplication", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset?>("AppliedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CoverLetter")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("CoverLetterAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CoverLetterModel")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LlmEvaluatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LlmModel")
+                        .HasColumnType("text");
+
+                    b.Property<string>("LlmReason")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("LlmScore")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LlmVerdict")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("ResumeProfile")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Score")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("StatusReason")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("VacancyId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("Status", "Score");
+
+                    b.HasIndex("VacancyId", "UserId")
+                        .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("VacancyId", "UserId"), false);
+
+                    b.ToTable("JobApplications");
+                });
+
             modelBuilder.Entity("HhAutoApplier.Domain.Llm.LlmCall", b =>
                 {
                     b.Property<long>("Id")
@@ -143,9 +217,6 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("text");
 
-                    b.Property<DateTimeOffset?>("AppliedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<string>("Area")
                         .IsRequired()
                         .HasColumnType("text");
@@ -157,15 +228,6 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("CoverLetter")
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset?>("CoverLetterAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CoverLetterModel")
-                        .HasColumnType("text");
-
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasColumnType("text");
@@ -173,27 +235,8 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.Property<bool>("HasTest")
                         .HasColumnType("boolean");
 
-                    b.Property<DateTimeOffset?>("LlmEvaluatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("LlmModel")
-                        .HasColumnType("text");
-
-                    b.Property<string>("LlmReason")
-                        .HasColumnType("text");
-
-                    b.Property<int?>("LlmScore")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("LlmVerdict")
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
                     b.Property<DateTimeOffset>("PublishedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ResumeProfile")
-                        .HasColumnType("text");
 
                     b.Property<string>("SalaryCurrency")
                         .HasColumnType("text");
@@ -204,9 +247,6 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.Property<int?>("SalaryTo")
                         .HasColumnType("integer");
 
-                    b.Property<int>("Score")
-                        .HasColumnType("integer");
-
                     b.Property<string>("SearchName")
                         .IsRequired()
                         .HasColumnType("text");
@@ -214,14 +254,6 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.PrimitiveCollection<string[]>("Stack")
                         .IsRequired()
                         .HasColumnType("text[]");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<string>("StatusReason")
-                        .HasColumnType("text");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -238,8 +270,6 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("SearchName");
-
-                    b.HasIndex("Status", "Score");
 
                     b.ToTable("Vacancies");
                 });
@@ -447,6 +477,85 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("HhAutoApplier.Domain.Applications.JobApplication", b =>
+                {
+                    b.HasOne("HhAutoApplier.Infrastructure.Identity.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("HhAutoApplier.Domain.Vacancies.Vacancy", "Vacancy")
+                        .WithMany()
+                        .HasForeignKey("VacancyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.OwnsMany("HhAutoApplier.Domain.Applications.ApplicationEvent", "History", b1 =>
+                        {
+                            b1.Property<int>("JobApplicationId");
+
+                            b1.Property<int>("__synthesizedOrdinal")
+                                .ValueGeneratedOnAdd();
+
+                            b1.Property<DateTimeOffset>("At");
+
+                            b1.Property<string>("From");
+
+                            b1.Property<string>("Reason");
+
+                            b1.Property<string>("To")
+                                .IsRequired();
+
+                            b1.HasKey("JobApplicationId", "__synthesizedOrdinal");
+
+                            b1.ToTable("JobApplications");
+
+                            b1
+                                .ToJson("History")
+                                .HasColumnType("jsonb");
+
+                            b1.WithOwner()
+                                .HasForeignKey("JobApplicationId");
+                        });
+
+                    b.OwnsMany("HhAutoApplier.Domain.Vacancies.VacancyQuestion", "Questions", b1 =>
+                        {
+                            b1.Property<int>("JobApplicationId");
+
+                            b1.Property<int>("__synthesizedOrdinal")
+                                .ValueGeneratedOnAdd();
+
+                            b1.PrimitiveCollection<string>("Answer")
+                                .IsRequired();
+
+                            b1.PrimitiveCollection<string>("Options")
+                                .IsRequired();
+
+                            b1.Property<string>("Text")
+                                .IsRequired();
+
+                            b1.Property<string>("Type")
+                                .IsRequired();
+
+                            b1.HasKey("JobApplicationId", "__synthesizedOrdinal");
+
+                            b1.ToTable("JobApplications");
+
+                            b1
+                                .ToJson("Questions")
+                                .HasColumnType("jsonb");
+
+                            b1.WithOwner()
+                                .HasForeignKey("JobApplicationId");
+                        });
+
+                    b.Navigation("History");
+
+                    b.Navigation("Questions");
+
+                    b.Navigation("Vacancy");
+                });
+
             modelBuilder.Entity("HhAutoApplier.Domain.Searches.SearchProfile", b =>
                 {
                     b.OwnsOne("HhAutoApplier.Domain.Searches.FilterRules", "Rules", b1 =>
@@ -486,42 +595,6 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
 
                     b.Navigation("Rules")
                         .IsRequired();
-                });
-
-            modelBuilder.Entity("HhAutoApplier.Domain.Vacancies.Vacancy", b =>
-                {
-                    b.OwnsMany("HhAutoApplier.Domain.Vacancies.VacancyQuestion", "Questions", b1 =>
-                        {
-                            b1.Property<string>("VacancyId");
-
-                            b1.Property<int>("__synthesizedOrdinal")
-                                .ValueGeneratedOnAdd();
-
-                            b1.PrimitiveCollection<string>("Answer")
-                                .IsRequired();
-
-                            b1.PrimitiveCollection<string>("Options")
-                                .IsRequired();
-
-                            b1.Property<string>("Text")
-                                .IsRequired();
-
-                            b1.Property<string>("Type")
-                                .IsRequired();
-
-                            b1.HasKey("VacancyId", "__synthesizedOrdinal");
-
-                            b1.ToTable("Vacancies");
-
-                            b1
-                                .ToJson("Questions")
-                                .HasColumnType("jsonb");
-
-                            b1.WithOwner()
-                                .HasForeignKey("VacancyId");
-                        });
-
-                    b.Navigation("Questions");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>
