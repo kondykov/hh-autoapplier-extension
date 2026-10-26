@@ -5,7 +5,7 @@ import type { PageType } from "../dom/page-type";
 import { toServerQuestions } from "../questions/fill";
 import { isPageOf, pickNext, responseUrl, toStatusReport, type QueueItem } from "../queue/queue-mode";
 import { extractVacancyInfo } from "./vacancy-info";
-import { stopAuto, stopQueue, type PageStep, type StepContext } from "./step-context";
+import { reportDailyLimit, stopAuto, stopQueue, type PageStep, type StepContext } from "./step-context";
 
 // Режим «из очереди»: следующая одобренная вакансия с backend → страница отклика → исход на сервер → следующая
 export class QueueStep implements PageStep {
@@ -117,6 +117,7 @@ export class QueueStep implements PageStep {
     const { state, panel, logger, backend, limit, nav } = this.ctx;
     if (await limit.isReached()) {
       stopQueue(this.ctx, `Достигнут дневной лимит (${limit.limit})`);
+      reportDailyLimit(this.ctx);
       await this.ctx.persist();
       return;
     }

@@ -1,7 +1,9 @@
 using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Llm;
+using HhAutoApplier.Domain.Notifications;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Searches;
+using HhAutoApplier.Domain.Telegram;
 using HhAutoApplier.Domain.Users;
 using HhAutoApplier.Domain.Vacancies;
 using Microsoft.EntityFrameworkCore;
@@ -22,6 +24,10 @@ public interface IAppDbContext
     DbSet<LlmCall> LlmCalls { get; }
 
     DbSet<ApiToken> ApiTokens { get; }
+
+    DbSet<TelegramChat> TelegramChats { get; }
+
+    DbSet<Notification> Notifications { get; }
 
     // Сброс отслеживания после неудачного сохранения (сбор продолжает со следующего поиска)
     ChangeTracker ChangeTracker { get; }

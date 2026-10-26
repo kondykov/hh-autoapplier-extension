@@ -5,6 +5,7 @@ using HhAutoApplier.Infrastructure.Identity;
 using HhAutoApplier.Infrastructure.Llm;
 using HhAutoApplier.Infrastructure.Persistence;
 using HhAutoApplier.Infrastructure.Sources.Hh;
+using HhAutoApplier.Infrastructure.Telegram;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -60,6 +61,13 @@ public static class DependencyInjection
             return scope.ServiceProvider.GetRequiredService<AppDbContext>().LlmCalls.Count(c => c.CreatedAt >= from && c.CreatedAt < from.AddDays(1));
         }));
         services.AddHttpClient<ILlmClient, OpenAiCompatibleClient>();
+
+        // Telegram: без токена бот выключен, уведомления не пишутся
+        services.Configure<TelegramOptions>(config.GetSection(TelegramOptions.Section));
+        services.AddHttpClient(nameof(TelegramBot));
+        services.AddSingleton<TelegramBot>();
+        services.AddSingleton<ITelegramBot>(sp => sp.GetRequiredService<TelegramBot>());
+        services.AddHostedService<TelegramHostedService>();
 
         services.AddHostedService<CollectorHostedService>();
         return services;

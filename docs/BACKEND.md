@@ -11,7 +11,7 @@ server/
   src/HhAutoApplier.Application     Commands/ и Queries/ по фичам (команда + обработчик), Dtos/, Extractors/,
                                     Errors/, порты Abstractions/ (IAppDbContext, IVacancySource)
   src/HhAutoApplier.Infrastructure  EF Core (Npgsql, Configurations/, миграции, DbSeeder); Sources/Hh — источник hh.ru;
-                                    Collecting/ — фоновый сбор по расписанию
+                                    Collecting/ — фоновый сбор по расписанию; Telegram/ — бот (опрос и отправка уведомлений)
   src/HhAutoApplier.Api             контроллеры, Auth/ (cookie и X-Api-Key), OpenAPI + Scalar
                                     (Identity — в Infrastructure/Identity, роли — Domain/Users)
   tests/HhAutoApplier.Tests         xunit: домен, правила, разбор страниц hh.ru; Api/ — интеграционные тесты
@@ -23,7 +23,7 @@ server/
 
 ```powershell
 cd server
-copy .env.example .env        # задайте POSTGRES_PASSWORD, API_KEY, ADMIN_EMAIL, ADMIN_PASSWORD (и при нужде API_KEY_USER)
+copy .env.example .env        # задайте POSTGRES_PASSWORD, API_KEY, ADMIN_EMAIL, ADMIN_PASSWORD (и при нужде API_KEY_USER, TELEGRAM_BOT_TOKEN)
 docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:${DB_PORT:-5433}
 ```
 
@@ -100,6 +100,19 @@ ASP.NET Core Identity (таблицы `AspNet*` в той же БД, мигра�
 - Токен передаётся в том же заголовке `X-Api-Key` — расширение не меняется, в панель вставляется токен вместо общего ключа. Действует от имени владельца с ролью `User`; отозван, владелец заблокирован или удалён — 401.
 - В базе — только SHA-256 токена (`ApiTokens`, уникальный индекс по хэшу). Общий `API_KEY` пока работает для перехода; убрать — отдельным шагом.
 
+## Telegram (#28)
+
+Бот на backend: уведомления и ручная проверка из чата. Включается токеном от @BotFather в `.env` (`TELEGRAM_BOT_TOKEN`, `Telegram:BotToken`); без токена бот выключен, уведомления не пишутся. Пакет `Telegram.Bot` (22.10, решение владельца 2026-10-26) — только в `Infrastructure/Telegram`, сценарии — в Application за `ITelegramBot`.
+
+- **Привязка чата:** после входа по паролю `POST /api/telegram/link` → одноразовый код на 15 минут и ссылка `t.me/<бот>?start=<код>`; пользователь отправляет боту `/start <код>`. Ключом или токеном код не получить: чат получает право одобрять и отклонять отклики. У пользователя один чат, чат — у одного пользователя (привязка к другому снимает прежнюю). В базе — только SHA-256 кода (`TelegramChats`). Бот отвечает только в личном чате.
+- **Команды:** `/status` — очередь, проверка, анкеты, отклики за сутки; `/review` — отклики `Review` (до 10) с кнопками «Одобрить» / «Отклонить» (правила те же, что на `/review.html`, письмо — как написала LLM; поправить письмо — на странице); `/stop` — отвязать. Заблокированный пользователь — бот не выполняет команды и не шлёт уведомления.
+- **Уведомления (outbox `Notifications`):** сценарий пишет уведомление, `TelegramHostedService` доставляет раз в 5 с (до 5 попыток; бот остановлен пользователем — отмена). Ключ `(UserId, Key)` уникален — одно событие, одно сообщение:
+  - отклик на проверке — после писем LLM в цикле сбора, с кнопками (`review:<id отклика>`);
+  - анкета без ответа LLM — отклик пропущен (`questionnaire:<id>`);
+  - события расширения `POST /api/events` `{kind: Captcha|DailyLimit, message?}` — капча (раз в час) и дневной лимит (раз в сутки), владельцу ключа или токена;
+  - администраторам — источник заблокировал сбор и LLM остановилась (лимит, провайдер), раз в сутки на вид.
+- Приём — long polling (`getUpdates`), вебхук не нужен: сервер без адреса в интернете. Один токен — один работающий экземпляр (второй получает 409).
+
 ## API (cookie `hh_auth` или заголовок `X-Api-Key`; без пометки — любой вошедший, со своими данными; `?userId=` — чтение чужого, только `Admin`)
 
 | Метод | Путь | Назначение |
@@ -128,6 +141,9 @@ ASP.NET Core Identity (таблицы `AspNet*` в той же БД, мигра�
 | POST | `/api/llm/answers` | `{limit}`: ответить LLM на анкеты `Questionnaire` (только `Admin`; 503 — LLM не настроена) |
 | POST | `/api/llm/letters` | `{limit}`: написать LLM письма для очереди без письма (только `Admin`; 503 — LLM не настроена) |
 | POST | `/api/llm/letters/reset` | `{vacancyIds?}`: сбросить письма очереди, чтобы написать заново (только `Admin`; без LLM) |
+| GET/DELETE | `/api/telegram` | свой чат Telegram: настроен ли бот, привязан ли чат; отвязать |
+| POST | `/api/telegram/link` | код привязки чата на 15 минут и ссылка на бота (409 — вход по ключу или бот не настроен) |
+| POST | `/api/events` | `{kind: Captcha\|DailyLimit, message?}`: событие расширения → Telegram владельцу (`notified`) |
 | GET | `/api/stats?userId=` | счётчики по статусам |
 | GET | `/api/report?format=csv&userId=` | отчёт по откликам |
 
@@ -137,4 +153,4 @@ ASP.NET Core Identity (таблицы `AspNet*` в той же БД, мигра�
 
 **CORS (#20)** выключен по умолчанию: расширение ходит из service worker с `host_permissions` (Chrome CORS не проверяет), страницы backend — с того же адреса. Чужие источники — только явно: `CORS_ORIGINS` (`Cors:Origins`, через запятую, например `chrome-extension://<id>`).
 
-Другие агрегаторы и Telegram-бот: см. `ROADMAP.md`.
+Другие агрегаторы, ответы работодателей в Telegram (после #26): см. `ROADMAP.md`.

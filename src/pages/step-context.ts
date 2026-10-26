@@ -38,7 +38,7 @@ export interface StepContext {
   panel: StepPanel;
   logger: Logger;
   limit: DailyLimit;
-  backend: Pick<BackendClient, "getQueue" | "reportStatus" | "submitQuestionnaire">;
+  backend: Pick<BackendClient, "getQueue" | "reportStatus" | "submitQuestionnaire" | "reportEvent">;
   pipeline: Pick<ApplyPipeline, "applyFromSearch" | "applyOnPage">;
   captcha: Pick<CaptchaGuard, "waitUntilClear" | "consumeHit">;
   nav: Navigator;
@@ -53,6 +53,11 @@ export function stopAuto(ctx: StepContext): void {
   ctx.state.running = false;
   ctx.state.resumeAfterRedirect = false;
   ctx.panel.setAutoActive(false);
+}
+
+// Дневной лимит — владельцу в Telegram (#28). Ответ не ждём: сервер шлёт одно сообщение в сутки, без сервера запрос просто не дойдёт
+export function reportDailyLimit(ctx: StepContext): void {
+  void ctx.backend.reportEvent("DailyLimit", `Лимит: ${ctx.limit.limit} откликов в день`);
 }
 
 export function stopQueue(ctx: StepContext, message: string): void {

@@ -150,6 +150,60 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.ToTable("LlmCalls", (string)null);
                 });
 
+            modelBuilder.Entity("HhAutoApplier.Domain.Notifications.Notification", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset?>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("VacancyId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SentAt")
+                        .HasFilter("\"SentAt\" IS NULL");
+
+                    b.HasIndex("UserId", "Key")
+                        .IsUnique();
+
+                    b.ToTable("Notifications");
+                });
+
             modelBuilder.Entity("HhAutoApplier.Domain.Resumes.ResumeProfile", b =>
                 {
                     b.Property<int>("Id")
@@ -225,6 +279,46 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("UserId", "Name"), false);
 
                     b.ToTable("Searches", (string)null);
+                });
+
+            modelBuilder.Entity("HhAutoApplier.Domain.Telegram.TelegramChat", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("ChatId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("CodeExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CodeHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("LinkedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Username")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChatId")
+                        .IsUnique();
+
+                    b.HasIndex("CodeHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("TelegramChats");
                 });
 
             modelBuilder.Entity("HhAutoApplier.Domain.Users.ApiToken", b =>
@@ -621,6 +715,15 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.Navigation("Vacancy");
                 });
 
+            modelBuilder.Entity("HhAutoApplier.Domain.Notifications.Notification", b =>
+                {
+                    b.HasOne("HhAutoApplier.Infrastructure.Identity.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("HhAutoApplier.Domain.Resumes.ResumeProfile", b =>
                 {
                     b.HasOne("HhAutoApplier.Infrastructure.Identity.AppUser", null)
@@ -672,6 +775,15 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                         });
 
                     b.Navigation("Rules")
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("HhAutoApplier.Domain.Telegram.TelegramChat", b =>
+                {
+                    b.HasOne("HhAutoApplier.Infrastructure.Identity.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

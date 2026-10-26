@@ -16,6 +16,8 @@ export type QueueResult = { ok: true; items: QueueItem[] } | { ok: false; error:
 
 export type ReportResult = { ok: true } | { ok: false; error: string };
 
+export type ExtensionEvent = "Captcha" | "DailyLimit";
+
 interface VacancyDto {
   id: string;
   title: string;
@@ -78,6 +80,12 @@ export class BackendClient {
       method: "POST",
       body: { status: report.status, reason: report.reason, resume },
     });
+    return res.status === 200 ? { ok: true } : { ok: false, error: describe(res) };
+  }
+
+  // Событие для Telegram владельца (#28): сервер сам гасит повторы и молчит, если чат не привязан
+  async reportEvent(kind: ExtensionEvent, message?: string): Promise<ReportResult> {
+    const res = await this.call({ type: "hh-api", path: "/api/events", method: "POST", body: { kind, message } });
     return res.status === 200 ? { ok: true } : { ok: false, error: describe(res) };
   }
 

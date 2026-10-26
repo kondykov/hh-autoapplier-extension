@@ -146,3 +146,18 @@ describe("BackendClient: анкеты", () => {
     expect(calls[0]).toEqual({ type: "hh-api", path: "/api/vacancies/5/questionnaire", method: "POST", body: { questions } });
   });
 });
+
+describe("BackendClient: события для Telegram", () => {
+  it("отправляет событие; недоступный сервер — ошибка, а не исключение", async () => {
+    const calls: unknown[] = [];
+    const client = new BackendClient(async (req) => {
+      calls.push(req);
+      return { status: 200, body: '{"notified":true}' };
+    });
+    expect(await client.reportEvent("Captcha", "https://hh.ru/vacancy/1")).toEqual({ ok: true });
+    expect(calls[0]).toEqual({ type: "hh-api", path: "/api/events", method: "POST", body: { kind: "Captcha", message: "https://hh.ru/vacancy/1" } });
+
+    const offline = new BackendClient(async () => { throw new Error("нет фона"); });
+    expect(await offline.reportEvent("DailyLimit")).toEqual({ ok: false, error: "сервер недоступен: нет фона" });
+  });
+});

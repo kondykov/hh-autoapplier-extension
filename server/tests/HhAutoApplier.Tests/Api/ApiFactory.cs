@@ -32,6 +32,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     public FakeLlmClient Llm { get; } = new();
 
+    public FakeTelegramBot Telegram { get; } = new();
+
     public async Task InitializeAsync() => await _db.StartAsync();
 
     public new async Task DisposeAsync()
@@ -58,6 +60,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             services.AddSingleton<IVacancySource>(Source);
             services.RemoveAll<ILlmClient>();
             services.AddSingleton<ILlmClient>(Llm);
+            services.RemoveAll<ITelegramBot>();
+            services.AddSingleton<ITelegramBot>(Telegram);
             // Блокировка и смена пароля обрывают сессию сразу, а не через минуту
             services.Configure<SecurityStampValidatorOptions>(o => o.ValidationInterval = TimeSpan.Zero);
         });
@@ -88,6 +92,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         await IdentitySeeder.SeedAsync(scope.ServiceProvider);
         Source.Reset();
         Llm.Reset();
+        Telegram.Configured = false;
     }
 
     public async Task<T> WithDbAsync<T>(Func<AppDbContext, Task<T>> action)
@@ -208,4 +213,14 @@ public sealed class FakeLlmClient : ILlmClient
 public sealed class ApiCollection : ICollectionFixture<ApiFactory>
 {
     public const string Name = "api";
+}
+
+// Бот для тестов: по умолчанию не настроен, как без TELEGRAM_BOT_TOKEN. Транспорт (опрос и отправка) в тестах не запускается
+public sealed class FakeTelegramBot : ITelegramBot
+{
+    public bool Configured { get; set; }
+
+    public bool IsConfigured => Configured;
+
+    public Task<string?> GetUsernameAsync(CancellationToken ct = default) => Task.FromResult<string?>("test_bot");
 }

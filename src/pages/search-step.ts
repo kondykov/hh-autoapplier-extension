@@ -6,7 +6,7 @@ import type { AppState } from "../core/state";
 import type { PageType } from "../dom/page-type";
 import { qsa } from "../dom/query";
 import { collectVacancies } from "../search/vacancy-collector";
-import { pageOf, stopAuto, stopQueue, type PageStep, type StepContext } from "./step-context";
+import { pageOf, reportDailyLimit, stopAuto, stopQueue, type PageStep, type StepContext } from "./step-context";
 
 // Выдача hh.ru: сбор карточек, «Next», авто-режим и повторы пустой выдачи
 export class SearchStep implements PageStep {
@@ -88,6 +88,7 @@ export class SearchStep implements PageStep {
       panel.setStep("Дневной лимит исчерпан");
       panel.setNextEnabled(false);
       stopAuto(this.ctx);
+      reportDailyLimit(this.ctx);
       await this.ctx.persist();
       return;
     }

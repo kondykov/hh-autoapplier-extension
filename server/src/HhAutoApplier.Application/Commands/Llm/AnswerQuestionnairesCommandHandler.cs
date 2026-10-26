@@ -3,8 +3,10 @@ using HhAutoApplier.Application.Cqrs;
 using HhAutoApplier.Application.Dtos;
 using HhAutoApplier.Application.Errors;
 using HhAutoApplier.Application.Llm;
+using HhAutoApplier.Application.Notifications;
 using HhAutoApplier.Domain;
 using HhAutoApplier.Domain.Llm;
+using HhAutoApplier.Domain.Notifications;
 using HhAutoApplier.Domain.Vacancies;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -16,6 +18,7 @@ public class AnswerQuestionnairesCommandHandler(
     ILlmClient llm,
     TimeProvider clock,
     IUserService users,
+    Notifier notifier,
     ILogger<AnswerQuestionnairesCommandHandler> logger
 ) : ICommandHandler<AnswerQuestionnairesCommand, AnswerQuestionnairesResult>
 {
@@ -70,6 +73,12 @@ public class AnswerQuestionnairesCommandHandler(
             }
 
             await db.SaveChangesAsync(ct);
+
+            if (application.Status == VacancyStatus.Skipped)
+                await notifier.NotifyAsync(application.UserId, NotificationKind.Questionnaire, $"questionnaire:{application.Id}",
+                    $"Анкета без ответа LLM, отклик пропущен: {application.Vacancy.Title}\n{application.Vacancy.Url}\n{application.StatusReason}\n" +
+                    "Откликнуться можно вручную или вернуть в очередь — расширение пришлёт анкету заново.",
+                    application.VacancyId, ct);
         }
 
         // Анкеты заблокированных не считаются: проход их не обрабатывает

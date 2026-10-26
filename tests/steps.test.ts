@@ -41,6 +41,7 @@ function context(opts: { url?: string; queue?: QueueItem[]; result?: ApplyResult
       getQueue: vi.fn(async () => ({ ok: true as const, items: opts.queue ?? [] })),
       reportStatus: vi.fn(async () => ({ ok: true as const })),
       submitQuestionnaire: vi.fn(async () => ({ ok: true as const })),
+      reportEvent: vi.fn(async () => ({ ok: true as const })),
     },
     pipeline: {
       applyOnPage: vi.fn(async (_v: Vacancy) => opts.result ?? "success"),
@@ -190,6 +191,7 @@ describe("QueueStep", () => {
     await run(new QueueStep(ctx).toggle());
     expect(visited).toEqual([]);
     expect(ctx.state.queueRunning).toBe(false);
+    expect(ctx.backend.reportEvent).toHaveBeenCalledWith("DailyLimit", expect.stringContaining("0"));
   });
 });
 
@@ -234,6 +236,7 @@ describe("SearchStep.next", () => {
     await run(new SearchStep(limited.ctx).next());
     expect(limited.ctx.pipeline.applyFromSearch).not.toHaveBeenCalled();
     expect(limited.ctx.state.running).toBe(false);
+    expect(limited.ctx.backend.reportEvent).toHaveBeenCalledWith("DailyLimit", expect.any(String));
 
     const disabled = context({ url: "https://hh.ru/search/vacancy?text=C%23", result: "disabled" });
     disabled.ctx.state.vacancies = [vacancy("A"), vacancy("B")];

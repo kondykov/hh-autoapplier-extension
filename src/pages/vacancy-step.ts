@@ -2,7 +2,7 @@ import { DELAYS, wait } from "../core/delays";
 import type { AppState, Vacancy } from "../core/state";
 import type { PageType } from "../dom/page-type";
 import { extractVacancyInfo } from "./vacancy-info";
-import { pageOf, stopAuto, type PageStep, type StepContext } from "./step-context";
+import { pageOf, reportDailyLimit, stopAuto, type PageStep, type StepContext } from "./step-context";
 
 // Страница вакансии или отклика в авто-режиме (сюда приводит переход с выдачи): отклик и возврат на поиск
 export class VacancyStep implements PageStep {
@@ -19,6 +19,7 @@ export class VacancyStep implements PageStep {
     await captcha.waitUntilClear();
     if (await limit.isReached()) {
       stopAuto(this.ctx);
+      reportDailyLimit(this.ctx);
       await this.ctx.persist();
       return;
     }

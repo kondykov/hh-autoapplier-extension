@@ -57,6 +57,9 @@ export class Controller {
     this.captcha = new CaptchaGuard((shown) => {
       d.panel.setCaptcha(shown);
       d.logger.log(shown ? "Капча: авто-режим на паузе" : "Капча решена, продолжаю", shown ? "warn" : "success");
+      // Работа встала и ждёт человека — сообщить в Telegram (#28); при ручном просмотре hh.ru капча — не новость
+      if (shown && (d.state.running || d.state.queueRunning))
+        void d.backend.reportEvent("Captcha", location.href);
     });
     this.reports = new ReportActions(d.state, d.questions, d.applications, d.logger, () => this.persist(), (m, yes) => d.panel.ask(m, yes));
     this.settings = new Settings(d.config, d.storage, d.panel, d.logger, d.limit, d.backend, () => this.refresh());
