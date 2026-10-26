@@ -42,6 +42,11 @@ export class Settings {
     await this.save();
   }
 
+  async setRejectionReply(text: string) {
+    this.config.rejectionReply = text.trim() || this.config.rejectionReply;
+    await this.save();
+  }
+
   async checkServer() {
     this.panel.setServerStatus("Проверяю...", true);
     const result = await this.backend.check();

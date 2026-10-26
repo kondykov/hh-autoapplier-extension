@@ -4,6 +4,7 @@ import { CaptchaGuard } from "../captcha/guard";
 import type { KeyValueStorage } from "../infra/storage";
 import type { Logger } from "../infra/logger";
 import type { LetterProvider } from "../letters/letter-provider";
+import { DialogStep } from "../pages/dialog-step";
 import { QueueStep } from "../pages/queue-step";
 import { RejectStep } from "../pages/reject-step";
 import { SearchStep } from "../pages/search-step";
@@ -42,6 +43,8 @@ export class Controller {
 
   readonly rejects: RejectStep;
 
+  readonly dialogs: DialogStep;
+
   readonly settings: Settings;
 
   readonly reports: ReportActions;
@@ -77,6 +80,7 @@ export class Controller {
     this.search = new SearchStep(ctx);
     this.queue = new QueueStep(ctx);
     this.rejects = new RejectStep(ctx);
+    this.dialogs = new DialogStep(ctx);
     this.ctx = ctx;
   }
 
@@ -87,9 +91,10 @@ export class Controller {
     panel.setQueueActive(state.queueRunning);
 
     const page = pageOf(this.ctx);
-    const step = pickStep([this.queue], page, state);
+    const step = pickStep([this.queue, this.dialogs], page, state);
     if (!step) {
-      panel.setStep(page === "search" ? "Отправьте выдачу на сервер или запустите очередь" : "Запустите режим «из очереди»");
+      panel.setStep(page === "search" ? "Отправьте выдачу на сервер или запустите очередь"
+        : page === "chat" ? "«Автоответ» — чаты на сервер, «спасибо» на новые отказы" : "Запустите режим «из очереди»");
       return;
     }
     await step.resume();

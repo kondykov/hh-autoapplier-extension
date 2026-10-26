@@ -1,3 +1,4 @@
+import type { AutoReply } from "../api/client";
 import type { KeyValueStorage } from "../infra/storage";
 import type { QuestionAnswer } from "../questions/fill";
 import type { QueueItem } from "../queue/queue-mode";
@@ -29,6 +30,7 @@ interface PersistedState {
   queueRunning: boolean;
   queueCurrent: QueueItem | null;
   queueTried: string[];
+  autoReplies: AutoReply[];
 }
 
 export class AppState {
@@ -41,6 +43,8 @@ export class AppState {
   queueCurrent: QueueItem | null = null;
   // id, уже опробованные в этом запуске: в пробном режиме сервер о них не знает и вернёт их снова
   queueTried: string[] = [];
+  // Автоответы на отказы, где можно писать: переживают переход между чатами
+  autoReplies: AutoReply[] = [];
 
   // true, если вакансия добавлена впервые
   addOutline(item: VacancyItem): boolean {
@@ -68,6 +72,7 @@ export class AppState {
       queueRunning: this.queueRunning,
       queueCurrent: this.queueCurrent,
       queueTried: this.queueTried,
+      autoReplies: this.autoReplies,
     };
   }
 }
@@ -88,6 +93,7 @@ export class StateRepository {
     state.queueRunning = saved.queueRunning ?? false;
     state.queueCurrent = saved.queueCurrent ?? null;
     state.queueTried = saved.queueTried ?? [];
+    state.autoReplies = saved.autoReplies ?? [];
     return state;
   }
 

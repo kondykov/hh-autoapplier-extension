@@ -18,6 +18,8 @@ export interface AppConfig {
   importSearch: string;
   // Режим «из очереди» без нажатия «Отправить»: по умолчанию включён, выключается только явно в панели
   queueDryRun: boolean;
+  // Автоответ на новый отказ работодателя (решение владельца 2026-10-26); отправляется, только где hh.ru разрешает писать
+  rejectionReply: string;
 }
 
 declare const __DEFAULT_LETTER__: string | undefined;
@@ -30,6 +32,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   server: DEFAULT_SERVER,
   importSearch: "",
   queueDryRun: true,
+  rejectionReply: "Спасибо за ответ и удачи в поиске!",
 };
 
 const KEY = "hh_autoapply_config";
@@ -43,6 +46,7 @@ export async function loadConfig(storage: KeyValueStorage): Promise<AppConfig> {
     server: { ...DEFAULT_SERVER, ...saved.server },
     importSearch: saved.importSearch ?? DEFAULT_CONFIG.importSearch,
     queueDryRun: saved.queueDryRun ?? DEFAULT_CONFIG.queueDryRun,
+    rejectionReply: saved.rejectionReply ?? DEFAULT_CONFIG.rejectionReply,
   };
 }
 

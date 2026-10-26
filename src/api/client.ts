@@ -1,3 +1,4 @@
+import type { DialogChat } from "../dialogs/chats";
 import type { QuestionAnswer, ServerQuestion } from "../questions/fill";
 import type { ImportCard } from "../search/vacancy-collector";
 import type { QueueItem, StatusReport } from "../queue/queue-mode";
@@ -34,6 +35,24 @@ export interface ResumeMatch {
   name: string;
   match: string;
 }
+
+// Чат, где ждёт автоответ на отказ
+export interface AutoReply {
+  chatId: number;
+  vacancyId: string | null;
+  title: string;
+  company: string;
+}
+
+export interface DialogsCounts {
+  received: number;
+  newMessages: number;
+  rejected: number;
+  invited: number;
+  autoReplies: AutoReply[];
+}
+
+export type DialogsResult = { ok: true; result: DialogsCounts } | { ok: false; error: string };
 
 export type ResumesResult = { ok: true; resumes: ResumeMatch[] } | { ok: false; error: string };
 
@@ -114,6 +133,18 @@ export class BackendClient {
     const res = await this.call({ type: "hh-api", path: "/api/resumes" });
     if (res.status !== 200) return { ok: false, error: describe(res) };
     return { ok: true, resumes: (JSON.parse(res.body) as ResumeMatch[]).map(({ name, match }) => ({ name, match })) };
+  }
+
+  // Чаты откликов (#26): статусы и сообщения работодателей; разбор LLM — на сервере, в ответе — чаты для автоответа на отказ
+  async importDialogs(chats: DialogChat[]): Promise<DialogsResult> {
+    const res = await this.call({ type: "hh-api", path: "/api/dialogs", method: "POST", body: { chats } });
+    if (res.status !== 200) return { ok: false, error: describe(res) };
+    return { ok: true, result: JSON.parse(res.body) as DialogsCounts };
+  }
+
+  async reportAutoReply(chatId: number, sent: boolean, error?: string): Promise<ReportResult> {
+    const res = await this.call({ type: "hh-api", path: `/api/dialogs/${chatId}/auto-reply`, method: "POST", body: { sent, error } });
+    return res.status === 200 ? { ok: true } : { ok: false, error: describe(res) };
   }
 
   // Событие для Telegram владельца (#28): сервер сам гасит повторы и молчит, если чат не привязан

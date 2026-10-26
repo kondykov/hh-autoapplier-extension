@@ -58,6 +58,11 @@ export const SELECTORS = {
   anyResponseButton: 'button[data-qa*="response"]',
 
   chatUnreadBadge: '[data-qa="chatik-info-badges"]',
+  // Открытый чат: поле сообщения и предупреждение «переписка недоступна» (проверено вживую 2026-10-26)
+  chatInput: '[data-qa="chatik-message-input"] textarea[data-qa="text-input"]',
+  // Кнопка появляется только с текстом в поле — вживую не снималась; без неё сообщение уходит по Enter
+  chatSend: '[data-qa="chatik-message-input"] button[data-qa*="send"]',
+  chatWarning: '[data-qa="chatik-chat-warning"]',
 } as const;
 
 export const TEXT_MARKERS = {

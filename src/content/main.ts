@@ -40,6 +40,8 @@ async function bootstrap() {
       onDownloadReport: () => void controller.reports.downloadReport(),
       onRejectNext: () => void controller.rejects.next(),
       onAutoReject: () => void controller.rejects.toggleAuto(),
+      onAutoReply: () => void controller.dialogs.run(),
+      onRejectionReplyChange: (text) => void controller.settings.setRejectionReply(text),
       onLimitChange: (value) => void controller.settings.setLimit(value),
       onLetterChange: (text) => void controller.settings.setLetter(text),
       onServerChange: (url, apiKey) => void controller.settings.setServer(url, apiKey),
@@ -54,6 +56,7 @@ async function bootstrap() {
       server: config.server,
       importSearch: config.importSearch,
       queueDryRun: config.queueDryRun,
+      rejectionReply: config.rejectionReply,
     },
   );
   logger.addSink(panel);

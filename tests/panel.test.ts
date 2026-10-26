@@ -17,6 +17,7 @@ async function mount(onQueueDryRunChange: (enabled: boolean) => void = () => {})
     server: DEFAULT_SERVER,
     importSearch: "",
     queueDryRun: true,
+    rejectionReply: "Спасибо!",
   });
   await panel.mount();
   return panel;

@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AutoReply } from "../src/api/client";
 import type { ApplyResult } from "../src/apply/pipeline";
 import { DEFAULT_CONFIG, type AppConfig } from "../src/core/config";
 import { DailyLimit } from "../src/core/daily-limit";
 import { AppState, type Vacancy } from "../src/core/state";
+import type { DialogChat } from "../src/dialogs/chats";
 import { Logger } from "../src/infra/logger";
 import { MemoryStorage } from "../src/infra/storage";
+import { DialogStep } from "../src/pages/dialog-step";
 import { QueueStep } from "../src/pages/queue-step";
 import { SearchStep } from "../src/pages/search-step";
 import { pickStep, type StepContext } from "../src/pages/step-context";
@@ -16,7 +19,7 @@ const item = (id: string): QueueItem => ({ id, title: `Вакансия ${id}`, 
 const RESPONSE = (id: string) => `https://hh.ru/applicant/vacancy_response?vacancyId=${id}`;
 
 // Контекст шага без браузера: навигация, панель, backend и конвейер — подменные
-function context(opts: { url?: string; queue?: QueueItem[]; result?: ApplyResult; config?: Partial<AppConfig>; dailyLimit?: number } = {}) {
+function context(opts: { url?: string; queue?: QueueItem[]; result?: ApplyResult; config?: Partial<AppConfig>; dailyLimit?: number; autoReplies?: AutoReply[] } = {}) {
   let url = opts.url ?? "https://hh.ru/";
   const visited: string[] = [];
   const messages: string[] = [];
@@ -41,6 +44,11 @@ function context(opts: { url?: string; queue?: QueueItem[]; result?: ApplyResult
       reportStatus: vi.fn(async () => ({ ok: true as const })),
       submitQuestionnaire: vi.fn(async () => ({ ok: true as const })),
       reportEvent: vi.fn(async () => ({ ok: true as const })),
+      importDialogs: vi.fn(async (chats: DialogChat[]) => ({
+        ok: true as const,
+        result: { received: chats.length, newMessages: 1, rejected: 1, invited: 0, autoReplies: opts.autoReplies ?? [] },
+      })),
+      reportAutoReply: vi.fn(async (_chatId: number, _sent: boolean, _error?: string) => ({ ok: true as const })),
     },
     pipeline: {
       applyOnPage: vi.fn(async (_v: Vacancy) => opts.result ?? "success"),
@@ -241,5 +249,76 @@ describe("SearchStep.send — выдача на сервер (#27)", () => {
 
     expect(await new SearchStep(ctx).send()).toBe(false);
     expect(messages.at(-1)).toContain("не найден");
+  });
+});
+
+describe("DialogStep", () => {
+  const CHATS = "https://tver.hh.ru/chat";
+  const reply = (chatId: number): AutoReply => ({ chatId, vacancyId: String(chatId), title: `C# ${chatId}`, company: "Acme" });
+  const chat = (chatId: number): DialogChat => ({
+    chatId, vacancyId: String(chatId), title: "C#", company: "Acme", state: "DISCARD", messageId: chatId * 10, text: "К сожалению…", at: "2026-10-26T10:00:00+03:00", fromEmployer: true,
+  });
+  const reader = (writable: number[]) => ({
+    recent: vi.fn(async () => [chat(1), chat(2)]),
+    writePossibility: vi.fn(async (id: number) => (writable.includes(id) ? { canWrite: true, reason: null } : { canWrite: false, reason: "WITHOUT_INVITATION" })),
+  });
+
+  it("чаты — на сервер; закрытая переписка — автоответ невозможен; пробный режим ничего не отправляет", async () => {
+    const { ctx, visited, messages } = context({ url: CHATS, autoReplies: [reply(1), reply(2)] });
+    const chats = reader([2]);
+
+    await run(new DialogStep(ctx, chats, vi.fn()).run());
+
+    expect(ctx.backend.importDialogs.mock.calls[0][0].map((c) => c.chatId)).toEqual([1, 2]);
+    expect(ctx.backend.reportAutoReply).toHaveBeenCalledTimes(1);
+    expect(ctx.backend.reportAutoReply).toHaveBeenCalledWith(1, false, expect.stringContaining("после приглашения"));
+    expect(messages.some((m) => m.includes("Пробный режим") && m.includes("C# 2"))).toBe(true);
+    expect(ctx.state.autoReplies).toEqual([]);
+    expect(visited).toEqual([]);
+  });
+
+  it("не на странице чатов — ничего не собирает", async () => {
+    const { ctx } = context({ url: "https://hh.ru/vacancy/1" });
+    const chats = reader([]);
+
+    await run(new DialogStep(ctx, chats, vi.fn()).run());
+
+    expect(chats.recent).not.toHaveBeenCalled();
+    expect(ctx.backend.importDialogs).not.toHaveBeenCalled();
+  });
+
+  it("без пробного режима: открывает чат, отправляет шаблон, переходит к следующему", async () => {
+    const { ctx, visited, setUrl } = context({ url: CHATS, autoReplies: [reply(1), reply(2)], config: { queueDryRun: false, rejectionReply: "Спасибо!" } });
+    const send = vi.fn(async () => ({ ok: true as const }));
+    const step = new DialogStep(ctx, reader([1, 2]), send);
+
+    await run(step.run());
+    expect(visited).toEqual(["https://tver.hh.ru/chat/1"]);
+    expect(step.accepts("chat", ctx.state)).toBe(true);
+
+    await run(step.resume());
+    expect(send).toHaveBeenCalledWith("Спасибо!");
+    expect(ctx.backend.reportAutoReply).toHaveBeenCalledWith(1, true, undefined);
+    expect(visited.at(-1)).toBe("https://tver.hh.ru/chat/2");
+
+    // hh.ru открыл не тот чат — в чужой не пишем
+    setUrl("https://tver.hh.ru/chat/999");
+    await run(step.resume());
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(ctx.backend.reportAutoReply).toHaveBeenLastCalledWith(2, false, "чат не открылся");
+    expect(ctx.state.autoReplies).toEqual([]);
+    expect(step.accepts("chat", ctx.state)).toBe(false);
+  });
+
+  it("пробный режим включили во время автоответов — остановиться, не отправляя", async () => {
+    const { ctx } = context({ url: "https://tver.hh.ru/chat/1" });
+    ctx.state.autoReplies = [reply(1)];
+    const send = vi.fn();
+
+    await run(new DialogStep(ctx, reader([1]), send).resume());
+
+    expect(send).not.toHaveBeenCalled();
+    expect(ctx.backend.reportAutoReply).not.toHaveBeenCalled();
+    expect(ctx.state.autoReplies).toEqual([]);
   });
 });

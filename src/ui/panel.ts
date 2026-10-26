@@ -21,6 +21,9 @@ export interface PanelHandlers {
   onDownloadReport(): void;
   onRejectNext(): void;
   onAutoReject(): void;
+  // Чаты на сервер и «спасибо» на новые отказы (#26)
+  onAutoReply(): void;
+  onRejectionReplyChange(text: string): void;
   onLetterChange(text: string): void;
   onLimitChange(limit: number): void;
   // apiKey: null — не менять сохранённый ключ
@@ -45,6 +48,7 @@ export class Panel implements LogSink {
       server: ServerSettings;
       importSearch: string;
       queueDryRun: boolean;
+      rejectionReply: string;
     },
   ) {}
 
@@ -99,6 +103,9 @@ export class Panel implements LogSink {
           <button class="hh-btn hh-btn-warn" id="hh-btn-rej">Next Отказ</button>
           <button class="hh-btn hh-btn-secondary" id="hh-btn-autorej">Авто-отказ</button>
         </div>
+        <div class="hh-btn-row">
+          <button class="hh-btn hh-btn-primary" id="hh-btn-autoreply" title="Чаты откликов — на сервер (статусы, разбор ответов, Telegram); на новые отказы — короткое «спасибо», где hh.ru разрешает писать">Автоответ</button>
+        </div>
         <details class="hh-input-group"><summary>Сервер (backend)</summary>
           <label for="hh-input-server-url">Адрес</label><input id="hh-input-server-url" class="hh-input" placeholder="http://127.0.0.1:8080" />
           <label for="hh-input-server-key">Ключ API (X-Api-Key)</label><input id="hh-input-server-key" type="password" class="hh-input" autocomplete="off" />
@@ -106,6 +113,7 @@ export class Panel implements LogSink {
           <button class="hh-btn" id="hh-btn-server-check">Проверить связь</button>
           <div class="hh-step-label" id="hh-server-status"></div>
         </details>
+        <div class="hh-input-group"><label for="hh-input-rejection-reply">Ответ на отказ</label><input id="hh-input-rejection-reply" class="hh-input" /></div>
         <div class="hh-input-group"><label for="hh-input-letter">Письмо, если сервер не прислал своё</label><textarea id="hh-input-letter" class="hh-input" rows="5"></textarea></div>
         <div id="hh-autoapply-log"></div>
       </div>`;
@@ -125,6 +133,7 @@ export class Panel implements LogSink {
     this.el("hh-btn-report").onclick = () => this.handlers.onDownloadReport();
     this.el("hh-btn-rej").onclick = () => this.handlers.onRejectNext();
     this.el("hh-btn-autorej").onclick = () => this.handlers.onAutoReject();
+    this.el("hh-btn-autoreply").onclick = () => this.handlers.onAutoReply();
     this.el("hh-btn-queue").onclick = () => this.handlers.onQueue();
 
     // Выключение пробного режима — переход к настоящим откликам, только с подтверждением
@@ -141,6 +150,10 @@ export class Panel implements LogSink {
       dryRun.checked = false;
       this.handlers.onQueueDryRunChange(false);
     };
+
+    const rejectionReply = this.el<HTMLInputElement>("hh-input-rejection-reply");
+    rejectionReply.value = this.initial.rejectionReply;
+    rejectionReply.onchange = () => this.handlers.onRejectionReplyChange(rejectionReply.value);
 
     const letter = this.el<HTMLTextAreaElement>("hh-input-letter");
     letter.value = this.initial.letter;
