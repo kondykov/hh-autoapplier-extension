@@ -97,7 +97,7 @@
     const res = await fetch(path, { ...options, headers: { "Content-Type": "application/json" } });
     const body = res.status === 204 ? null : await res.json().catch(() => null);
     if (res.status === 401) throw new Unauthorized(body?.message ?? "нужен вход");
-    if (res.status === 403) throw new Error("нет прав: проверка доступна администратору");
+    if (res.status === 403) throw new Error(body?.message ?? "нет прав на эти данные");
     if (!res.ok) throw new Error(body?.message ?? `сервер ответил ${res.status}`);
     return body;
   }

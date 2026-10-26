@@ -31,10 +31,20 @@ public class ImportVacanciesCommandHandler(
             .Select(a => a.VacancyId).ToListAsync(ct)).ToHashSet();
 
         var now = clock.GetUtcNow();
-        int added = 0, queued = 0;
+        int added = 0, queued = 0, waiting = 0;
         foreach (var item in command.Vacancies.DistinctBy(v => v.Id).Where(v => !applied.Contains(v.Id)))
         {
-            if (!known.TryGetValue(item.Id, out var vacancy))
+            if (known.TryGetValue(item.Id, out var vacancy) && vacancy.Imported)
+            {
+                // Карточку создал импорт другого пользователя, источник её ещё не подтвердил: оценивать по ней — пускать
+                // чужие данные в свои правила и промпты. Отклик ждёт в New, сбор подтвердит карточку и оценит его
+                db.JobApplications.Add(JobApplication.Create(vacancy, current.Id, now, search.Id));
+                added++;
+                waiting++;
+                continue;
+            }
+
+            if (vacancy is null)
             {
                 vacancy = Vacancy.Create(item.Id, item.Title, item.Url ?? "", search.Name, now, imported: true);
                 vacancy.UpdateCard(item.Company, item.Area, Salary.From(item.SalaryFrom, item.SalaryTo, item.SalaryCurrency),
@@ -51,7 +61,16 @@ public class ImportVacanciesCommandHandler(
                 queued++;
         }
 
-        await db.SaveChangesAsync(ct);
-        return new ImportResultDto(command.Vacancies.Count, added, queued, added - queued);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            // Сбор успел добавить ту же вакансию или отклик (первичный ключ, уникальный индекс)
+            return new ConflictError("Те же вакансии одновременно добавил сбор — повторите импорт");
+        }
+
+        return new ImportResultDto(command.Vacancies.Count, added, queued, added - queued - waiting, waiting);
     }
 }

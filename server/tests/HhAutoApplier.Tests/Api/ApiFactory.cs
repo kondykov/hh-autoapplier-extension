@@ -124,7 +124,10 @@ public sealed class LoginHandler(string email, string password) : DelegatingHand
 // Источник вакансий для тестов сбора: отдаёт заданные карточки или «блокируется», как hh.ru при капче
 public sealed class FakeVacancySource : IVacancySource
 {
-    private readonly List<(string Id, string Title, string Description)> _cards = [];
+    private readonly List<(string Id, string Title, string Description, bool Listed)> _cards = [];
+
+    // Страница вакансии не открывается (404, архив): LoadDetailsAsync — false
+    public HashSet<string> NoDetails { get; } = [];
 
     public bool Blocked { get; set; }
 
@@ -132,11 +135,15 @@ public sealed class FakeVacancySource : IVacancySource
 
     public string Name => "fake";
 
-    public void Add(string id, string title, string description) => _cards.Add((id, title, description));
+    public void Add(string id, string title, string description) => _cards.Add((id, title, description, true));
+
+    // Вакансия есть на hh.ru, но в выдачу поисков не попадает: доступна только по странице вакансии
+    public void AddUnlisted(string id, string title, string description) => _cards.Add((id, title, description, false));
 
     public void Reset()
     {
         _cards.Clear();
+        NoDetails.Clear();
         Blocked = false;
         DetailsLoaded = 0;
     }
@@ -148,15 +155,20 @@ public sealed class FakeVacancySource : IVacancySource
 
         IReadOnlyList<Vacancy> found = page > 0
             ? []
-            : _cards.Select(c => Vacancy.Create(c.Id, c.Title, $"https://hh.ru/vacancy/{c.Id}", search.Name, DateTimeOffset.UtcNow)).ToList();
+            : _cards.Where(c => c.Listed)
+                .Select(c => Vacancy.Create(c.Id, c.Title, $"https://hh.ru/vacancy/{c.Id}", search.Name, DateTimeOffset.UtcNow)).ToList();
         return Task.FromResult(found);
     }
 
+    // Как HhWebSource: страница вакансии даёт и название, и описание
     public Task<bool> LoadDetailsAsync(Vacancy vacancy, CancellationToken ct)
     {
         DetailsLoaded++;
-        var card = _cards.First(c => c.Id == vacancy.Id);
-        vacancy.UpdateDetails(null, card.Description, []);
+        var card = _cards.FirstOrDefault(c => c.Id == vacancy.Id);
+        if (card.Id is null || NoDetails.Contains(vacancy.Id))
+            return Task.FromResult(false);
+
+        vacancy.UpdateDetails(card.Title, card.Description, []);
         return Task.FromResult(true);
     }
 }

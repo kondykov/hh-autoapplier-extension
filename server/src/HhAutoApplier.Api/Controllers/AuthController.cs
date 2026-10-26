@@ -41,7 +41,8 @@ public class AuthController : ApiController
     }
 
     /// <summary>
-    /// Кто выполняет запрос: пользователь после входа или общий ключ API (id = null, роль Admin).
+    /// Кто выполняет запрос: пользователь после входа, персональный токен или общий ключ API (viaApiKey = true, всегда роль User;
+    /// id = null, пока пользователей нет).
     /// </summary>
     [HttpGet("me")]
     [ProducesResponseType(typeof(CurrentUserDto), StatusCodes.Status200OK)]

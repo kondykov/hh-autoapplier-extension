@@ -41,10 +41,12 @@ public class ApiKeyAuthenticationHandler(
         if (!Request.Headers.TryGetValue(Header, out var provided))
             return AuthenticateResult.NoResult();
 
-        if (ApiToken.IsToken(provided.ToString()))
+        // Сначала общий ключ: он может начинаться с hh_, как персональный токен
+        var isKey = !string.IsNullOrEmpty(Options.Key) && Matches(provided.ToString(), Options.Key);
+        if (!isKey && ApiToken.IsToken(provided.ToString()))
             return await AuthenticateTokenAsync(provided.ToString());
 
-        if (string.IsNullOrEmpty(Options.Key) || !Matches(provided.ToString(), Options.Key))
+        if (!isKey)
             return AuthenticateResult.Fail("Неверный ключ API");
 
         var users = Context.RequestServices.GetRequiredService<IUserService>();

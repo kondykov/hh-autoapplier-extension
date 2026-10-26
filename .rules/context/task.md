@@ -9,7 +9,7 @@
 - История переписана 2026-10-25 (#30, `git filter-branch`): из всех коммитов `master` и `develop` убраны `legacy/` и исходные скрипты коллеги (имя, Telegram, почта); SHA всех коммитов сменились. Старые клоны и worktree — `git fetch` и `git reset --hard origin/develop` (сначала сохранить свои правки); локальная ветка `main` в основной папке репозитория — старая история, удалить или не пушить. Старые коммиты остаются в сети форков GitHub и ссылках PR (`docs/ROADMAP.md`, «Технический долг»)
 - Задачи — GitHub Issues; статусы — Project #5 https://github.com/users/kondykov/projects/5: Backlog → Todo (только спринт в работе) → In Progress → Waiting → Done (правила — `AGENTS.md`, «Git Workflow»); карта и порядок — `docs/ROADMAP.md`
 
-## Готово (typecheck, 96 vitest, 89 xunit, сборка, CI)
+## Готово (typecheck, 96 vitest, 95 xunit, сборка, CI)
 - Расширение: оверлей, сбор вакансий, фильтры и скоринг по пресетам, автоотклик, письма (универсальное + по пресетам), автовыбор резюме PHP/.NET, отчёт CSV, анкеты, автоотказы, повторы пустой выдачи, дневной лимит, автопауза при капче
 - Backend: поиски с правилами, оценка, выбор резюме, очередь, статусы, отчёт, `POST /api/import`, автономный сбор с публичных страниц hh.ru (источники-плагины), Docker (postgres + api); DDD + CQRS без MediatR (4 проекта, OneOf, Scrutor, Scalar)
 - LLM (Groq, `openai/gpt-oss-120b`): оценка вакансий `Pending` → подходит / сомнительно / не подходит (#22); письма под вакансию по резюме и его шаблону `LetterTemplate`, перегенерация `POST /api/llm/letters/reset` (#23); ответы на анкеты — вопросы присылает расширение (#24); журнал `LlmCalls`

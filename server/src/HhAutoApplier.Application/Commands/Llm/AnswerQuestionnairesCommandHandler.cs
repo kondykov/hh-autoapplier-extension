@@ -24,7 +24,8 @@ public class AnswerQuestionnairesCommandHandler(
         if (!llm.IsConfigured)
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
 
-        var waiting = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct)).Where(a => a.Status == VacancyStatus.Questionnaire)
+        var blocked = await users.GetBlockedIdsAsync(ct);
+        var waiting = await db.ActiveApplications(blocked).Where(a => a.Status == VacancyStatus.Questionnaire)
             .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
         // Резюме ищется у владельца отклика: имена у разных пользователей совпадают
         var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => (r.UserId, r.Name), ct);
@@ -71,7 +72,8 @@ public class AnswerQuestionnairesCommandHandler(
             await db.SaveChangesAsync(ct);
         }
 
-        var remaining = await db.JobApplications.CountAsync(a => a.Status == VacancyStatus.Questionnaire, ct);
+        // Анкеты заблокированных не считаются: проход их не обрабатывает
+        var remaining = await db.ActiveApplications(blocked).CountAsync(a => a.Status == VacancyStatus.Questionnaire, ct);
         logger.LogInformation("Анкеты LLM: с ответами {Answered}, не разобрано {Failed}, ждут {Remaining}", answered, failed, remaining);
         return new QuestionnaireAnswersResultDto(answered, failed, remaining, stoppedBy);
     }

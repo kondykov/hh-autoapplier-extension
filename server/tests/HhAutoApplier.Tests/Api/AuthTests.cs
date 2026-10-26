@@ -148,6 +148,26 @@ public class AuthTests(ApiFactory factory) : IAsyncLifetime
         await LoggedIn("user@test.local", UserPassword);
     }
 
+    // Ответ «заблокирован» выдаётся только при верном пароле — неверные попытки должны считаться, иначе пароль подбирается без лимита
+    [Fact]
+    public async Task Blocked_WrongPasswordsCounted_LockoutHidesBlockedAnswer()
+    {
+        var id = await CreateUser("user@test.local");
+        await Json(await _api.PutAsJsonAsync($"/api/users/{id}/blocked", new { blocked = true }));
+
+        for (var i = 0; i < 5; i++)
+        {
+            var (_, wrong) = await Login("user@test.local", "wrong-password");
+            Assert.DoesNotContain("заблокирован", await wrong.Content.ReadAsStringAsync());
+        }
+
+        var (_, response) = await Login("user@test.local", UserPassword);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var text = await response.Content.ReadAsStringAsync();
+        Assert.Contains("попыток", text);
+        Assert.DoesNotContain("заблокирован", text);
+    }
+
     // Блокировка проверяется при каждой проверке сессии, а не только через смену штампа: иначе заблокированный успел бы
     // перевыпустить себе cookie (смена пароля) до проверки штампа и остаться в системе
     [Fact]

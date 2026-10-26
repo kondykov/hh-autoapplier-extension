@@ -146,10 +146,20 @@ public class UserService(
         if (check.IsLockedOut)
             return new UnauthorizedError("Слишком много неудачных попыток входа, попробуйте позже");
 
-        // Заблокированному Identity отказывает до проверки пароля; о блокировке — только при верном пароле,
-        // чтобы не подсказывать, какие email заведены
+        // Заблокированному Identity отказывает до проверки пароля и до проверки временной блокировки, неудачи не считает.
+        // О блокировке — только при верном пароле, чтобы не подсказывать, какие email заведены; неверный пароль считается
+        // неудачей и закрывает вход, иначе ответ «заблокирован» позволил бы подбирать пароль без ограничений
         if (check.IsNotAllowed)
-            return new UnauthorizedError(await users.CheckPasswordAsync(user, password) ? "Пользователь заблокирован" : WrongCredentials);
+        {
+            if (await users.IsLockedOutAsync(user))
+                return new UnauthorizedError("Слишком много неудачных попыток входа, попробуйте позже");
+
+            if (await users.CheckPasswordAsync(user, password))
+                return new UnauthorizedError("Пользователь заблокирован");
+
+            await users.AccessFailedAsync(user);
+            return new UnauthorizedError(WrongCredentials);
+        }
 
         if (!check.Succeeded)
             return new UnauthorizedError(WrongCredentials);

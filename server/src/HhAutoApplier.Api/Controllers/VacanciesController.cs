@@ -123,11 +123,15 @@ public class VacanciesController : ApiController
 
     /// <summary>
     /// Принять вакансии от клиента и оценить их правилами поиска. Уже известные пропускаются.
+    /// Вакансия, которую уже импортировал другой пользователь и источник ещё не подтвердил, ждёт (waiting): её карточка — чужие данные,
+    /// отклик оценится после подтверждения карточки при сборе.
     /// </summary>
     /// <response code="400">Поиск с таким именем не найден.</response>
+    /// <response code="409">Те же вакансии одновременно добавил сбор — повторите импорт.</response>
     [HttpPost("import")]
     [ProducesResponseType(typeof(ImportResultDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationError), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ConflictError), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Import(
         [FromBody] ImportVacanciesCommand command,
         [FromServices] ImportVacanciesCommandHandler handler,

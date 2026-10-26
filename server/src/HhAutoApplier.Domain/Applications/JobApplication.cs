@@ -153,11 +153,13 @@ public class JobApplication
     }
 
     // Расширение встретило анкету: вопросы ждут ответов LLM, отклик уходит из очереди.
-    // Анкета могла поменяться — прежние ответы сбрасываются
+    // Анкета могла поменяться — прежние ответы сбрасываются.
+    // Только из очереди (или повторно из анкеты): ответы LLM ведут сразу в очередь, и анкета не должна вернуть туда
+    // отклонённое вручную, ждущее проверки или ещё не оценённое
     public void RequireAnswers(IReadOnlyCollection<VacancyQuestion> questions, DateTimeOffset at)
     {
-        if (Status is VacancyStatus.Applied or VacancyStatus.Rejected)
-            throw new DomainException("Отклик на вакансию уже отправлен");
+        if (Status is not (VacancyStatus.Queued or VacancyStatus.Questionnaire))
+            throw new DomainException($"Анкета принимается только для отклика в очереди, сейчас {Status}");
 
         if (questions.Count == 0)
             throw new DomainException("В анкете нет вопросов");

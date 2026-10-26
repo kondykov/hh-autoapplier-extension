@@ -71,5 +71,13 @@ public static class IdentitySeeder
             .ExecuteUpdateAsync(u => u.SetProperty(r => r.UserId, owner), ct);
         await db.JobApplications.Where(a => a.UserId == null && !db.JobApplications.Any(o => o.UserId == owner && o.VacancyId == a.VacancyId))
             .ExecuteUpdateAsync(u => u.SetProperty(a => a.UserId, owner), ct);
+
+        // Перенесённый отклик, чей поиск остался у владельца по умолчанию (совпало имя), — к одноимённому поиску администратора:
+        // правила и фильтр очереди по имени — его собственные, а не ничейного поиска
+        // (подзапросы, а не навигация Search: ExecuteUpdate не переводит join в SQL)
+        await db.JobApplications.Where(a => a.UserId == owner && db.Searches.Any(s => s.Id == a.SearchId && s.UserId == null))
+            .ExecuteUpdateAsync(u => u.SetProperty(a => a.SearchId, a => db.Searches
+                .Where(s => s.UserId == owner && s.Name == db.Searches.Where(o => o.Id == a.SearchId).Select(o => o.Name).FirstOrDefault())
+                .Select(s => (int?)s.Id).FirstOrDefault()), ct);
     }
 }

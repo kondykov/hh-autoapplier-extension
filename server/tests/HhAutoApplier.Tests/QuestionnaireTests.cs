@@ -51,6 +51,37 @@ public class QuestionnaireTests
         Assert.Throws<DomainException>(() => v.RequireAnswers(Questions(), Now));
     }
 
+    // Ответы на анкету ведут сразу в очередь: анкета не должна поднимать туда отклонённое, ждущее проверки или не оценённое
+    [Fact]
+    public void Application_QuestionnaireOnlyFromQueue()
+    {
+        JobApplication Make(bool awaitLlm)
+        {
+            var v = Vacancy.Create("1", "C# разработчик", "https://hh.ru/vacancy/1", "dotnet", Now);
+            v.UpdateDetails(null, "Пишем на ASP.NET Core", []);
+            var a = JobApplication.Create(v, null, Now);
+            a.Evaluate(VacancyEvaluator.Default, new FilterRules(), [DotNet], Now, awaitLlm);
+            return a;
+        }
+
+        var pending = Make(awaitLlm: true);
+        Assert.Throws<DomainException>(() => pending.RequireAnswers(Questions(), Now));
+
+        var review = Make(awaitLlm: true);
+        review.ApplyLlmEvaluation(LlmVerdict.Doubtful, 55, "не уверена", null, "m", Now, reviewDoubtful: true);
+        Assert.Throws<DomainException>(() => review.RequireAnswers(Questions(), Now));
+
+        review.Decline(null, Now);
+        Assert.Throws<DomainException>(() => review.RequireAnswers(Questions(), Now));
+        Assert.Equal(VacancyStatus.Skipped, review.Status);
+
+        // Из очереди и повторно из анкеты — можно
+        var queued = Make(awaitLlm: false);
+        queued.RequireAnswers(Questions(), Now);
+        queued.RequireAnswers(Questions(), Now);
+        Assert.Equal(VacancyStatus.Questionnaire, queued.Status);
+    }
+
     [Fact]
     public void Application_BadAnswersLeaveQuestionnaireUntouched()
     {

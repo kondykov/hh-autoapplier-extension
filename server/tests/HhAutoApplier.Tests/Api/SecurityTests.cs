@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 
 namespace HhAutoApplier.Tests.Api;
@@ -73,6 +74,73 @@ public class SecurityTests(ApiFactory factory) : IAsyncLifetime
         // Подтверждённую карточку повторный сбор заново не загружает
         await Json(await _admin.PostAsync("/api/collect", null));
         Assert.Equal(1, factory.Source.DetailsLoaded);
+    }
+
+    [Fact]
+    public async Task Collect_ImportedCardDetailsFail_StaysImported_OthersWait()
+    {
+        var (_, a) = await CreateUser("a@test.local");
+        await SaveSearch(a, "a-search");
+        await Import(a, "a-search", "7", description: "Текст клиента");
+
+        // Источник нашёл вакансию в выдаче, но её страница не открылась: карточка не подтверждена
+        await SaveSearch(_admin, "admin-search");
+        factory.Source.Add("7", "C# разработчик (источник)", "Описание из источника");
+        factory.Source.NoDetails.Add("7");
+        await Json(await _admin.PostAsync("/api/collect", null));
+
+        var vacancy = await factory.WithDbAsync(db => db.Vacancies.AsNoTracking().SingleAsync(v => v.Id == "7"));
+        Assert.Equal(("Текст клиента", true), (vacancy.Description, vacancy.Imported));
+        // Отклик администратора на неподтверждённую чужую карточку не оценён — ждёт
+        Assert.Equal("New", Assert.Single(await Vacancies(_admin)).GetProperty("status").GetString());
+
+        // Страница открылась — карточка целиком из источника, ждавший отклик оценён
+        factory.Source.NoDetails.Clear();
+        await Json(await _admin.PostAsync("/api/collect", null));
+        vacancy = await factory.WithDbAsync(db => db.Vacancies.AsNoTracking().SingleAsync(v => v.Id == "7"));
+        Assert.Equal(("Описание из источника", "C# разработчик (источник)", false), (vacancy.Description, vacancy.Title, vacancy.Imported));
+        Assert.Equal("Queued", Assert.Single(await Vacancies(_admin)).GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task Import_OtherUsersUnconfirmedCard_WaitsUntilSourceConfirms()
+    {
+        var (_, a) = await CreateUser("a@test.local");
+        var (_, b) = await CreateUser("b@test.local");
+        await SaveSearch(a, "a-search");
+        await SaveSearch(b, "b-search");
+        await Import(b, "b-search", "1", description: "Текст B");
+
+        // Карточку создал импорт B: отклик A по ней не оценивается
+        var result = await Json(await a.PostAsJsonAsync("/api/import", new
+        {
+            search = "a-search",
+            vacancies = new[] { new { id = "1", title = "C# разработчик", company = "Acme", description = "Текст A" } },
+        }));
+        Assert.Equal((1, 0, 0, 1), (result.GetProperty("added").GetInt32(), result.GetProperty("queued").GetInt32(),
+            result.GetProperty("skipped").GetInt32(), result.GetProperty("waiting").GetInt32()));
+        Assert.Equal("New", Assert.Single(await Vacancies(a)).GetProperty("status").GetString());
+
+        // Вакансия не попадает в выдачу поисков: сбор подтверждает карточку по странице вакансии и оценивает отклик A
+        factory.Source.AddUnlisted("1", "C# разработчик (источник)", "Описание из источника");
+        await Json(await _admin.PostAsync("/api/collect", null));
+
+        var mine = Assert.Single(await Vacancies(a));
+        Assert.Equal(("Queued", "Описание из источника"), (mine.GetProperty("status").GetString(), mine.GetProperty("description").GetString()));
+        Assert.Equal("Описание из источника", Assert.Single(await Vacancies(b)).GetProperty("description").GetString());
+    }
+
+    [Fact]
+    public async Task ApiKey_SharedKeyWithTokenPrefix_Works()
+    {
+        await using var app = factory.WithWebHostBuilder(b => b.UseSetting("Api:Key", "hh_shared-key"));
+        var key = app.CreateClient();
+        key.DefaultRequestHeaders.Add("X-Api-Key", "hh_shared-key");
+        Assert.Equal(HttpStatusCode.OK, (await key.GetAsync("/api/stats")).StatusCode);
+
+        var wrong = app.CreateClient();
+        wrong.DefaultRequestHeaders.Add("X-Api-Key", "hh_other");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await wrong.GetAsync("/api/stats")).StatusCode);
     }
 
     [Fact]

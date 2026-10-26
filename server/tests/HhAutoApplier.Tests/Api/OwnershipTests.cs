@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Searches;
+using HhAutoApplier.Domain.Vacancies;
 using HhAutoApplier.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -194,5 +196,31 @@ public class OwnershipTests(ApiFactory factory) : IAsyncLifetime
         Assert.Equal(["dotnet", "orphan"], (await Names(_admin, "/api/searches")).Order());
         var left = await factory.WithDbAsync(db => db.Searches.Where(s => s.UserId == null).Select(s => s.Query).ToListAsync());
         Assert.Equal(["PHP"], left);
+    }
+
+    [Fact]
+    public async Task Startup_AdoptedApplication_PointsToAdminsSameNameSearch()
+    {
+        await SaveSearch(_admin, "dotnet");
+        await factory.WithDbAsync(async db =>
+        {
+            var orphan = SearchProfile.Create("dotnet", "PHP", null, null, null, true, userId: null);
+            db.Searches.Add(orphan);
+            await db.SaveChangesAsync();
+            var vacancy = Vacancy.Create("50", "C# разработчик", "https://hh.ru/vacancy/50", "dotnet", DateTimeOffset.UtcNow);
+            db.Vacancies.Add(vacancy);
+            db.JobApplications.Add(JobApplication.Create(vacancy, null, DateTimeOffset.UtcNow, orphan.Id));
+            return await db.SaveChangesAsync();
+        });
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+            await IdentitySeeder.SeedAsync(scope.ServiceProvider);
+
+        // Отклик перешёл администратору, а его поиск остался ничейным (совпало имя): ссылка — на поиск администратора
+        var row = await factory.WithDbAsync(db => db.JobApplications.Where(a => a.VacancyId == "50")
+            .Select(a => new { a.UserId, SearchOwner = a.Search!.UserId }).SingleAsync());
+        Assert.NotNull(row.UserId);
+        Assert.Equal(row.UserId, row.SearchOwner);
+        Assert.Equal("dotnet", Assert.Single(await Vacancies(_admin)).GetProperty("searchName").GetString());
     }
 }

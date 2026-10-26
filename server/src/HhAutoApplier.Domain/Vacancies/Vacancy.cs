@@ -63,7 +63,8 @@ public class Vacancy
         };
     }
 
-    // Источник подтвердил вакансию: карточка — с его выдачи, подробности источник загрузит следом
+    // Источник подтвердил вакансию: карточка и подробности — целиком из источника (card уже с загруженными подробностями).
+    // Флаг импорта снимается только вместе с заменой описания: иначе текст клиента остался бы в «подтверждённой» карточке
     public void AcceptSourceCard(Vacancy card)
     {
         if (card.Id != Id)
@@ -72,6 +73,7 @@ public class Vacancy
         (Title, Url, Company, Area, WorkFormat, HasTest, PublishedAt) =
             (card.Title, card.Url, card.Company, card.Area, card.WorkFormat, card.HasTest, card.PublishedAt);
         (SalaryFrom, SalaryTo, SalaryCurrency) = (card.SalaryFrom, card.SalaryTo, card.SalaryCurrency);
+        (Description, Stack) = (card.Description, card.Stack);
         Imported = false;
     }
 
