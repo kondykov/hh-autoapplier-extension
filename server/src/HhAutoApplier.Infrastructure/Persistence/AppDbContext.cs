@@ -1,5 +1,6 @@
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Domain.Applications;
+using HhAutoApplier.Domain.Dialogs;
 using HhAutoApplier.Domain.Llm;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Notifications;
@@ -33,6 +34,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<TelegramChat> TelegramChats => Set<TelegramChat>();
 
     public DbSet<Notification> Notifications => Set<Notification>();
+
+    public DbSet<EmployerMessage> EmployerMessages => Set<EmployerMessage>();
 
     // Маппинг каждой сущности — в своём классе в Configurations/; схема Identity — из базового класса
     protected override void OnModelCreating(ModelBuilder modelBuilder)

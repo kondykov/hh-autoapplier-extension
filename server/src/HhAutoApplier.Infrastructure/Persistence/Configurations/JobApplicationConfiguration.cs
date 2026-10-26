@@ -23,6 +23,7 @@ public class JobApplicationConfiguration : IEntityTypeConfiguration<JobApplicati
         // Удалённый поиск не стирает отклики: остаются с правилами по умолчанию
         builder.HasOne(x => x.Search).WithMany().HasForeignKey(x => x.SearchId).OnDelete(DeleteBehavior.SetNull);
         builder.Ignore(x => x.Rules);
+        builder.Ignore(x => x.Sent);
 
         // Анкета с ответами и история переходов — колонками jsonb
         builder.OwnsMany(x => x.Questions, o =>

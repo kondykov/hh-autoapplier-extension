@@ -1,4 +1,5 @@
 using HhAutoApplier.Domain.Applications;
+using HhAutoApplier.Domain.Dialogs;
 using HhAutoApplier.Domain.Llm;
 using HhAutoApplier.Domain.Notifications;
 using HhAutoApplier.Domain.Resumes;
@@ -28,6 +29,8 @@ public interface IAppDbContext
     DbSet<TelegramChat> TelegramChats { get; }
 
     DbSet<Notification> Notifications { get; }
+
+    DbSet<EmployerMessage> EmployerMessages { get; }
 
     // Сброс отслеживания после неудачного сохранения (сбор продолжает со следующего поиска)
     ChangeTracker ChangeTracker { get; }

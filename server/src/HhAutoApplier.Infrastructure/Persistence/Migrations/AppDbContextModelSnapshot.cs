@@ -101,6 +101,97 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.ToTable("JobApplications");
                 });
 
+            modelBuilder.Entity("HhAutoApplier.Domain.Dialogs.EmployerMessage", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset?>("AnalyzedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AutoReply")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset?>("AutoReplyAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AutoReplyError")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<long>("ChatId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Company")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<DateTimeOffset?>("HandledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("HhState")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Kind")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("LlmModel")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<long>("MessageId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SuggestedReply")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("Summary")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("VacancyId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Kind")
+                        .HasFilter("\"Kind\" IS NULL");
+
+                    b.HasIndex("UserId", "ChatId")
+                        .IsUnique();
+
+                    b.ToTable("EmployerMessages");
+                });
+
             modelBuilder.Entity("HhAutoApplier.Domain.Llm.LlmCall", b =>
                 {
                     b.Property<long>("Id")
@@ -713,6 +804,15 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.Navigation("Search");
 
                     b.Navigation("Vacancy");
+                });
+
+            modelBuilder.Entity("HhAutoApplier.Domain.Dialogs.EmployerMessage", b =>
+                {
+                    b.HasOne("HhAutoApplier.Infrastructure.Identity.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("HhAutoApplier.Domain.Notifications.Notification", b =>

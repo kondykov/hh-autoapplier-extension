@@ -146,7 +146,7 @@ public class JobApplication
     // Сбросить письмо, чтобы LLM написала его заново (поменялись резюме, шаблон или промпт)
     public void ResetCoverLetter()
     {
-        if (Status is VacancyStatus.Applied or VacancyStatus.Rejected)
+        if (Sent)
             throw new DomainException("Отклик уже отправлен — письмо не переписать");
 
         (CoverLetter, CoverLetterModel, CoverLetterAt) = (null, null, null);
@@ -189,7 +189,7 @@ public class JobApplication
 
     public void MarkApplied(string? resume, DateTimeOffset at)
     {
-        if (Status is VacancyStatus.Applied or VacancyStatus.Rejected)
+        if (Sent)
             throw new DomainException("Отклик на вакансию уже отправлен");
 
         AppliedAt = at;
@@ -200,7 +200,7 @@ public class JobApplication
 
     public void Skip(string? reason, DateTimeOffset at)
     {
-        if (Status is VacancyStatus.Applied or VacancyStatus.Rejected)
+        if (Sent)
             throw new DomainException("Нельзя пропустить вакансию, на которую уже откликнулись");
 
         MoveTo(VacancyStatus.Skipped, reason ?? StatusReason, at);
@@ -208,20 +208,32 @@ public class JobApplication
 
     public void Fail(string? reason, DateTimeOffset at)
     {
-        if (Status is VacancyStatus.Applied or VacancyStatus.Rejected)
+        if (Sent)
             throw new DomainException("Отклик уже отправлен — ошибка отклика невозможна");
 
         MoveTo(VacancyStatus.Failed, reason ?? StatusReason, at);
     }
 
-    // Работодатель отказал после отклика
+    // Работодатель отказал после отклика или после приглашения
     public void Reject(string? reason, DateTimeOffset at)
     {
-        if (Status != VacancyStatus.Applied)
+        if (Status is not (VacancyStatus.Applied or VacancyStatus.Invited))
             throw new DomainException("Отказ возможен только после отклика");
 
         MoveTo(VacancyStatus.Rejected, reason ?? StatusReason, at);
     }
+
+    // Работодатель пригласил (из чата hh.ru, #26)
+    public void Invite(string? reason, DateTimeOffset at)
+    {
+        if (Status != VacancyStatus.Applied)
+            throw new DomainException("Приглашение возможно только после отклика");
+
+        MoveTo(VacancyStatus.Invited, reason, at);
+    }
+
+    // Отклик уже у работодателя: письмо, анкету и статус до отклика не поменять
+    public bool Sent => Status is VacancyStatus.Applied or VacancyStatus.Invited or VacancyStatus.Rejected;
 
     // Вернуть в очередь пропущенный или упавший отклик
     public void Requeue(DateTimeOffset at)
