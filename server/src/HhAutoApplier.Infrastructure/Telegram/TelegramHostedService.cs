@@ -69,9 +69,14 @@ public class TelegramHostedService(
             {
                 return;
             }
+            catch (ApiRequestException e)
+            {
+                // 409 — у бота webhook или тот же токен опрашивает другой экземпляр; 401 — неверный токен. Без стека: повторяется до исправления
+                logger.LogWarning("Telegram: не удалось получить обновления — {Code} {Message}", e.ErrorCode, e.Message);
+                await Task.Delay(ErrorPause, stop);
+            }
             catch (Exception e)
             {
-                // 409 — тот же токен опрашивает другой экземпляр бота
                 logger.LogWarning(e, "Telegram: не удалось получить обновления");
                 await Task.Delay(ErrorPause, stop);
             }

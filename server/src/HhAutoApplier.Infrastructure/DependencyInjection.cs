@@ -64,6 +64,7 @@ public static class DependencyInjection
 
         // Telegram: без токена бот выключен, уведомления не пишутся
         services.Configure<TelegramOptions>(config.GetSection(TelegramOptions.Section));
+        // Логи этого клиента — только от Warning (appsettings): в адресе запроса Bot API — токен бота
         services.AddHttpClient(nameof(TelegramBot));
         services.AddSingleton<TelegramBot>();
         services.AddSingleton<ITelegramBot>(sp => sp.GetRequiredService<TelegramBot>());
