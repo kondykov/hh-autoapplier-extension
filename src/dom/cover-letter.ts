@@ -1,5 +1,5 @@
 import { setNativeValue } from "./input";
-import { DELAYS, wait } from "../core/delays";
+import { DELAYS, pause } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
 import { qs, qsa } from "./query";
 
@@ -25,10 +25,10 @@ export async function ensureCoverLetterFieldVisible(): Promise<HTMLTextAreaEleme
 
   const target = (toggle.closest('button, [role="button"], label') ?? toggle) as HTMLElement;
   target.scrollIntoView?.({ block: "center", inline: "center", behavior: "auto" });
-  await wait(DELAYS.short);
+  await pause(DELAYS.short);
   for (let attempt = 0; attempt < 2; attempt++) {
     target.click();
-    await wait(DELAYS.animation);
+    await pause(DELAYS.animation);
     const field = getCoverLetterField();
     if (field) return field;
   }

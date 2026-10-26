@@ -1,4 +1,4 @@
-import { DELAYS, wait } from "../core/delays";
+import { DELAYS, pause, wait } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
 import type { AppState, Vacancy } from "../core/state";
 import { detectPageType } from "../dom/page-type";
@@ -34,7 +34,7 @@ async function handleRelocationWarning(logger: Logger): Promise<void> {
     if (btn) {
       logger.log('Окно "отклик в другую страну": подтверждаю', "warn");
       btn.click();
-      await wait(DELAYS.wait);
+      await pause(DELAYS.wait);
       return;
     }
     if (qs(SELECTORS.responseModal)) return;
@@ -53,11 +53,11 @@ export class ApplyPipeline {
     }
     logger.log(`Отклик: "${vacancy.title}"`, "step");
     vacancy.applyBtn.scrollIntoView({ behavior: "smooth", block: "center" });
-    await wait(DELAYS.click);
+    await pause(DELAYS.click);
     vacancy.applyBtn.click();
 
     await handleRelocationWarning(logger);
-    await wait(DELAYS.animation);
+    await pause(DELAYS.animation);
     const outcome = await waitForApplyOutcome(vacancy);
     return this.resolve(vacancy, outcome, 0);
   }
@@ -100,7 +100,7 @@ export class ApplyPipeline {
         return this.saveOutline(vacancy);
       }
       logger.log("Анкета заполнена ответами с сервера", "success");
-      await wait(DELAYS.small);
+      await pause(DELAYS.small);
     }
     const letter = await this.deps.letters.getLetter(vacancy);
     const result = await attachLetterAndSubmit(vacancy, letter, logger, this.deps.dryRun(), questionnaire);

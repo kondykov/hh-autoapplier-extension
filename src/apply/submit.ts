@@ -1,4 +1,4 @@
-import { DELAYS, wait } from "../core/delays";
+import { DELAYS, pause, wait } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
 import type { Vacancy } from "../core/state";
 import { ensureCoverLetterFieldVisible, fillTextarea, getCoverLetterField } from "../dom/cover-letter";
@@ -92,7 +92,7 @@ export async function attachLetterAndSubmit(
   if (textarea) {
     fillTextarea(textarea, letter);
     logger.log("Сопроводительное письмо вставлено", "success");
-    await wait(DELAYS.small);
+    await pause(DELAYS.small);
   } else {
     logger.log("Поле письма не найдено, отправляю без письма", "warn");
   }
@@ -118,7 +118,7 @@ export async function attachLetterAndSubmit(
   const startPage = detectPageType();
   const hadModal = !!qs(SELECTORS.responseModal);
   submit.scrollIntoView({ block: "center", inline: "center" });
-  await wait(DELAYS.short);
+  await pause(DELAYS.short);
   submit.click();
   logger.log('Нажата кнопка "Отправить"', "step");
   return waitForSubmitResult(vacancy, startPage, hadModal, 8000, questionnaire);

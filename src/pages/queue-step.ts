@@ -1,5 +1,5 @@
 import type { ApplyResult } from "../apply/pipeline";
-import { DELAYS, wait } from "../core/delays";
+import { DELAYS, pause } from "../core/delays";
 import type { AppState, Vacancy } from "../core/state";
 import type { PageType } from "../dom/page-type";
 import { toServerQuestions } from "../questions/fill";
@@ -141,7 +141,7 @@ export class QueueStep implements PageStep {
     await this.ctx.persist();
     panel.setStep(`Очередь: "${next.title}"`);
     logger.log(`Очередь: открываю "${next.title}" (${next.company})`, "step");
-    await wait(DELAYS.step);
+    await pause(DELAYS.step);
     // Пока ждали, режим могли остановить кнопкой
     if (state.queueRunning)
       nav.go(responseUrl(next.id));

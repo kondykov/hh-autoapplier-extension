@@ -1,4 +1,4 @@
-import { DELAYS, wait } from "../core/delays";
+import { DELAYS, jitter, pause, wait } from "../core/delays";
 import { saveConfig } from "../core/config";
 import { nextEmptyPageAction } from "../core/retry-policy";
 import { SELECTORS } from "../core/selectors";
@@ -29,7 +29,7 @@ export class SearchStep implements PageStep {
     if ((await this.waitForCards()) && (await this.collect())) {
       state.resetEmptyCounters();
       await this.ctx.persist();
-      await wait(DELAYS.step);
+      await pause(DELAYS.step);
       void this.next();
       return;
     }
@@ -49,9 +49,10 @@ export class SearchStep implements PageStep {
       state.emptyPageRetries = 0;
       state.emptyPageRestarts++;
     }
-    logger.log(`Пустая выдача, повтор через ${action.delayMs / 1000} с`, "warn");
+    const delay = jitter(action.delayMs);
+    logger.log(`Пустая выдача, повтор через ${(delay / 1000).toFixed(1)} с`, "warn");
     await this.ctx.persist();
-    await wait(action.delayMs);
+    await wait(delay);
     nav.reload();
   }
 
@@ -132,7 +133,7 @@ export class SearchStep implements PageStep {
     }
 
     if (state.running && !navigated) {
-      await wait(DELAYS.step);
+      await pause(DELAYS.step);
       if (state.running)
         void this.next();
     }

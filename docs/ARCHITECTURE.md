@@ -20,7 +20,7 @@ Backend описан в [BACKEND.md](BACKEND.md), план доработок �
 | `core/state.ts` | состояние (очередь вакансий, outline, unclear) и `StateRepository` |
 | `core/config.ts` | `AppConfig`, дефолты, `loadConfig`/`saveConfig` |
 | `core/selectors.ts` | все селекторы и текстовые маркеры hh.ru |
-| `core/delays.ts`, `core/daily-limit.ts`, `core/retry-policy.ts` | задержки, дневной лимит, повторы пустой выдачи |
+| `core/delays.ts`, `core/daily-limit.ts`, `core/retry-policy.ts` | задержки (`pause` — с разбросом ±30%, `wait` — для опроса), дневной лимит, повторы пустой выдачи |
 | `search/vacancy-collector.ts` | сбор карточек с выдачи с учётом фильтров |
 | `filter/rules.ts` | правила фильтрации и скоринг (`evaluate`), разбор зарплаты |
 | `apply/` | конвейер отклика: распознавание исхода, письмо и отправка, `ApplyPipeline` |

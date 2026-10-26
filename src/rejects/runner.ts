@@ -1,4 +1,4 @@
-import { DELAYS, wait } from "../core/delays";
+import { DELAYS, pause } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
 import { qs, qsa } from "../dom/query";
 import type { Logger } from "../infra/logger";
@@ -22,6 +22,6 @@ export async function openNextRejection(logger: Logger): Promise<boolean> {
   badge.scrollIntoView?.({ block: "center" });
   badge.click();
   logger.log(`Отказ открыт: "${(badge.textContent ?? "").trim().slice(0, 60)}"`, "step");
-  await wait(DELAYS.step);
+  await pause(DELAYS.step);
   return true;
 }

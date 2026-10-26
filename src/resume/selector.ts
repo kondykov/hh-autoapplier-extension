@@ -1,4 +1,4 @@
-import { DELAYS, wait } from "../core/delays";
+import { DELAYS, pause } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
 import type { Vacancy } from "../core/state";
 import { normalizeText, qsa } from "../dom/query";
@@ -44,7 +44,7 @@ export class ResumeSelector {
       return ok(null);
     }
     opener.click();
-    await wait(DELAYS.animation);
+    await pause(DELAYS.animation);
     const option = qsa<HTMLElement>(SELECTORS.resumeOption).find((o) => normalizeText(o.textContent).includes(profile.match));
     if (!option) {
       this.logger.log(`Резюме «${profile.match}» не найдено в списке`, "error");
@@ -52,7 +52,7 @@ export class ResumeSelector {
       return fail();
     }
     option.click();
-    await wait(DELAYS.animation);
+    await pause(DELAYS.animation);
 
     if (!currentTitle().includes(profile.match)) {
       this.logger.log(`Не удалось выбрать резюме «${profile.match}»`, "error");

@@ -1,4 +1,4 @@
-import { DELAYS, wait } from "../core/delays";
+import { DELAYS, pause } from "../core/delays";
 import type { AppState, Vacancy } from "../core/state";
 import type { PageType } from "../dom/page-type";
 import { extractVacancyInfo } from "./vacancy-info";
@@ -48,7 +48,7 @@ export class VacancyStep implements PageStep {
 
     state.resumeAfterRedirect = true;
     await this.ctx.persist();
-    await wait(DELAYS.step);
+    await pause(DELAYS.step);
     nav.go(config.searchRedirectUrl);
   }
 }
