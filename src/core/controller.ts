@@ -8,7 +8,6 @@ import { QueueStep } from "../pages/queue-step";
 import { RejectStep } from "../pages/reject-step";
 import { SearchStep } from "../pages/search-step";
 import { browserNavigator, pageOf, pickStep, type Navigator, type StepContext } from "../pages/step-context";
-import { VacancyStep } from "../pages/vacancy-step";
 import type { QuestionStore } from "../questions/store";
 import type { ApplicationStore } from "../report/applications";
 import { ReportActions } from "../report/report-actions";
@@ -39,8 +38,6 @@ interface ControllerDeps {
 export class Controller {
   readonly search: SearchStep;
 
-  readonly vacancy: VacancyStep;
-
   readonly queue: QueueStep;
 
   readonly rejects: RejectStep;
@@ -56,9 +53,9 @@ export class Controller {
   constructor(private d: ControllerDeps) {
     this.captcha = new CaptchaGuard((shown) => {
       d.panel.setCaptcha(shown);
-      d.logger.log(shown ? "Капча: авто-режим на паузе" : "Капча решена, продолжаю", shown ? "warn" : "success");
+      d.logger.log(shown ? "Капча: работа на паузе" : "Капча решена, продолжаю", shown ? "warn" : "success");
       // Работа встала и ждёт человека — сообщить в Telegram (#28); при ручном просмотре hh.ru капча — не новость
-      if (shown && (d.state.running || d.state.queueRunning))
+      if (shown && d.state.queueRunning)
         void d.backend.reportEvent("Captcha", location.href);
     });
     this.reports = new ReportActions(d.state, d.questions, d.applications, d.logger, () => this.persist(), (m, yes) => d.panel.ask(m, yes));
@@ -78,7 +75,6 @@ export class Controller {
       persist: () => this.persist(),
     };
     this.search = new SearchStep(ctx);
-    this.vacancy = new VacancyStep(ctx);
     this.queue = new QueueStep(ctx);
     this.rejects = new RejectStep(ctx);
     this.ctx = ctx;
@@ -88,18 +84,14 @@ export class Controller {
     const { state, panel } = this.d;
     await this.refresh();
     this.captcha.start();
-    panel.setAutoActive(state.running);
     panel.setQueueActive(state.queueRunning);
 
     const page = pageOf(this.ctx);
-    // Порядок важен: очередь берётся за любую страницу и важнее обычного авто-режима
-    const step = pickStep([this.queue, this.search, this.vacancy], page, state);
+    const step = pickStep([this.queue], page, state);
     if (!step) {
-      panel.setStep(page === "search" ? 'Нажмите "Собрать вакансии"' : "Откройте страницу поиска вакансий (/search/vacancy)");
+      panel.setStep(page === "search" ? "Отправьте выдачу на сервер или запустите очередь" : "Запустите режим «из очереди»");
       return;
     }
-    if (step !== this.queue)
-      await this.captcha.waitUntilClear();
     await step.resume();
   }
 
@@ -110,7 +102,6 @@ export class Controller {
       logger: d.logger,
       letters: d.letters,
       resumes: d.resumes,
-      searchUrl: () => d.config.searchRedirectUrl,
       onApplied: async (vacancy) => {
         await d.limit.increment();
         d.state.applied++;
@@ -129,7 +120,6 @@ export class Controller {
       onOutline: (vacancy) => this.reports.saveQuestions(vacancy),
       onChange: () => this.persist(),
       dryRun: () => d.state.queueRunning && d.config.queueDryRun,
-      stayOnOutline: () => d.state.queueRunning,
     });
   }
 
@@ -145,7 +135,6 @@ export class Controller {
       outline: state.outline.length,
       unclear: state.unclear.length,
       questions: (await questions.list()).length,
-      total: state.vacancies.length,
       daily: await limit.count(),
       dailyLimit: limit.limit,
     });

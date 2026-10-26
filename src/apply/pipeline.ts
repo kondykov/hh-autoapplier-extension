@@ -1,7 +1,6 @@
-import { DELAYS, pause, wait } from "../core/delays";
+import { DELAYS, pause } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
 import type { AppState, Vacancy } from "../core/state";
-import { detectPageType } from "../dom/page-type";
 import { qs } from "../dom/query";
 import type { Logger } from "../infra/logger";
 import type { ResumeSelector } from "../resume/selector";
@@ -17,52 +16,17 @@ export interface PipelineDeps {
   logger: Logger;
   letters: LetterProvider;
   resumes: ResumeSelector;
-  searchUrl: () => string;
   onApplied: (vacancy: Vacancy) => Promise<void>;
   onOutline: (vacancy: Vacancy) => Promise<void>;
   onChange: () => Promise<void>;
   // Пробный режим: всё, кроме нажатия «Отправить»
   dryRun: () => boolean;
-  // Режим «из очереди» сам решает, куда идти после анкеты, — без редиректа на поиск
-  stayOnOutline: () => boolean;
 }
 
-async function handleRelocationWarning(logger: Logger): Promise<void> {
-  for (let i = 0; i < 5; i++) {
-    await wait(400);
-    const btn = qs<HTMLElement>(SELECTORS.relocationConfirmBtn);
-    if (btn) {
-      logger.log('Окно "отклик в другую страну": подтверждаю', "warn");
-      btn.click();
-      await pause(DELAYS.wait);
-      return;
-    }
-    if (qs(SELECTORS.responseModal)) return;
-  }
-}
-
+// Отклик на странице /applicant/vacancy_response (режим «из очереди»): форма уже открыта
 export class ApplyPipeline {
   constructor(private deps: PipelineDeps) {}
 
-  async applyFromSearch(vacancy: Vacancy): Promise<ApplyResult> {
-    const { logger } = this.deps;
-    if (!vacancy.applyBtn) {
-      logger.log("Кнопка отклика не найдена, пропускаю", "warn");
-      this.deps.state.skipped++;
-      return "skipped";
-    }
-    logger.log(`Отклик: "${vacancy.title}"`, "step");
-    vacancy.applyBtn.scrollIntoView({ behavior: "smooth", block: "center" });
-    await pause(DELAYS.click);
-    vacancy.applyBtn.click();
-
-    await handleRelocationWarning(logger);
-    await pause(DELAYS.animation);
-    const outcome = await waitForApplyOutcome(vacancy);
-    return this.resolve(vacancy, outcome, 0);
-  }
-
-  // Для страниц /applicant/vacancy_response и /vacancy/: форма уже открыта
   async applyOnPage(vacancy: Vacancy): Promise<ApplyResult> {
     const outcome = await waitForApplyOutcome(vacancy);
     return this.resolve(vacancy, outcome, 0);
@@ -80,7 +44,7 @@ export class ApplyPipeline {
       return "success";
     }
     if (outcome === "none") {
-      logger.log("После клика ничего не появилось, пропускаю", "warn");
+      logger.log("Форма отклика не появилась, пропускаю", "warn");
       state.skipped++;
       return "skipped";
     }
@@ -91,7 +55,6 @@ export class ApplyPipeline {
       state.skipped++;
       return "failed";
     }
-    if (chosen.profile) vacancy.resume = chosen.profile.name;
     if (questionnaire) {
       const filled = fillQuestionnaire(vacancy.answers ?? []);
       if (!filled.ok) {
@@ -132,19 +95,12 @@ export class ApplyPipeline {
     return { title: vacancy.title, link: vacancy.link || location.href, company: vacancy.company };
   }
 
+  // Очередь сама решает, куда идти дальше: вопросы анкеты — на сервер, затем следующая вакансия
   private async saveOutline(vacancy: Vacancy): Promise<ApplyResult> {
     const { state, logger } = this.deps;
     if (state.addOutline(this.item(vacancy))) logger.log(`Аутлайн: "${vacancy.title}"`, "warn");
     await this.deps.onOutline(vacancy);
     await this.deps.onChange();
-
-    if (detectPageType() === "search") {
-      qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
-    } else if (!this.deps.stayOnOutline()) {
-      state.resumeAfterRedirect = state.running;
-      await this.deps.onChange();
-      location.href = this.deps.searchUrl();
-    }
     return "outline";
   }
 }

@@ -5,7 +5,7 @@ import type { PageType } from "../dom/page-type";
 import { toServerQuestions } from "../questions/fill";
 import { isPageOf, pickNext, responseUrl, toStatusReport, type QueueItem } from "../queue/queue-mode";
 import { extractVacancyInfo } from "./vacancy-info";
-import { reportDailyLimit, stopAuto, stopQueue, type PageStep, type StepContext } from "./step-context";
+import { reportDailyLimit, stopQueue, type PageStep, type StepContext } from "./step-context";
 
 // Режим «из очереди»: следующая одобренная вакансия с backend → страница отклика → исход на сервер → следующая
 export class QueueStep implements PageStep {
@@ -26,8 +26,6 @@ export class QueueStep implements PageStep {
       return;
     }
 
-    if (state.running)
-      stopAuto(this.ctx);
     state.queueRunning = true;
     state.queueCurrent = null;
     state.queueTried = [];
@@ -61,9 +59,8 @@ export class QueueStep implements PageStep {
       title: current.title || info.title,
       company: current.company || info.company,
       link: nav.url(),
-      card: null,
-      applyBtn: null,
       resume: current.resume ?? undefined,
+      resumeMatch: current.resumeMatch,
       letter: current.letter,
       answers: current.answers,
     };
@@ -134,6 +131,19 @@ export class QueueStep implements PageStep {
       stopQueue(this.ctx, "Очередь пуста: одобренных вакансий больше нет");
       await this.ctx.persist();
       return;
+    }
+
+    // Резюме выбирает backend; на hh.ru оно находится по match профиля — тоже с сервера
+    if (next.resume) {
+      const resumes = await backend.getResumes();
+      if (!resumes.ok) {
+        stopQueue(this.ctx, `Резюме с сервера недоступны: ${resumes.error}`);
+        await this.ctx.persist();
+        return;
+      }
+      next.resumeMatch = resumes.resumes.find((r) => r.name === next.resume)?.match;
+      if (!next.resumeMatch)
+        logger.log(`Резюме «${next.resume}» нет на сервере — оставлю выбранное hh.ru`, "warn");
     }
 
     state.queueCurrent = next;

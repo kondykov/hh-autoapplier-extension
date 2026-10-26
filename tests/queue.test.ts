@@ -92,7 +92,7 @@ describe("attachLetterAndSubmit: пробный режим", () => {
 
 describe("PreparedLetterProvider", () => {
   const fallback = new StaticTemplateProvider(() => "Шаблон для {{company}}");
-  const vacancy = (letter?: string): Vacancy => ({ title: "C#", company: "Acme", link: "", card: null, applyBtn: null, letter });
+  const vacancy = (letter?: string): Vacancy => ({ title: "C#", company: "Acme", link: "", letter });
 
   it("письмо от backend приоритетнее шаблона, пустое — шаблон", async () => {
     const letters = new PreparedLetterProvider(fallback);

@@ -20,7 +20,6 @@ export const SELECTORS = {
   coverLetterToggle:
     '[data-qa="vacancy-response-letter-toggle"], [data-qa="vacancy-response-letter-toggle-text"]',
 
-  relocationConfirmBtn: '[data-qa="relocation-warning-confirm"]',
 
   employerAskingForTest: '[data-qa="employer-asking-for-test"]',
   taskQuestion: '[data-qa="task-question"]',

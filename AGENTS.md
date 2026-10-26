@@ -7,7 +7,7 @@
 ## Commands
 ```powershell
 npm run typecheck                 # tsc --noEmit
-npm test                          # vitest (99 тестов)
+npm test                          # vitest (86 тестов)
 npm run build                     # dist/content.js + dist/background.js (esbuild)
 node scripts/dev-browser.mjs      # Chromium с расширением, профиль .profile, CDP :9222
 node scripts/cdp-queue-dry-run.mjs # пробный проход очереди в запущенном dev-браузере: журнал и снимок формы, без отправки
@@ -20,11 +20,11 @@ cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:808
 - Чистая логика — тесты в `tests/` (vitest + happy-dom), без живого hh.ru; разметка формы отклика hh.ru — `tests/fixtures/response-form.ts` (по живой странице), её же брать для новых тестов конвейера
 - Backend — `server/tests/HhAutoApplier.Tests`
 - Перед «готово»: typecheck + test + build (или `dotnet test`); то же гоняет CI (`.github/workflows/ci.yml`) на каждый push, плюс проверку, что модель EF совпадает с миграциями
-- Живую страницу проверять read-only через CDP; не нажимать «Отправить». Перед открытием вакансии убедиться, что авто-режим выключен (кнопка панели «Авто») — он переживает перезапуск браузера
+- Живую страницу проверять read-only через CDP; не нажимать «Отправить». Перед открытием вакансии убедиться, что очередь выключена и пробный режим включён — режим очереди переживает перезапуск браузера. Перед закрытием или перезапуском dev-браузера проверить вкладки: открыто что-то кроме стартовой страницы — спросить владельца
 
 ## Project Structure
-- `src/content/main.ts` — композиция; `src/core/` — Controller (сборка и выбор шага), settings, config, selectors; `src/pages/*-step.ts` — шаги страниц (выдача, вакансия, очередь, отказы) на `StepContext`
-- `src/{apply,search,filter,resume,report,questions,rejects,letters,captcha,dom,infra,ui}` — модули
+- `src/content/main.ts` — композиция; `src/core/` — Controller (сборка и выбор шага), settings, config, selectors; `src/pages/*-step.ts` — шаги страниц (выдача → сервер, очередь, отказы) на `StepContext`
+- `src/{apply,search,resume,report,questions,rejects,letters,captcha,dom,infra,ui}` — модули
 - `src/api` — клиент backend и транспорт; `src/background/main.ts` — service worker, через который идут все запросы к backend (со страницы hh.ru Chrome блокирует запросы в локальную сеть)
 - `server/src/HhAutoApplier.{Domain,Application,Infrastructure,Api}` — DDD + CQRS: агрегаты, команды/запросы, EF и источники, контроллеры (`docs/adr/0001-backend-ddd-cqrs.md`)
 - `docs/` — для людей; план доработок — `docs/ROADMAP.md`

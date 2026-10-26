@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 
 // Один проход режима «из очереди» в пробном режиме через CDP запущенного dev-браузера (scripts/dev-browser.mjs).
-// Отказывается работать, если пробный режим выключен или уже идёт авто-режим / очередь.
+// Отказывается работать, если пробный режим выключен или очередь уже идёт.
 // Печатает журнал панели и снимок формы (резюме, анкета, письмо) на каждом «готов к отправке».
 // «Отправить» не нажимает расширение; скрипт сам ничего на hh.ru не нажимает, кроме кнопки панели «Из очереди».
 const TIMEOUT_MS = 6 * 60 * 1000;
@@ -14,13 +14,13 @@ const flags = () =>
   sw.evaluate(async () => {
     const all = await chrome.storage.local.get(null);
     const key = Object.keys(all).find((k) => all[k] && typeof all[k] === "object" && "queueRunning" in all[k]);
-    return { running: all[key]?.running, queueRunning: all[key]?.queueRunning, dryRun: all.hh_autoapply_config?.queueDryRun };
+    return { queueRunning: all[key]?.queueRunning, dryRun: all.hh_autoapply_config?.queueDryRun };
   });
 
 const start = await flags();
 console.log("флаги:", JSON.stringify(start));
-if (start.running || start.queueRunning || start.dryRun !== true) {
-  console.log("Отмена: нужен пробный режим и выключенные авто-режим и очередь");
+if (start.queueRunning || start.dryRun !== true) {
+  console.log("Отмена: нужен пробный режим и выключенная очередь");
   process.exit(1);
 }
 

@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Vacancy } from "../src/core/state";
 import { Logger } from "../src/infra/logger";
-import { DEFAULT_RESUMES } from "../src/resume/profiles";
 import { ResumeSelector } from "../src/resume/selector";
 
 // Разметка как на живой странице отклика hh.ru (2026-10-24): заголовок резюме внутри [role=button], варианты — [role=option]
@@ -15,53 +14,48 @@ function renderForm(current: string, options: string[]) {
     };
 }
 
-const vacancy = (title: string): Vacancy => ({ title, link: "", company: "", card: null, applyBtn: null });
-
 const PHP = "Fullstack Software Engineer | PHP / Nuxt";
 const DOTNET = "Backend Software Engineer | C# .NET developer130 000 ₽";
 
+// Резюме выбирает backend (#27): имя профиля и match — подстрока названия резюме на hh.ru
+const vacancy = (resumeMatch?: string): Vacancy => ({ title: "Старший разработчик C# .NET", link: "", company: "", resume: resumeMatch, resumeMatch });
+
 describe("ResumeSelector", () => {
-  const selector = new ResumeSelector(() => DEFAULT_RESUMES, new Logger());
+  const selector = new ResumeSelector(new Logger());
 
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  const choose = async (title: string) => {
-    const result = selector.choose(vacancy(title));
+  const choose = async (match?: string) => {
+    const result = selector.choose(vacancy(match));
     await vi.runAllTimersAsync();
     return result;
   };
 
-  it("переключает резюме на подходящее по стеку", async () => {
+  const title = () => document.querySelector('[data-qa="resume-title"]')!.textContent;
+
+  it("переключает на резюме, выбранное сервером", async () => {
     renderForm(PHP, [PHP, DOTNET]);
-    const result = await choose("Старший разработчик C# .NET");
-    expect(result).toEqual({ profile: expect.objectContaining({ name: ".NET" }), failed: false });
-    expect(document.querySelector('[data-qa="resume-title"]')!.textContent).toContain("C# .NET");
+    expect(await choose("C# .NET")).toEqual({ failed: false });
+    expect(title()).toContain("C# .NET");
   });
 
   it("не трогает список, если нужное резюме уже выбрано", async () => {
     renderForm(DOTNET, [PHP, DOTNET]);
     const click = vi.fn();
     document.getElementById("trigger")!.addEventListener("click", click);
-    expect((await choose("C# .NET разработчик")).profile?.name).toBe(".NET");
+    expect(await choose("C# .NET")).toEqual({ failed: false });
     expect(click).not.toHaveBeenCalled();
   });
 
-  it("оставляет выбор hh.ru, если стек не указывает на резюме", async () => {
+  it("сервер не выбрал резюме — остаётся выбор hh.ru, стек вакансии не важен", async () => {
     renderForm(PHP, [PHP, DOTNET]);
-    expect(await choose("Менеджер проектов")).toEqual({ profile: null, failed: false });
-  });
-
-  it("берёт заранее заданное резюме (выбор backend), даже если стек указывает на другое", async () => {
-    renderForm(DOTNET, [PHP, DOTNET]);
-    const result = selector.choose({ ...vacancy("Старший разработчик C# .NET"), resume: "PHP" });
-    await vi.runAllTimersAsync();
-    expect((await result).profile?.name).toBe("PHP");
-    expect(document.querySelector('[data-qa="resume-title"]')!.textContent).toBe(PHP);
+    expect(await choose(undefined)).toEqual({ failed: false });
+    expect(title()).toBe(PHP);
   });
 
   it("сообщает о неудаче, если нужного резюме нет в списке", async () => {
     renderForm(PHP, [PHP]);
-    expect(await choose("Разработчик C# .NET")).toEqual({ profile: null, failed: true });
+    expect(await choose("C# .NET")).toEqual({ failed: true });
   });
 });

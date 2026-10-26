@@ -6,7 +6,6 @@ import { getCoverLetterField } from "../src/dom/cover-letter";
 import { Logger } from "../src/infra/logger";
 import { StaticTemplateProvider } from "../src/letters/letter-provider";
 import { fillQuestionnaire, toServerQuestions, type QuestionAnswer } from "../src/questions/fill";
-import { DEFAULT_RESUMES } from "../src/resume/profiles";
 import { ResumeSelector } from "../src/resume/selector";
 import { letterValue, QUESTIONS, renderResponsePage, resetSubmits, submits } from "./fixtures/response-form";
 
@@ -70,19 +69,17 @@ describe("ApplyPipeline: анкета с ответами backend", () => {
       state: new AppState(),
       logger,
       letters: new StaticTemplateProvider(() => "Письмо"),
-      resumes: new ResumeSelector(() => DEFAULT_RESUMES, logger),
-      searchUrl: () => "https://hh.ru/search/vacancy",
+      resumes: new ResumeSelector(logger),
       onApplied: vi.fn(async () => {}),
       onOutline,
       onChange: vi.fn(async () => {}),
       dryRun: () => dryRun,
-      stayOnOutline: () => true,
     });
     return { p, onOutline };
   }
 
   const vacancy = (answers?: QuestionAnswer[]): Vacancy => ({
-    title: "Разработчик C# .NET", company: "Acme", link: "", card: null, applyBtn: null, answers,
+    title: "Разработчик C# .NET", company: "Acme", link: "", resume: ".NET", resumeMatch: "C# .NET", answers,
   });
 
   async function run(promise: Promise<ApplyResult>): Promise<ApplyResult> {

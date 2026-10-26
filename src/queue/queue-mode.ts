@@ -7,6 +7,8 @@ export interface QueueItem {
   title: string;
   company: string;
   resume: string | null;
+  // Подстрока названия резюме на hh.ru (match профиля с сервера) — заполняет очередь перед открытием вакансии
+  resumeMatch?: string;
   // Письмо под вакансию от LLM backend; нет — расширение берёт свой шаблон
   letter?: string;
   // Ответы LLM на анкету работодателя; есть — конвейер заполнит анкету вместо пропуска

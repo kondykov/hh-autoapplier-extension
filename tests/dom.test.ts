@@ -42,6 +42,16 @@ describe("config", () => {
     await storage.set("hh_autoapply_config", { dailyLimit: 10 });
     const cfg = await loadConfig(storage);
     expect(cfg.dailyLimit).toBe(10);
-    expect(cfg.searchRedirectUrl).toBe(DEFAULT_CONFIG.searchRedirectUrl);
+    expect(cfg.importSearch).toBe(DEFAULT_CONFIG.importSearch);
+    expect(cfg.queueDryRun).toBe(true);
+  });
+
+  // #27: настройки прежнего локального отбора не возвращаются в конфиг и не сохраняются снова
+  it("drops settings of the removed local filtering", async () => {
+    const storage = new MemoryStorage();
+    await storage.set("hh_autoapply_config", { presets: [{ name: "x" }], rules: { stopWords: ["php"] }, resumes: [], searchRedirectUrl: "u", importSearch: "dotnet" });
+    const cfg = await loadConfig(storage);
+    expect(Object.keys(cfg).sort()).toEqual(["coverLetterTemplate", "dailyLimit", "importSearch", "queueDryRun", "server"]);
+    expect(cfg.importSearch).toBe("dotnet");
   });
 });

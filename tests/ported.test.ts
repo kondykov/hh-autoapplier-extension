@@ -1,18 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { nextEmptyPageAction } from "../src/core/retry-policy";
 import { AppState } from "../src/core/state";
 import { extractQuestions } from "../src/questions/extract";
 import { isRejection } from "../src/rejects/matcher";
-
-describe("empty page policy", () => {
-  it("retries 3x, then pauses and restarts once, then stops", () => {
-    const c = { emptyPageRetries: 0, emptyPageRestarts: 0 };
-    expect(nextEmptyPageAction(c)).toEqual({ kind: "retry", delayMs: 3000 });
-    expect(nextEmptyPageAction({ ...c, emptyPageRetries: 1 })).toEqual({ kind: "retry", delayMs: 7000 });
-    expect(nextEmptyPageAction({ ...c, emptyPageRetries: 3 }).kind).toBe("pause-restart");
-    expect(nextEmptyPageAction({ emptyPageRetries: 3, emptyPageRestarts: 1 }).kind).toBe("stop");
-  });
-});
 
 describe("rejection matcher", () => {
   it("detects rejection phrases", () => {
@@ -33,7 +22,7 @@ describe("questions", () => {
 describe("state persistence", () => {
   it("keeps run flags in JSON", () => {
     const s = new AppState();
-    s.running = true;
-    expect(s.toJSON().running).toBe(true);
+    s.queueRunning = true;
+    expect(s.toJSON().queueRunning).toBe(true);
   });
 });

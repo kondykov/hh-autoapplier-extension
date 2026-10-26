@@ -3,7 +3,7 @@ import { SELECTORS } from "../core/selectors";
 import type { Vacancy } from "../core/state";
 import { ensureCoverLetterFieldVisible, fillTextarea, getCoverLetterField } from "../dom/cover-letter";
 import { detectPageType } from "../dom/page-type";
-import { isAlreadyResponded, normalizeText, qs, qsa } from "../dom/query";
+import { normalizeText, qs, qsa } from "../dom/query";
 import type { Logger } from "../infra/logger";
 import { isAlreadyRespondedOnPage, isOutlineDetected } from "./outcome-detector";
 
@@ -22,13 +22,12 @@ function findButtonByText(root: ParentNode, text: string, excludeApply: boolean)
   return nodes.find((n) => !isApply(n) && normalizeText(n.textContent).includes(text)) ?? null;
 }
 
-async function findSubmitButton(scope: Element | null, timeoutMs = 4000): Promise<HTMLElement | null> {
+async function findSubmitButton(timeoutMs = 4000): Promise<HTMLElement | null> {
   const start = Date.now();
   do {
     const modal = qs(SELECTORS.responseModal);
     const scopes: ParentNode[] = [];
     if (modal) scopes.push(modal);
-    if (scope && scope !== modal) scopes.push(scope);
     scopes.push(document.body);
 
     for (const s of scopes) {
@@ -61,7 +60,6 @@ async function waitForSubmitResult(
     if (!questionnaire && isOutlineDetected()) return "outline";
     if (detectPageType() !== startPage) return "pending_response";
     if (isAlreadyRespondedOnPage()) return "success";
-    if (vacancy?.card && isAlreadyResponded(vacancy.card)) return "success";
     const formOpen = qs(SELECTORS.responseModal) || getCoverLetterField();
     if (!formOpen && (hadModal || startPage !== "search")) {
       if (++closedStreak >= 2) return "success";
@@ -99,7 +97,7 @@ export async function attachLetterAndSubmit(
 
   if (!questionnaire && isOutlineDetected()) return "outline";
 
-  const submit = await findSubmitButton(vacancy?.card ?? null);
+  const submit = await findSubmitButton();
   if (!submit) {
     logger.log('Кнопка "Отправить" не найдена', "warn");
     return "failed";

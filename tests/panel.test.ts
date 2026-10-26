@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SERVER } from "../src/core/config";
-import { EMPTY_RULES } from "../src/filter/rules";
 import { MemoryStorage } from "../src/infra/storage";
 import { Panel, type PanelHandlers } from "../src/ui/panel";
 
@@ -13,13 +12,10 @@ async function mount(onQueueDryRunChange: (enabled: boolean) => void = () => {})
     get: (target, key: string) => target[key as keyof PanelHandlers] ?? (() => {}),
   }) as PanelHandlers;
   const panel = new Panel(new MemoryStorage(), handlers, {
-    url: "",
     limit: 200,
     letter: "",
-    presets: [],
-    rules: EMPTY_RULES,
-    resumes: [],
     server: DEFAULT_SERVER,
+    importSearch: "",
     queueDryRun: true,
   });
   await panel.mount();

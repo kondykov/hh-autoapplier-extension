@@ -4,7 +4,7 @@ import { SELECTORS } from "../core/selectors";
 export const isCaptchaVisible = (root: ParentNode = document): boolean =>
   root.querySelector(SELECTORS.captcha) !== null;
 
-// Следит за капчей, пока она на странице; блокирует авто-режим до её решения человеком
+// Следит за капчей, пока она на странице; останавливает очередь до её решения человеком
 export class CaptchaGuard {
   private hit = false;
   private timer: ReturnType<typeof setInterval> | undefined;

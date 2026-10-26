@@ -25,10 +25,7 @@ export const browserNavigator: Navigator = {
 };
 
 // То, что шагам нужно от панели; полная панель — в ui/panel.ts
-export type StepPanel = Pick<
-  Panel,
-  "setStep" | "setNextEnabled" | "setAutoActive" | "setQueueActive" | "setRejectActive" | "setUrl"
->;
+export type StepPanel = Pick<Panel, "setStep" | "setQueueActive" | "setRejectActive">;
 
 // Общее для всех шагов: состояние, настройки, панель, конвейер отклика и служебные действия
 export interface StepContext {
@@ -38,8 +35,8 @@ export interface StepContext {
   panel: StepPanel;
   logger: Logger;
   limit: DailyLimit;
-  backend: Pick<BackendClient, "getQueue" | "reportStatus" | "submitQuestionnaire" | "reportEvent">;
-  pipeline: Pick<ApplyPipeline, "applyFromSearch" | "applyOnPage">;
+  backend: Pick<BackendClient, "getQueue" | "getResumes" | "reportStatus" | "submitQuestionnaire" | "reportEvent" | "importVacancies">;
+  pipeline: Pick<ApplyPipeline, "applyOnPage">;
   captcha: Pick<CaptchaGuard, "waitUntilClear" | "consumeHit">;
   nav: Navigator;
   // Сохранить состояние и обновить счётчики панели
@@ -47,13 +44,6 @@ export interface StepContext {
 }
 
 export const pageOf = (ctx: StepContext): PageType => detectPageType(ctx.nav.url());
-
-// Режимы взаимно исключают друг друга: включение одного выключает другой
-export function stopAuto(ctx: StepContext): void {
-  ctx.state.running = false;
-  ctx.state.resumeAfterRedirect = false;
-  ctx.panel.setAutoActive(false);
-}
 
 // Дневной лимит — владельцу в Telegram (#28). Ответ не ждём: сервер шлёт одно сообщение в сутки, без сервера запрос просто не дойдёт
 export function reportDailyLimit(ctx: StepContext): void {
@@ -76,6 +66,6 @@ export interface PageStep {
   resume(): Promise<void>;
 }
 
-// Первый подходящий шаг; порядок важен: очередь важнее авто-режима
+// Первый подходящий шаг
 export const pickStep = (steps: PageStep[], page: PageType, state: AppState): PageStep | null =>
   steps.find((s) => s.accepts(page, state)) ?? null;

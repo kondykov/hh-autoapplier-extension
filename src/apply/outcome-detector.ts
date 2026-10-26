@@ -3,7 +3,7 @@ import { SELECTORS, TEXT_MARKERS } from "../core/selectors";
 import type { Vacancy } from "../core/state";
 import { getCoverLetterField } from "../dom/cover-letter";
 import { detectPageType } from "../dom/page-type";
-import { isAlreadyResponded, normalizeText, qs } from "../dom/query";
+import { normalizeText, qs } from "../dom/query";
 
 export type ApplyOutcome = "outline" | "modal" | "response" | "letter" | "responded" | "none";
 
@@ -39,7 +39,6 @@ export function detectApplyOutcome(vacancy: Vacancy | null): ApplyOutcome | null
   if (qs(SELECTORS.responseModal)) return "modal";
   if (detectPageType() === "response") return isAlreadyRespondedOnPage() ? "responded" : "response";
   if (hasLetterPlace()) return "letter";
-  if (vacancy?.card && isAlreadyResponded(vacancy.card)) return "responded";
   return null;
 }
 

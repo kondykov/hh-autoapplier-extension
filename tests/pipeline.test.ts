@@ -4,13 +4,11 @@ import { attachLetterAndSubmit } from "../src/apply/submit";
 import { AppState, type Vacancy } from "../src/core/state";
 import { Logger } from "../src/infra/logger";
 import { StaticTemplateProvider } from "../src/letters/letter-provider";
-import { DEFAULT_RESUMES } from "../src/resume/profiles";
 import { ResumeSelector } from "../src/resume/selector";
 import {
   DOTNET,
   letterValue,
   PHP,
-  renderResponseModal,
   renderResponsePage,
   resetSubmits,
   resumeTitle,
@@ -20,7 +18,6 @@ import {
 const setUrl = (url: string) => (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL(url);
 
 const RESPONSE_URL = "https://hh.ru/applicant/vacancy_response?vacancyId=1";
-const SEARCH_URL = "https://hh.ru/search/vacancy?text=C%23";
 
 function setup(overrides: Partial<PipelineDeps> = {}) {
   const logger = new Logger();
@@ -28,13 +25,11 @@ function setup(overrides: Partial<PipelineDeps> = {}) {
     state: new AppState(),
     logger,
     letters: new StaticTemplateProvider(() => "Здравствуйте, {{company}}! Интересна вакансия {{title}}"),
-    resumes: new ResumeSelector(() => DEFAULT_RESUMES, logger),
-    searchUrl: () => SEARCH_URL,
+    resumes: new ResumeSelector(logger),
     onApplied: vi.fn(async () => {}),
     onOutline: vi.fn(async () => {}),
     onChange: vi.fn(async () => {}),
     dryRun: () => false,
-    stayOnOutline: () => true,
     ...overrides,
   };
   return { deps, pipeline: new ApplyPipeline(deps) };
@@ -44,8 +39,9 @@ const vacancy = (patch: Partial<Vacancy> = {}): Vacancy => ({
   title: "Старший разработчик C# .NET",
   company: "Acme",
   link: RESPONSE_URL,
-  card: null,
-  applyBtn: null,
+  // Резюме выбирает backend: имя профиля и его match на hh.ru
+  resume: ".NET",
+  resumeMatch: "C# .NET",
   ...patch,
 });
 
@@ -67,7 +63,7 @@ afterEach(() => vi.useRealTimers());
 describe("ApplyPipeline.applyOnPage — страница отклика", () => {
   beforeEach(() => setUrl(RESPONSE_URL));
 
-  it("выбирает резюме по стеку, вставляет письмо и отправляет", async () => {
+  it("выбирает резюме сервера, вставляет письмо и отправляет", async () => {
     renderResponsePage();
     const { deps, pipeline } = setup();
     const v = vacancy();
@@ -78,14 +74,22 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
     expect(deps.onApplied).toHaveBeenCalledWith(v);
   });
 
-  it("резюме, выбранное заранее (backend), важнее стека; письмо — с подстановками", async () => {
+  it("резюме сервера — по его match, а не по стеку вакансии; письмо — с подстановками", async () => {
     renderResponsePage({ current: DOTNET, afterSubmit: "nothing" });
     const { pipeline } = setup({ dryRun: () => true });
-    const v = vacancy({ resume: "PHP" });
+    const v = vacancy({ resume: "PHP", resumeMatch: "PHP" });
 
     expect(await run(pipeline.applyOnPage(v))).toBe("dry_run");
     expect(resumeTitle()).toBe(PHP);
     expect(letterValue()).toBe("Здравствуйте, Acme! Интересна вакансия Старший разработчик C# .NET");
+  });
+
+  it("сервер не выбрал резюме — остаётся выбранное hh.ru", async () => {
+    renderResponsePage({ current: PHP, afterSubmit: "nothing" });
+    const { pipeline } = setup({ dryRun: () => true });
+
+    expect(await run(pipeline.applyOnPage(vacancy({ resume: undefined, resumeMatch: undefined })))).toBe("dry_run");
+    expect(resumeTitle()).toBe(PHP);
   });
 
   it("раскрывает поле письма, если оно спрятано за кнопкой", async () => {
@@ -168,52 +172,6 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
 
     expect(await run(pipeline.applyOnPage(vacancy()))).toBe("failed");
     expect(deps.onApplied).not.toHaveBeenCalled();
-    expect(deps.state.skipped).toBe(1);
-  });
-});
-
-describe("ApplyPipeline.applyFromSearch — окно поверх выдачи", () => {
-  beforeEach(() => setUrl(SEARCH_URL));
-
-  const card = (onApply: () => void) => {
-    document.body.innerHTML = `<div data-qa="vacancy-serp__vacancy"><a data-qa="vacancy-serp__vacancy_response">Откликнуться</a></div>`;
-    const btn = document.querySelector<HTMLElement>('[data-qa="vacancy-serp__vacancy_response"]')!;
-    btn.onclick = onApply;
-    return { card: btn.parentElement!, applyBtn: btn };
-  };
-
-  it("открывает окно, выбирает резюме, отправляет; окно закрылось — отклик принят", async () => {
-    const { deps, pipeline } = setup();
-    const v = vacancy({ link: "https://hh.ru/vacancy/1", ...card(() => renderResponseModal({ afterSubmit: "close" })) });
-
-    expect(await run(pipeline.applyFromSearch(v))).toBe("success");
-    expect(submits).toBe(1);
-    expect(v.resume).toBe(".NET");
-    expect(deps.onApplied).toHaveBeenCalledWith(v);
-  });
-
-  it("анкета в окне: закрывает окно и остаётся на выдаче", async () => {
-    const { deps, pipeline } = setup({ stayOnOutline: () => false });
-    const v = vacancy({ link: "https://hh.ru/vacancy/1", ...card(() => renderResponseModal({ outline: true })) });
-
-    expect(await run(pipeline.applyFromSearch(v))).toBe("outline");
-    expect(deps.state.outline).toHaveLength(1);
-    expect(location.href).toBe(SEARCH_URL);
-    expect(submits).toBe(0);
-  });
-
-  it("после клика по «Откликнуться» ничего не открылось — пропуск", async () => {
-    const { deps, pipeline } = setup();
-    const v = vacancy({ link: "https://hh.ru/vacancy/1", ...card(() => {}) });
-
-    expect(await run(pipeline.applyFromSearch(v))).toBe("skipped");
-    expect(deps.state.skipped).toBe(1);
-    expect(submits).toBe(0);
-  });
-
-  it("без кнопки отклика — пропуск без кликов", async () => {
-    const { deps, pipeline } = setup();
-    expect(await run(pipeline.applyFromSearch(vacancy()))).toBe("skipped");
     expect(deps.state.skipped).toBe(1);
   });
 });

@@ -3,7 +3,6 @@ import { SELECTORS } from "../core/selectors";
 import type { Vacancy } from "../core/state";
 import { normalizeText, qsa } from "../dom/query";
 import type { Logger } from "../infra/logger";
-import { pickProfile, type ResumeProfile } from "./profiles";
 
 const currentTitle = () => normalizeText(document.querySelector(SELECTORS.resumeTitle)?.textContent);
 
@@ -12,53 +11,48 @@ const trigger = () =>
     .map((t) => t.closest<HTMLElement>(SELECTORS.resumeTrigger))
     .find(Boolean) ?? null;
 
-// failed: нужное резюме определено, но выбрать его не удалось — отправлять отклик нельзя
+// failed: нужное резюме задано, но выбрать его не удалось — отправлять отклик нельзя
 export interface ChooseResult {
-  profile: ResumeProfile | null;
   failed: boolean;
 }
 
-const ok = (profile: ResumeProfile | null): ChooseResult => ({ profile, failed: false });
-const fail = (): ChooseResult => ({ profile: null, failed: true });
-
+// Выбор резюме в форме отклика. Какое резюме — решает backend (#27): vacancy.resumeMatch — подстрока его названия на hh.ru
 export class ResumeSelector {
-  constructor(
-    private profiles: () => ResumeProfile[],
-    private logger: Logger,
-  ) {}
+  constructor(private logger: Logger) {}
 
-  // Выбирает в форме отклика резюме: заданное заранее (vacancy.resume — например, выбор backend) или по стеку вакансии
   async choose(vacancy: Vacancy): Promise<ChooseResult> {
-    const haystack = `${vacancy.title} ${vacancy.text ?? ""} ${(vacancy.stack ?? []).join(" ")}`;
-    const preset = vacancy.resume ? this.profiles().find((p) => p.name === vacancy.resume) : undefined;
-    const profile = preset ?? pickProfile(this.profiles(), haystack);
-    if (!profile) {
-      this.logger.log("Стек не указывает на конкретное резюме, оставляю выбранное hh.ru", "warn");
-      return ok(null);
+    const match = vacancy.resumeMatch?.trim();
+    if (!match) {
+      this.logger.log("Сервер не выбрал резюме, оставляю выбранное hh.ru", "warn");
+      return { failed: false };
     }
-    if (currentTitle().includes(profile.match)) return ok(profile);
+    if (currentTitle().includes(match)) return this.chosen(vacancy);
 
     const opener = trigger();
     if (!opener) {
       this.logger.log("Выбор резюме недоступен (резюме одно)", "warn");
-      return ok(null);
+      return { failed: false };
     }
     opener.click();
     await pause(DELAYS.animation);
-    const option = qsa<HTMLElement>(SELECTORS.resumeOption).find((o) => normalizeText(o.textContent).includes(profile.match));
+    const option = qsa<HTMLElement>(SELECTORS.resumeOption).find((o) => normalizeText(o.textContent).includes(match));
     if (!option) {
-      this.logger.log(`Резюме «${profile.match}» не найдено в списке`, "error");
+      this.logger.log(`Резюме «${match}» не найдено в списке`, "error");
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-      return fail();
+      return { failed: true };
     }
     option.click();
     await pause(DELAYS.animation);
 
-    if (!currentTitle().includes(profile.match)) {
-      this.logger.log(`Не удалось выбрать резюме «${profile.match}»`, "error");
-      return fail();
+    if (!currentTitle().includes(match)) {
+      this.logger.log(`Не удалось выбрать резюме «${match}»`, "error");
+      return { failed: true };
     }
-    this.logger.log(`Резюме: ${profile.name}`, "success");
-    return ok(profile);
+    return this.chosen(vacancy);
+  }
+
+  private chosen(vacancy: Vacancy): ChooseResult {
+    this.logger.log(`Резюме: ${vacancy.resume ?? vacancy.resumeMatch}`, "success");
+    return { failed: false };
   }
 }

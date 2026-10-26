@@ -1,4 +1,5 @@
 import type { QuestionAnswer, ServerQuestion } from "../questions/fill";
+import type { ImportCard } from "../search/vacancy-collector";
 import type { QueueItem, StatusReport } from "../queue/queue-mode";
 import type { ApiRequest, ApiResponse } from "./transport";
 
@@ -17,6 +18,24 @@ export type QueueResult = { ok: true; items: QueueItem[] } | { ok: false; error:
 export type ReportResult = { ok: true } | { ok: false; error: string };
 
 export type ExtensionEvent = "Captcha" | "DailyLimit";
+
+// Ответ импорта: waiting — карточки ждут подтверждения сбором сервера
+export interface ImportCounts {
+  received: number;
+  added: number;
+  queued: number;
+  skipped: number;
+  waiting: number;
+}
+
+export type ImportResult = { ok: true; result: ImportCounts } | { ok: false; error: string };
+
+export interface ResumeMatch {
+  name: string;
+  match: string;
+}
+
+export type ResumesResult = { ok: true; resumes: ResumeMatch[] } | { ok: false; error: string };
 
 interface VacancyDto {
   id: string;
@@ -81,6 +100,20 @@ export class BackendClient {
       body: { status: report.status, reason: report.reason, resume },
     });
     return res.status === 200 ? { ok: true } : { ok: false, error: describe(res) };
+  }
+
+  // Выдача в свой поиск на сервере (#27): отбор и оценка — там. 400 — поиска с таким именем нет
+  async importVacancies(search: string, vacancies: ImportCard[]): Promise<ImportResult> {
+    const res = await this.call({ type: "hh-api", path: "/api/import", method: "POST", body: { search, vacancies } });
+    if (res.status !== 200) return { ok: false, error: describe(res) };
+    return { ok: true, result: JSON.parse(res.body) as ImportCounts };
+  }
+
+  // Профили резюме с сервера: по match резюме находится в списке на hh.ru
+  async getResumes(): Promise<ResumesResult> {
+    const res = await this.call({ type: "hh-api", path: "/api/resumes" });
+    if (res.status !== 200) return { ok: false, error: describe(res) };
+    return { ok: true, resumes: (JSON.parse(res.body) as ResumeMatch[]).map(({ name, match }) => ({ name, match })) };
   }
 
   // Событие для Telegram владельца (#28): сервер сам гасит повторы и молчит, если чат не привязан
