@@ -14,6 +14,7 @@ public class EvaluatePendingVacanciesCommandHandler(
     IAppDbContext db,
     ILlmClient llm,
     TimeProvider clock,
+    IUserService users,
     ILogger<EvaluatePendingVacanciesCommandHandler> logger
 ) : ICommandHandler<EvaluatePendingVacanciesCommand, EvaluatePendingResult>
 {
@@ -22,17 +23,18 @@ public class EvaluatePendingVacanciesCommandHandler(
         if (!llm.IsConfigured)
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
 
-        var pending = await db.Vacancies.Where(v => v.Status == VacancyStatus.Pending)
-            .OrderBy(v => v.CollectedAt).Take(command.Limit).ToListAsync(ct);
-        var resumes = await db.Resumes.AsNoTracking().ToListAsync(ct);
-        var searches = await db.Searches.AsNoTracking().ToDictionaryAsync(s => s.Name, ct);
+        var pending = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct)).Where(a => a.Status == VacancyStatus.Pending)
+            .OrderBy(a => a.Vacancy.CollectedAt).Take(command.Limit).ToListAsync(ct);
+        // Резюме — владельца отклика, правила — поиска, который нашёл вакансию
+        var resumesByOwner = (await db.Resumes.AsNoTracking().ToListAsync(ct)).ToLookup(r => r.UserId);
 
         int fit = 0, doubtful = 0, rejected = 0;
         string? stoppedBy = null;
-        foreach (var vacancy in pending)
+        foreach (var application in pending)
         {
-            var rules = searches.TryGetValue(vacancy.SearchName, out var search) ? search.Rules : new();
-            var request = VacancyAssessment.BuildRequest(vacancy, resumes, rules);
+            var rules = application.Rules;
+            var resumes = resumesByOwner[application.UserId].ToList();
+            var request = VacancyAssessment.BuildRequest(application.Vacancy, resumes, rules);
             var prompt = VacancyAssessment.Serialize(request);
 
             LlmResult result;
@@ -43,19 +45,19 @@ public class EvaluatePendingVacanciesCommandHandler(
             catch (LlmUnavailableException e)
             {
                 // Лимит или провайдер недоступен: остальные остаются Pending до следующего запуска
-                db.LlmCalls.Add(LlmCall.Failed(VacancyAssessment.Purpose, vacancy.Id, "", prompt, e.Message, clock.GetUtcNow()));
+                db.LlmCalls.Add(LlmCall.Failed(VacancyAssessment.Purpose, application.VacancyId, "", prompt, e.Message, clock.GetUtcNow()));
                 await db.SaveChangesAsync(ct);
                 stoppedBy = e.Message;
                 break;
             }
 
-            db.LlmCalls.Add(LlmCall.Succeeded(VacancyAssessment.Purpose, vacancy.Id, result.Model, prompt, result.Content,
+            db.LlmCalls.Add(LlmCall.Succeeded(VacancyAssessment.Purpose, application.VacancyId, result.Model, prompt, result.Content,
                 result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()));
 
             // Неразобранный ответ — на ручную проверку, чтобы вакансия не застряла в Pending
             var assessment = VacancyAssessment.Parse(result.Content, resumes)
-                             ?? new LlmAssessment(LlmVerdict.Doubtful, vacancy.Score, null, "ответ LLM не разобран — проверить вручную");
-            vacancy.ApplyLlmEvaluation(assessment.Verdict, assessment.Score, assessment.Reason, assessment.Resume, result.Model, clock.GetUtcNow(),
+                             ?? new LlmAssessment(LlmVerdict.Doubtful, application.Score, null, "ответ LLM не разобран — проверить вручную");
+            application.ApplyLlmEvaluation(assessment.Verdict, assessment.Score, assessment.Reason, assessment.Resume, result.Model, clock.GetUtcNow(),
                 reviewDoubtful: !rules.SkipReview);
             await db.SaveChangesAsync(ct);
 
@@ -73,7 +75,7 @@ public class EvaluatePendingVacanciesCommandHandler(
             }
         }
 
-        var remaining = await db.Vacancies.CountAsync(v => v.Status == VacancyStatus.Pending, ct);
+        var remaining = await db.JobApplications.CountAsync(a => a.Status == VacancyStatus.Pending, ct);
         logger.LogInformation("LLM-оценка: подходит {Fit}, сомнительно {Doubtful}, не подходит {Rejected}, ждут {Remaining}",
             fit, doubtful, rejected, remaining);
         return new LlmEvaluationResultDto(fit + doubtful + rejected, fit, doubtful, rejected, remaining, stoppedBy);

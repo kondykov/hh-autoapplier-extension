@@ -1,5 +1,6 @@
 using HhAutoApplier.Application.Llm;
 using HhAutoApplier.Domain;
+using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Services;
@@ -22,41 +23,73 @@ public class QuestionnaireTests
         VacancyQuestion.Create("Укажите зарплатные ожидания", QuestionType.Text, []),
     ];
 
-    private static Vacancy Questionnaire()
+    private static JobApplication Questionnaire()
     {
         var v = Vacancy.Create("1", "C# разработчик", "https://hh.ru/vacancy/1", "dotnet", Now);
         v.UpdateDetails(null, "Пишем на ASP.NET Core", []);
-        v.Evaluate(VacancyEvaluator.Default, new FilterRules(), [DotNet]);
-        v.RequireAnswers(Questions());
-        return v;
+        var a = JobApplication.Create(v, null, Now);
+        a.Evaluate(VacancyEvaluator.Default, new FilterRules(), [DotNet], Now);
+        a.RequireAnswers(Questions(), Now);
+        return a;
     }
 
     [Fact]
-    public void Vacancy_QuestionnaireThenAnsweredToQueue()
+    public void Application_QuestionnaireThenAnsweredToQueue()
     {
         var v = Questionnaire();
         Assert.Equal((VacancyStatus.Questionnaire, "анкета: ждёт ответов LLM"), (v.Status, v.StatusReason));
         Assert.Equal("Какой принцип SOLID описывает зависимость от абстракций?", v.Questions[0].Text);
 
-        v.AnswerQuestions([["dependency inversion principle"], ["Да"], ["от 250 000 ₽", "обсуждаемо"]]);
+        v.AnswerQuestions([["dependency inversion principle"], ["Да"], ["от 250 000 ₽", "обсуждаемо"]], Now);
         Assert.Equal(VacancyStatus.Queued, v.Status);
         // Вариант — в написании анкеты, по нему расширение найдёт его на странице
         Assert.Equal(["Dependency Inversion Principle"], v.Questions[0].Answer);
         Assert.Equal(["от 250 000 ₽\nобсуждаемо"], v.Questions[2].Answer);
 
-        Assert.Throws<DomainException>(() => v.AnswerQuestions([["Да"]]));
+        Assert.Throws<DomainException>(() => v.AnswerQuestions([["Да"]], Now));
         v.MarkApplied(null, Now);
-        Assert.Throws<DomainException>(() => v.RequireAnswers(Questions()));
+        Assert.Throws<DomainException>(() => v.RequireAnswers(Questions(), Now));
+    }
+
+    // Ответы на анкету ведут сразу в очередь: анкета не должна поднимать туда отклонённое, ждущее проверки или не оценённое
+    [Fact]
+    public void Application_QuestionnaireOnlyFromQueue()
+    {
+        JobApplication Make(bool awaitLlm)
+        {
+            var v = Vacancy.Create("1", "C# разработчик", "https://hh.ru/vacancy/1", "dotnet", Now);
+            v.UpdateDetails(null, "Пишем на ASP.NET Core", []);
+            var a = JobApplication.Create(v, null, Now);
+            a.Evaluate(VacancyEvaluator.Default, new FilterRules(), [DotNet], Now, awaitLlm);
+            return a;
+        }
+
+        var pending = Make(awaitLlm: true);
+        Assert.Throws<DomainException>(() => pending.RequireAnswers(Questions(), Now));
+
+        var review = Make(awaitLlm: true);
+        review.ApplyLlmEvaluation(LlmVerdict.Doubtful, 55, "не уверена", null, "m", Now, reviewDoubtful: true);
+        Assert.Throws<DomainException>(() => review.RequireAnswers(Questions(), Now));
+
+        review.Decline(null, Now);
+        Assert.Throws<DomainException>(() => review.RequireAnswers(Questions(), Now));
+        Assert.Equal(VacancyStatus.Skipped, review.Status);
+
+        // Из очереди и повторно из анкеты — можно
+        var queued = Make(awaitLlm: false);
+        queued.RequireAnswers(Questions(), Now);
+        queued.RequireAnswers(Questions(), Now);
+        Assert.Equal(VacancyStatus.Questionnaire, queued.Status);
     }
 
     [Fact]
-    public void Vacancy_BadAnswersLeaveQuestionnaireUntouched()
+    public void Application_BadAnswersLeaveQuestionnaireUntouched()
     {
         var v = Questionnaire();
-        Assert.Throws<DomainException>(() => v.AnswerQuestions([["Liskov"], ["Да"], ["готов обсудить"]]));
-        Assert.Throws<DomainException>(() => v.AnswerQuestions([["Dependency Inversion Principle", "Single Responsibility Principle"], ["Да"], ["ок"]]));
-        Assert.Throws<DomainException>(() => v.AnswerQuestions([["Dependency Inversion Principle"], [], ["ок"]]));
-        Assert.Throws<DomainException>(() => v.AnswerQuestions([["Dependency Inversion Principle"], ["Да"]]));
+        Assert.Throws<DomainException>(() => v.AnswerQuestions([["Liskov"], ["Да"], ["готов обсудить"]], Now));
+        Assert.Throws<DomainException>(() => v.AnswerQuestions([["Dependency Inversion Principle", "Single Responsibility Principle"], ["Да"], ["ок"]], Now));
+        Assert.Throws<DomainException>(() => v.AnswerQuestions([["Dependency Inversion Principle"], [], ["ок"]], Now));
+        Assert.Throws<DomainException>(() => v.AnswerQuestions([["Dependency Inversion Principle"], ["Да"]], Now));
 
         Assert.Equal(VacancyStatus.Questionnaire, v.Status);
         Assert.All(v.Questions, q => Assert.Empty(q.Answer));

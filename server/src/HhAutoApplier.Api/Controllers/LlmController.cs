@@ -1,12 +1,16 @@
 using HhAutoApplier.Application.Commands.Llm;
 using HhAutoApplier.Application.Dtos;
 using HhAutoApplier.Application.Errors;
+using HhAutoApplier.Domain.Users;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HhAutoApplier.Api.Controllers;
 
 [Tags("LLM")]
 [Route("api/llm")]
+// Общие операции над данными всех пользователей — только Admin
+[Authorize(Roles = Roles.Admin)]
 public class LlmController : ApiController
 {
     /// <summary>

@@ -1,3 +1,4 @@
+using HhAutoApplier.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -12,5 +13,6 @@ public static class DatabaseInitializer
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.MigrateAsync(ct);
         await DbSeeder.SeedAsync(db, ct);
+        await IdentitySeeder.SeedAsync(scope.ServiceProvider, ct);
     }
 }

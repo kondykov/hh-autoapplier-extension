@@ -35,6 +35,22 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
     private Task<HttpResponseMessage> SetStatus(string id, string status, string? reason = null) =>
         _api.PostAsJsonAsync($"/api/vacancies/{id}/status", new { status, reason });
 
+    // CORS выключен по умолчанию (#20): чужой сайт не получает разрешения ни на preflight, ни на обычный запрос
+    [Fact]
+    public async Task Cors_ForeignOrigin_NotAllowedByDefault()
+    {
+        var client = factory.CreateClient();
+        var preflight = new HttpRequestMessage(HttpMethod.Options, "/api/stats");
+        preflight.Headers.Add("Origin", "https://evil.example");
+        preflight.Headers.Add("Access-Control-Request-Method", "GET");
+        preflight.Headers.Add("Access-Control-Request-Headers", "X-Api-Key");
+        Assert.False((await client.SendAsync(preflight)).Headers.Contains("Access-Control-Allow-Origin"));
+
+        var simple = new HttpRequestMessage(HttpMethod.Get, "/health");
+        simple.Headers.Add("Origin", "chrome-extension://abcdefghijklmnop");
+        Assert.False((await client.SendAsync(simple)).Headers.Contains("Access-Control-Allow-Origin"));
+    }
+
     [Fact]
     public async Task ApiKey_RequiredExceptHealthAndDocs()
     {
@@ -43,6 +59,7 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, (await anonymous.GetAsync("/openapi/v1.json")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/stats")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await _api.GetAsync("/api/stats")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await factory.CreateKeyClient().GetAsync("/api/stats")).StatusCode);
     }
 
     [Fact]
@@ -127,6 +144,12 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.Conflict, (await SetStatus("1", "Applied")).StatusCode);
         Assert.Equal("Rejected", (await Json(await SetStatus("1", "Rejected", "отказ"))).GetProperty("status").GetString());
+
+        // История отклика переживает сохранение в jsonb: создан → в очереди → отклик → отказ
+        var history = (await Json(await _api.GetAsync("/api/vacancies?status=Rejected"))).EnumerateArray().Single().GetProperty("history");
+        Assert.Equal(["New", "Queued", "Applied", "Rejected"], history.EnumerateArray().Select(e => e.GetProperty("to").GetString()));
+        Assert.Equal("отказ", history[3].GetProperty("reason").GetString());
+        Assert.Equal("Applied", history[3].GetProperty("from").GetString());
         Assert.Equal(HttpStatusCode.Conflict, (await SetStatus("2", "Rejected")).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await SetStatus("2", "New")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await SetStatus("404", "Skipped")).StatusCode);

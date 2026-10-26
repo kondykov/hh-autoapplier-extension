@@ -2,7 +2,7 @@ using HhAutoApplier.Domain.Vacancies;
 
 namespace HhAutoApplier.Application.Dtos;
 
-// Поля и имена совпадают с прежним ответом API — клиенты не ломаются
+// Карточка вакансии и отклик на неё одним объектом: поля и имена совпадают с прежним ответом API — клиенты не ломаются
 public record VacancyDto
 {
     public required string Id { get; init; }
@@ -62,4 +62,7 @@ public record VacancyDto
     public DateTimeOffset? CoverLetterAt { get; init; }
 
     public List<VacancyQuestionDto> Questions { get; init; } = [];
+
+    // История статусов отклика (#8); новое поле — прежние клиенты его не читают
+    public List<ApplicationEventDto> History { get; init; } = [];
 }

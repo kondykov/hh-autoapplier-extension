@@ -15,6 +15,7 @@ public class AnswerQuestionnairesCommandHandler(
     IAppDbContext db,
     ILlmClient llm,
     TimeProvider clock,
+    IUserService users,
     ILogger<AnswerQuestionnairesCommandHandler> logger
 ) : ICommandHandler<AnswerQuestionnairesCommand, AnswerQuestionnairesResult>
 {
@@ -23,18 +24,19 @@ public class AnswerQuestionnairesCommandHandler(
         if (!llm.IsConfigured)
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
 
-        var waiting = await db.Vacancies.Where(v => v.Status == VacancyStatus.Questionnaire)
-            .OrderByDescending(v => v.Score).ThenByDescending(v => v.PublishedAt).Take(command.Limit).ToListAsync(ct);
-        var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => r.Name, ct);
-        var searches = await db.Searches.AsNoTracking().ToDictionaryAsync(s => s.Name, ct);
+        var blocked = await users.GetBlockedIdsAsync(ct);
+        var waiting = await db.ActiveApplications(blocked).Where(a => a.Status == VacancyStatus.Questionnaire)
+            .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
+        // Резюме ищется у владельца отклика: имена у разных пользователей совпадают
+        var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => (r.UserId, r.Name), ct);
 
         int answered = 0, failed = 0;
         string? stoppedBy = null;
-        foreach (var vacancy in waiting)
+        foreach (var application in waiting)
         {
-            var resume = vacancy.ResumeProfile is { } name ? resumes.GetValueOrDefault(name) : null;
-            var rules = searches.TryGetValue(vacancy.SearchName, out var search) ? search.Rules : new();
-            var request = QuestionnaireAnswering.BuildRequest(vacancy, resume, rules);
+            var resume = application.ResumeProfile is { } name ? resumes.GetValueOrDefault((application.UserId, name)) : null;
+            var rules = application.Rules;
+            var request = QuestionnaireAnswering.BuildRequest(application, resume, rules);
             var prompt = VacancyAssessment.Serialize(request);
 
             LlmResult result;
@@ -45,32 +47,33 @@ public class AnswerQuestionnairesCommandHandler(
             catch (LlmUnavailableException e)
             {
                 // Лимит или провайдер недоступен: остальные ждут следующего запуска
-                db.LlmCalls.Add(LlmCall.Failed(QuestionnaireAnswering.Purpose, vacancy.Id, "", prompt, e.Message, clock.GetUtcNow()));
+                db.LlmCalls.Add(LlmCall.Failed(QuestionnaireAnswering.Purpose, application.VacancyId, "", prompt, e.Message, clock.GetUtcNow()));
                 await db.SaveChangesAsync(ct);
                 stoppedBy = e.Message;
                 break;
             }
 
-            db.LlmCalls.Add(LlmCall.Succeeded(QuestionnaireAnswering.Purpose, vacancy.Id, result.Model, prompt, result.Content,
+            db.LlmCalls.Add(LlmCall.Succeeded(QuestionnaireAnswering.Purpose, application.VacancyId, result.Model, prompt, result.Content,
                 result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()));
 
             // Неполный ответ или вариант не из анкеты — догадки работодателю не отправляем: пропуск с причиной,
             // чтобы не спрашивать LLM каждый запуск. Вернуть в очередь — вручную, расширение пришлёт анкету заново
             try
             {
-                vacancy.AnswerQuestions(QuestionnaireAnswering.Parse(result.Content) ?? throw new DomainException("ответ LLM не разобран"));
+                application.AnswerQuestions(QuestionnaireAnswering.Parse(result.Content) ?? throw new DomainException("ответ LLM не разобран"), clock.GetUtcNow());
                 answered++;
             }
             catch (DomainException e)
             {
-                vacancy.Skip($"анкета без ответа LLM: {e.Message}");
+                application.Skip($"анкета без ответа LLM: {e.Message}", clock.GetUtcNow());
                 failed++;
             }
 
             await db.SaveChangesAsync(ct);
         }
 
-        var remaining = await db.Vacancies.CountAsync(v => v.Status == VacancyStatus.Questionnaire, ct);
+        // Анкеты заблокированных не считаются: проход их не обрабатывает
+        var remaining = await db.ActiveApplications(blocked).CountAsync(a => a.Status == VacancyStatus.Questionnaire, ct);
         logger.LogInformation("Анкеты LLM: с ответами {Answered}, не разобрано {Failed}, ждут {Remaining}", answered, failed, remaining);
         return new QuestionnaireAnswersResultDto(answered, failed, remaining, stoppedBy);
     }

@@ -31,13 +31,14 @@ public class VacanciesController : ApiController
     /// </summary>
     [HttpGet("vacancies")]
     [ProducesResponseType(typeof(IReadOnlyList<VacancyDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ForbiddenError), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetVacancies(
         [FromQuery] GetVacanciesQuery query,
         [FromServices] GetVacanciesQueryHandler handler,
         CancellationToken ct
     )
     {
-        return Ok(await handler.Handle(query, ct));
+        return FromResult((await handler.Handle(query, ct)).Value);
     }
 
     /// <summary>
@@ -114,18 +115,23 @@ public class VacanciesController : ApiController
     /// </summary>
     [HttpGet("stats")]
     [ProducesResponseType(typeof(IReadOnlyDictionary<string, int>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetStats([FromServices] GetStatsQueryHandler handler, CancellationToken ct)
+    [ProducesResponseType(typeof(ForbiddenError), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetStats(Guid? userId, [FromServices] GetStatsQueryHandler handler, CancellationToken ct)
     {
-        return Ok(await handler.Handle(new GetStatsQuery(), ct));
+        return FromResult((await handler.Handle(new GetStatsQuery(userId), ct)).Value);
     }
 
     /// <summary>
     /// Принять вакансии от клиента и оценить их правилами поиска. Уже известные пропускаются.
+    /// Вакансия, которую уже импортировал другой пользователь и источник ещё не подтвердил, ждёт (waiting): её карточка — чужие данные,
+    /// отклик оценится после подтверждения карточки при сборе.
     /// </summary>
     /// <response code="400">Поиск с таким именем не найден.</response>
+    /// <response code="409">Те же вакансии одновременно добавил сбор — повторите импорт.</response>
     [HttpPost("import")]
     [ProducesResponseType(typeof(ImportResultDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationError), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ConflictError), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Import(
         [FromBody] ImportVacanciesCommand command,
         [FromServices] ImportVacanciesCommandHandler handler,

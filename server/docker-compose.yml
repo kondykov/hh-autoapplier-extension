@@ -25,6 +25,10 @@ services:
     environment:
       ConnectionStrings__Default: Host=db;Port=5432;Database=hhapplier;Username=hhapplier;Password=${POSTGRES_PASSWORD:-hhapplier}
       Api__Key: ${API_KEY:-}
+      Admin__Email: ${ADMIN_EMAIL:-}
+      Admin__Password: ${ADMIN_PASSWORD:-}
+      Api__KeyUser: ${API_KEY_USER:-}
+      Cors__Origins: ${CORS_ORIGINS:-}
       Hh__Enabled: ${HH_ENABLED:-true}
       Collector__IntervalMinutes: ${COLLECT_INTERVAL_MINUTES:-60}
       Llm__ApiKey: ${LLM_API_KEY:-}

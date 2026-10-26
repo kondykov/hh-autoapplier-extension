@@ -2,6 +2,7 @@ using System.Text;
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Application.Cqrs;
 using HhAutoApplier.Application.Dtos;
+using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Vacancies;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,15 +10,20 @@ namespace HhAutoApplier.Application.Queries.Reports;
 
 public class GetApplicationsReportQueryHandler(
     IAppDbContext db,
-    IExtractor<Vacancy, VacancyDto> extractor
+    IExtractor<JobApplication, VacancyDto> extractor,
+    ICurrentUser current
 ) : IQueryHandler<GetApplicationsReportQuery, ApplicationsReportResult>
 {
     private const string Header = "Вакансия;Стек;Компания;Оплата;Формат;Ссылка;Дата;Резюме";
 
     public async Task<ApplicationsReportResult> Handle(GetApplicationsReportQuery query, CancellationToken ct = default)
     {
-        var rows = await db.Vacancies.AsNoTracking().Where(v => v.Status == VacancyStatus.Applied)
-            .OrderByDescending(v => v.AppliedAt).ToListAsync(ct);
+        var scope = OwnerScope.Resolve(current, query.UserId);
+        if (scope.IsT1)
+            return scope.AsT1;
+
+        var rows = await db.Applications(scope.AsT0).AsNoTracking().Where(a => a.Status == VacancyStatus.Applied)
+            .OrderByDescending(a => a.AppliedAt).ToListAsync(ct);
 
         if (!string.Equals(query.Format, "csv", StringComparison.OrdinalIgnoreCase))
             return rows.Select(extractor.Extract).ToList();
@@ -26,12 +32,12 @@ public class GetApplicationsReportQueryHandler(
     }
 
     // Разделитель ';' и BOM — файл сразу открывается в Excel
-    private static byte[] ToCsv(IEnumerable<Vacancy> rows)
+    private static byte[] ToCsv(IEnumerable<JobApplication> rows)
     {
         var lines = new List<string> { Header };
-        lines.AddRange(rows.Select(v => string.Join(';',
-            Quote(v.Title), Quote(string.Join(", ", v.Stack)), Quote(v.Company), Quote(v.Salary?.ToString() ?? "не указана"),
-            Quote(v.WorkFormat), Quote(v.Url), Quote(v.AppliedAt?.ToString("yyyy-MM-dd")), Quote(v.ResumeProfile))));
+        lines.AddRange(rows.Select(a => string.Join(';',
+            Quote(a.Vacancy.Title), Quote(string.Join(", ", a.Vacancy.Stack)), Quote(a.Vacancy.Company), Quote(a.Vacancy.Salary?.ToString() ?? "не указана"),
+            Quote(a.Vacancy.WorkFormat), Quote(a.Vacancy.Url), Quote(a.AppliedAt?.ToString("yyyy-MM-dd")), Quote(a.ResumeProfile))));
 
         return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(string.Join("\r\n", lines))];
     }

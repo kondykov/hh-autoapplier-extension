@@ -10,17 +10,18 @@ namespace HhAutoApplier.Application.Commands.Resumes;
 
 public class SaveResumeCommandHandler(
     IAppDbContext db,
-    IExtractor<ResumeProfile, ResumeDto> extractor
+    IExtractor<ResumeProfile, ResumeDto> extractor,
+    ICurrentUser current
 ) : ICommandHandler<SaveResumeCommand, SaveResumeResult>
 {
     public async Task<SaveResumeResult> Handle(SaveResumeCommand command, CancellationToken ct = default)
     {
-        var resume = await db.Resumes.FirstOrDefaultAsync(r => r.Name == command.Name, ct);
+        var resume = await db.Resumes.FirstOrDefaultAsync(r => r.UserId == current.Id && r.Name == command.Name, ct);
         try
         {
             if (resume is null)
             {
-                resume = ResumeProfile.Create(command.Name, command.Match, command.Keywords, command.Summary, command.LetterTemplate);
+                resume = ResumeProfile.Create(command.Name, command.Match, command.Keywords, command.Summary, command.LetterTemplate, current.Id);
                 db.Resumes.Add(resume);
             }
             else

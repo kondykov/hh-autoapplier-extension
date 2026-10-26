@@ -2,17 +2,18 @@
 
 ASP.NET Core 10 + PostgreSQL. Собирает вакансии, фильтрует/оценивает их, выбирает резюме и отдаёт клиенту готовую очередь.
 
-Архитектура — DDD и простой CQRS без MediatR, решение и примеры: [adr/0001-backend-ddd-cqrs.md](adr/0001-backend-ddd-cqrs.md). Документация API: `http://127.0.0.1:8080/scalar` (без ключа).
+Архитектура — DDD и простой CQRS без MediatR, решение и примеры: [adr/0001-backend-ddd-cqrs.md](adr/0001-backend-ddd-cqrs.md). Документация API: `http://127.0.0.1:8080/scalar` (без входа).
 
 ```
 server/
-  src/HhAutoApplier.Domain          агрегаты Vacancy, SearchProfile, ResumeProfile; value objects Salary, FilterRules;
+  src/HhAutoApplier.Domain          агрегаты Vacancy, JobApplication, SearchProfile, ResumeProfile; value objects Salary, FilterRules;
                                     доменные сервисы VacancyEvaluator, ResumePicker, StackExtractor (без зависимостей)
   src/HhAutoApplier.Application     Commands/ и Queries/ по фичам (команда + обработчик), Dtos/, Extractors/,
                                     Errors/, порты Abstractions/ (IAppDbContext, IVacancySource)
   src/HhAutoApplier.Infrastructure  EF Core (Npgsql, Configurations/, миграции, DbSeeder); Sources/Hh — источник hh.ru;
                                     Collecting/ — фоновый сбор по расписанию
-  src/HhAutoApplier.Api             контроллеры, X-Api-Key, OpenAPI + Scalar
+  src/HhAutoApplier.Api             контроллеры, Auth/ (cookie и X-Api-Key), OpenAPI + Scalar
+                                    (Identity — в Infrastructure/Identity, роли — Domain/Users)
   tests/HhAutoApplier.Tests         xunit: домен, правила, разбор страниц hh.ru; Api/ — интеграционные тесты
                                     API (WebApplicationFactory + Postgres 17 в Testcontainers, нужен Docker)
   docker-compose.yml, Dockerfile    postgres:17 + api
@@ -22,7 +23,7 @@ server/
 
 ```powershell
 cd server
-copy .env.example .env        # задайте POSTGRES_PASSWORD, API_KEY
+copy .env.example .env        # задайте POSTGRES_PASSWORD, API_KEY, ADMIN_EMAIL, ADMIN_PASSWORD (и при нужде API_KEY_USER)
 docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:${DB_PORT:-5433}
 ```
 
@@ -31,7 +32,7 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 
 ## Источники вакансий
 
-Сборщик работает автономно внутри backend: фоновая задача раз в `Collector:IntervalMinutes` (и сразу при старте) проходит все включённые поиски по всем источникам. Вручную — `POST /api/collect`.
+Сборщик работает автономно внутри backend: фоновая задача раз в `Collector:IntervalMinutes` (и сразу при старте) проходит все включённые поиски всех пользователей по всем источникам. Найденная вакансия даёт отклик владельцу поиска — с правилами этого поиска и его резюме; уже известная вакансия заново не загружается. Вручную — `POST /api/collect` (только `Admin`).
 
 **Источник — плагин** `IVacancySource` (порт в Application, реализации в `Infrastructure/Sources/`): `SearchAsync` возвращает карточки с выдачи (дёшево), `LoadDetailsAsync` дополняет новую вакансию описанием и навыками. Новый агрегатор — своя реализация и регистрация в `Infrastructure/DependencyInjection`. Сам сбор — `CollectVacanciesCommandHandler`.
 
@@ -39,7 +40,17 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 
 Бережность: случайная пауза `Collector:DelayMinMs`–`DelayMaxMs` (2–5 с) между запросами, не больше `Collector:MaxPages` страниц, детали только для новых вакансий, остановка на первой странице без новых. Капча, 403 или 429 — `SourceBlockedException`: сбор останавливается до следующего запуска, в лог — предупреждение, `POST /api/collect` отвечает 502. Это серая зона условий hh.ru: аккаунт не используется, но частые запросы с одного IP могут включить антибот.
 
-Запасной путь — **импорт** `POST /api/import` (`{search, vacancies[]}`): вакансии от любого клиента, например расширения.
+Запасной путь — **импорт** `POST /api/import` (`{search, vacancies[]}`): вакансии от любого клиента, например расширения. Карточка вакансии общая для всех пользователей, поэтому данным клиента не доверяем: ссылка — только `https` на `hh.ru` (иначе `https://hh.ru/vacancy/{id}`), карточка помечается `Imported`, и сбор заменяет её данными источника целиком — карточку и описание; не открылась страница вакансии — карточка остаётся импортной до следующего сбора. Отклик другого пользователя на ещё не подтверждённую импортную карточку (импорт — `waiting` в ответе — или сбор) не оценивается и ждёт в `New`: сбор подтверждает карточку по странице вакансии и только тогда оценивает его. Анкету расширение присылает только для отклика в очереди (`Queued`) — иначе 409: ответы LLM ведут сразу в очередь, и анкета не должна поднять туда отклонённое или ждущее проверки. Страница `/review.html` ставит в ссылку только `http(s)`.
+
+## Вакансия и отклик (#8)
+
+- `Vacancy` (`Domain/Vacancies`) — общая карточка: название, компания, зарплата, описание, стек, даты. Статуса и владельца в ней нет; с #9 поиск, нашедший вакансию, хранится в отклике (`SearchId`)
+- `JobApplication` (`Domain/Applications`) — отклик пользователя на вакансию: статус, балл, причина статуса, резюме, вердикт, балл, причина и модель LLM, письмо, анкета с ответами, дата отклика. Все правила статусов — в его методах (`Evaluate`, `ApplyLlmEvaluation`, `Approve`/`Decline`, `SetCoverLetter`, `RequireAnswers`/`AnswerQuestions`, `MarkApplied`/`Skip`/`Fail`/`Reject`/`Requeue`), время передаётся аргументом. Имя не `Application` — чтобы не путать со слоем `HhAutoApplier.Application` (решение владельца 2026-10-25)
+- История: каждая смена статуса добавляет в `History` событие `{at, from, to, reason}`
+- Таблица `JobApplications`: `VacancyId` → `Vacancies` и `UserId` → `AspNetUsers` (оба с каскадным удалением), анкета (`Questions`) и история (`History`) — колонки jsonb. Один отклик на пару (вакансия, пользователь), уникальный индекс `NULLS NOT DISTINCT`
+- `UserId = null` — владелец по умолчанию (пока нет пользователей); с #9 отклики у каждого пользователя свои — см. «Владельцы данных»
+- Миграция `JobApplications` перенесла данные: по отклику на вакансию, в истории — одно событие «перенос из вакансии (#8)»; `Down` копирует обратно. Статусы по-прежнему называются `VacancyStatus`
+- API не изменился: ответы вакансий и очереди — карточка и отклик одним плоским объектом, плюс поле `history`
 
 ## LLM
 
@@ -56,35 +67,74 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 
 **Письма под вакансию (#23).** После оценки (и по `POST /api/llm/letters`) `WriteCoverLettersCommandHandler` пишет письма для вакансий `Queued` без письма, лучшие по баллу первыми. LLM получает резюме, выбранное для вакансии (`Summary` или ключевые слова), его шаблон письма `LetterTemplate` и вакансию. С шаблоном LLM сохраняет приветствие, стиль, подпись и контакты и меняет середину под вакансию; без шаблона пишет сама. Ответ — текст письма; пустой, слишком короткий или JSON не сохраняется, вакансия ждёт следующего запуска. Промпт строгий: имя, подпись и контакты — только из шаблона (без шаблона — письмо без них), цифры, стаж, навыки и места работы — только из резюме и шаблона, ключевые слова без `Summary` не выдаются за опыт (живая проверка 2026-10-25: без `Summary` LLM выдумывала имя и стаж). Письмо (`coverLetter`) уходит в расширение вместе с `/api/queue` и в режиме «из очереди» важнее шаблонов расширения. Без LLM писем нет. Переписать письма очереди после правки резюме, шаблона или промпта: `POST /api/llm/letters/reset` (все или `{vacancyIds}`), затем `POST /api/llm/letters` или фоновый запуск.
 
-**Ручная проверка (#25).** LLM сомневается (`doubtful`) — вакансия получает статус `Review` и в очередь расширения не идёт; правило поиска `skipReview: true` — сразу в очередь, как раньше. Письма пишутся и для `Review`, чтобы их было видно на проверке. Страница `/review.html` (wwwroot, отдаётся без ключа — ключ она спрашивает сама и хранит в `localStorage` браузера): список `GET /api/vacancies?status=Review`, у карточки — описание, причина LLM, анкета, письмо в поле для правки; «Одобрить» → `POST /api/vacancies/{id}/review` `{approve: true, coverLetter?}` — в очередь, поправленное письмо сохраняется с моделью `manual`; «Отклонить» → `{approve: false, reason?}` — `Skipped` «отклонено вручную: …». Анкеты на проверку не идут (решение владельца 2026-10-25). Telegram-бот (#28) подключится к тому же эндпоинту.
+**Ручная проверка (#25).** LLM сомневается (`doubtful`) — вакансия получает статус `Review` и в очередь расширения не идёт; правило поиска `skipReview: true` — сразу в очередь, как раньше. Письма пишутся и для `Review`, чтобы их было видно на проверке. Страница `/review.html` (wwwroot, отдаётся без входа — сама спрашивает email и пароль, дальше работает по cookie со своими данными): список `GET /api/vacancies?status=Review`, у карточки — описание, причина LLM, анкета, письмо в поле для правки; «Одобрить» → `POST /api/vacancies/{id}/review` `{approve: true, coverLetter?}` — в очередь, поправленное письмо сохраняется с моделью `manual`; «Отклонить» → `{approve: false, reason?}` — `Skipped` «отклонено вручную: …». Анкеты на проверку не идут (решение владельца 2026-10-25). Telegram-бот (#28) подключится к тому же эндпоинту.
 
-**Анкеты работодателей (#24).** Вопросы анкеты видны только со входом на hh.ru: без входа страница отклика ведёт на регистрацию, а страница вакансии знает только `test.hasTests` (проверено 2026-10-25). Поэтому их присылает расширение: `POST /api/vacancies/{id}/questionnaire` с `{questions: [{question, type: Radio|Checkbox|Text|Unknown, options}]}` → статус `Questionnaire`, прежние ответы сбрасываются. После оценки (и по `POST /api/llm/answers`) `AnswerQuestionnairesCommandHandler` отправляет LLM резюме вакансии, пожелания из правил поиска (зарплата, формат), вакансию и пронумерованные вопросы; ответ — JSON `{answers: [...]}` по порядку вопросов. Агрегат проверяет ответы: вариант — только из анкеты (без учёта регистра, сохраняется в написании анкеты), radio — ровно один, checkbox — хотя бы один, текст — непустой. Всё сошлось — вакансия в очереди с ответами (`questions[].answer`, причина «анкета: ответы LLM»); нет — `Skipped` с причиной, догадки работодателю не уходят. Ответы идут в очередь без ручной проверки — решение владельца 2026-10-25. Анкета хранится в `Vacancies.Questions` (jsonb).
+**Анкеты работодателей (#24).** Вопросы анкеты видны только со входом на hh.ru: без входа страница отклика ведёт на регистрацию, а страница вакансии знает только `test.hasTests` (проверено 2026-10-25). Поэтому их присылает расширение: `POST /api/vacancies/{id}/questionnaire` с `{questions: [{question, type: Radio|Checkbox|Text|Unknown, options}]}` → статус `Questionnaire`, прежние ответы сбрасываются. После оценки (и по `POST /api/llm/answers`) `AnswerQuestionnairesCommandHandler` отправляет LLM резюме вакансии, пожелания из правил поиска (зарплата, формат), вакансию и пронумерованные вопросы; ответ — JSON `{answers: [...]}` по порядку вопросов. Агрегат проверяет ответы: вариант — только из анкеты (без учёта регистра, сохраняется в написании анкеты), radio — ровно один, checkbox — хотя бы один, текст — непустой. Всё сошлось — вакансия в очереди с ответами (`questions[].answer`, причина «анкета: ответы LLM»); нет — `Skipped` с причиной, догадки работодателю не уходят. Ответы идут в очередь без ручной проверки — решение владельца 2026-10-25. Анкета хранится в отклике — `JobApplications.Questions` (jsonb; до #8 — `Vacancies.Questions`).
 
-## API (заголовок `X-Api-Key`, если задан `Api:Key`)
+## Пользователи и вход (#7)
+
+ASP.NET Core Identity (таблицы `AspNet*` в той же БД, миграция `Identity`). Роли `Admin` и `User` (`Domain/Users/Roles.cs`).
+- Пользователей создаёт только администратор, саморегистрации нет (решение владельца 2026-10-25)
+- Первый администратор создаётся при старте из `Admin:Email`/`Admin:Password` (`.env`: `ADMIN_EMAIL`, `ADMIN_PASSWORD`), только пока администраторов нет; после входа пароль сменить
+- Вход по email и паролю → cookie `hh_auth` (HttpOnly, SameSite=Strict, 14 дней, продлевается при работе). Без входа — 401, без прав — 403 (без перенаправлений)
+- Пароль: не короче 10 символов, 4 разных символа, без требований к классам. 5 неудачных попыток — вход закрыт на 15 минут
+- Блокировка, смена роли или пароля обрывают сессии пользователя не позже чем через минуту (security stamp)
+- Общий ключ `X-Api-Key` (`Api:Key`, `.env`: `API_KEY`) — обработчик аутентификации `Api/Auth/ApiKeyAuthenticationHandler`, см. «Владельцы данных и доступ». Пустой ключ выключает только вход по ключу, вход по паролю остаётся. До #7 пустой ключ отключал проверку совсем — теперь расширение без ключа получает 401: задайте `API_KEY` в `.env` и тот же ключ в панели расширения. Cookie и ключ проходят через один `[Authorize]`; в #10 персональный токен заменит только поиск владельца ключа (токен из БД → его владелец)
+- Без входа: `/health`, `/scalar`, `/openapi`, `/review.html`, `POST /api/auth/login`
+
+## Владельцы данных и доступ (#9)
+
+- Поиски и резюме — у владельца (`UserId`; `null` — владелец по умолчанию, пока нет пользователей). Имена уникальны в пределах пользователя (`NULLS NOT DISTINCT`). `Vacancy` общая
+- Отклик хранит `SearchId` — поиск владельца, нашедший вакансию (FK, при удалении поиска — `SET NULL`). Его правила идут в LLM-оценку и анкеты, из него — `searchName` в ответах API
+- Все эндпоинты данных (поиски, резюме, вакансии, очередь, статистика, отчёт, статус, проверка, анкета, импорт) работают с данными текущего пользователя. Списки `/api/searches`, `/api/resumes`, `/api/vacancies`, `/api/stats`, `/api/report` принимают `?userId=`: `Admin` читает данные другого пользователя (только чтение), не-админ — 403. `/api/queue` — всегда свои (её читает расширение)
+- Доступ: эндпоинты данных — любой вошедший (fallback-политика — вход обязателен), роль `User` получает только своё; `/api/users*`, `/api/collect`, `/api/llm/*` — только `Admin`
+- Ключ `X-Api-Key` действует от имени конкретного пользователя — `Api:KeyUser` (`.env`: `API_KEY_USER`, email) или, если пусто, администратора из `ADMIN_EMAIL` (не «самого раннего»: при его блокировке ключ отказывает, а не переходит к другому администратору) — но всегда с ролью `User` (минимум прав: утёкший ключ не управляет пользователями, не запускает сбор и LLM, не читает чужое, не меняет пароль). Пользователь ключа не найден или заблокирован — 401. Пользователей нет совсем — ключ работает с данными владельца по умолчанию (как до #7). `/api/auth/me` показывает `viaApiKey`
+- При старте данные с `UserId = null` переходят первому активному администратору, кроме совпадающих с его собственными (то же имя поиска или резюме, та же вакансия)
+- Сборщик и фоновые проходы LLM обрабатывают всех пользователей: резюме владельца, правила поиска отклика
+- Миграция `DataOwners`: `UserId` у `Searches` и `Resumes`, `SearchId` у `JobApplications` (заполняется по `Vacancies.SearchName`), уникальность в пределах пользователя; проверена up/down/up на копии настоящих данных. `Down` падает (с откатом), если имена у разных пользователей совпадают
+- Открыто на потом: каскадное удаление данных пользователя (FK `Cascade`) — решить про мягкое удаление; при одновременной смене статуса побеждает последняя запись
+
+## Персональные токены (#10)
+
+- `POST /api/tokens` `{name}` — выпустить токен `hh_…` (значение показывается один раз), `GET /api/tokens` — свои (только начало `prefix`), `DELETE /api/tokens/{id}` — отозвать. Выпуск — только после входа по паролю: токеном или общим ключом новый не выпустить.
+- Токен передаётся в том же заголовке `X-Api-Key` — расширение не меняется, в панель вставляется токен вместо общего ключа. Действует от имени владельца с ролью `User`; отозван, владелец заблокирован или удалён — 401.
+- В базе — только SHA-256 токена (`ApiTokens`, уникальный индекс по хэшу). Общий `API_KEY` пока работает для перехода; убрать — отдельным шагом.
+
+## API (cookie `hh_auth` или заголовок `X-Api-Key`; без пометки — любой вошедший, со своими данными; `?userId=` — чтение чужого, только `Admin`)
 
 | Метод | Путь | Назначение |
 |---|---|---|
-| GET | `/health` | проверка |
-| GET | `/review.html` | страница ручной проверки (без ключа) |
-| GET | `/api/queue?search=&resume=&limit=` | очередь на отклик (лучшие сверху) |
-| GET | `/api/vacancies?status=&search=&skip=&take=` | список |
-| POST | `/api/vacancies/{id}/status` | `{status, reason?, resume?}`: Applied, Skipped, Failed... |
-| GET/PUT/DELETE | `/api/searches` | сохранённые поиски с правилами (`FilterRules`) |
-| GET/PUT | `/api/resumes` | профили резюме (`match`, `keywords`; для LLM — `summary` и шаблон письма `letterTemplate`) |
-| POST | `/api/import` | `{search, vacancies[]}` |
-| POST | `/api/collect` | запустить сбор сейчас (502, если источник заблокировал) |
-| POST | `/api/llm/check` | проверить ключ и модель LLM (503 — не настроена, лимит, провайдер не отвечает) |
-| POST | `/api/llm/evaluate` | `{limit}`: оценить LLM вакансии `Pending` (503 — LLM не настроена) |
-| POST | `/api/vacancies/{id}/review` | `{approve, coverLetter?, reason?}`: ручная проверка вакансии `Review` |
+| GET | `/health` | проверка (без входа) |
+| GET | `/review.html` | страница ручной проверки (без входа, вход на самой странице) |
+| POST | `/api/auth/login` | `{email, password}` → cookie `hh_auth` (без входа; 401 — неверно, заблокирован или вход закрыт) |
+| POST | `/api/auth/logout` | выйти |
+| GET | `/api/auth/me` | кто выполняет запрос (`viaApiKey` — вход по ключу) |
+| POST | `/api/auth/password` | `{currentPassword, newPassword}`: сменить свой пароль, остальные сессии обрываются (409 — вход по ключу) |
+| GET/POST | `/api/users` | список; создать `{email, password, role}` (только `Admin`) |
+| PUT | `/api/users/{id}/role` | `{role}`: `Admin` или `User` (только `Admin`) |
+| PUT | `/api/users/{id}/blocked` | `{blocked}`: заблокировать / разблокировать (только `Admin`) |
+| PUT | `/api/users/{id}/password` | `{password}`: задать пароль пользователю (только `Admin`) |
+| GET | `/api/queue?search=&resume=&limit=` | своя очередь на отклик (лучшие сверху; `userId` не принимает) |
+| GET | `/api/vacancies?status=&search=&skip=&take=&userId=` | список: карточка и отклик, с историей статусов `history` |
+| POST | `/api/vacancies/{id}/status` | `{status, reason?, resume?}`: Applied, Skipped, Failed... — меняет статус своего отклика |
+| GET/PUT/DELETE | `/api/searches` | свои поиски с правилами (`FilterRules`); GET — `?userId=` |
+| GET/PUT | `/api/resumes` | свои профили резюме (`match`, `keywords`; для LLM — `summary` и шаблон письма `letterTemplate`); GET — `?userId=` |
+| POST | `/api/import` | `{search, vacancies[]}` — в свой поиск |
+| POST | `/api/collect` | запустить сбор сейчас по поискам всех пользователей (только `Admin`; 502, если источник заблокировал) |
+| POST | `/api/llm/check` | проверить ключ и модель LLM (только `Admin`; 503 — не настроена, лимит, провайдер не отвечает) |
+| POST | `/api/llm/evaluate` | `{limit}`: оценить LLM вакансии `Pending` всех пользователей (только `Admin`; 503 — LLM не настроена) |
+| POST | `/api/vacancies/{id}/review` | `{approve, coverLetter?, reason?}`: ручная проверка своего отклика `Review` |
 | POST | `/api/vacancies/{id}/questionnaire` | `{questions[]}`: анкета от расширения → `Questionnaire` |
-| POST | `/api/llm/answers` | `{limit}`: ответить LLM на анкеты `Questionnaire` (503 — LLM не настроена) |
-| POST | `/api/llm/letters` | `{limit}`: написать LLM письма для очереди без письма (503 — LLM не настроена) |
-| POST | `/api/llm/letters/reset` | `{vacancyIds?}`: сбросить письма очереди, чтобы написать заново (без LLM) |
-| GET | `/api/stats` | счётчики по статусам |
-| GET | `/api/report?format=csv` | отчёт по откликам |
+| POST | `/api/llm/answers` | `{limit}`: ответить LLM на анкеты `Questionnaire` (только `Admin`; 503 — LLM не настроена) |
+| POST | `/api/llm/letters` | `{limit}`: написать LLM письма для очереди без письма (только `Admin`; 503 — LLM не настроена) |
+| POST | `/api/llm/letters/reset` | `{vacancyIds?}`: сбросить письма очереди, чтобы написать заново (только `Admin`; без LLM) |
+| GET | `/api/stats?userId=` | счётчики по статусам |
+| GET | `/api/report?format=csv&userId=` | отчёт по откликам |
 
 Пример поиска: `PUT /api/searches` с `{"name":"dotnet","query":"C# .NET","area":"113","extraParams":"work_format=REMOTE","rules":{"excludeKeywords":["junior"],"minSalaryRub":200000}}`.
 
 ## Дальше
 
-Режим «из очереди» в расширении, LLM, другие агрегаторы, пользователи и Telegram-бот: см. `ROADMAP.md`.
+**CORS (#20)** выключен по умолчанию: расширение ходит из service worker с `host_permissions` (Chrome CORS не проверяет), страницы backend — с того же адреса. Чужие источники — только явно: `CORS_ORIGINS` (`Cors:Origins`, через запятую, например `chrome-extension://<id>`).
+
+Другие агрегаторы и Telegram-бот: см. `ROADMAP.md`.

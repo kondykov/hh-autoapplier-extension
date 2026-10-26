@@ -11,7 +11,7 @@ docker compose up -d --build        # db (host 5433) + api (127.0.0.1:8080)
 
 ## Structure
 DDD + простой CQRS без MediatR (`../docs/adr/0001-backend-ddd-cqrs.md`):
-Domain (агрегаты, value objects, доменные сервисы; без зависимостей) ← Application (Commands/Queries + Handlers, Dtos, Extractors, порты `IAppDbContext`/`IVacancySource`) ← Infrastructure (EF, источники `Sources/`, фоновый сбор) ← Api (контроллеры, `X-Api-Key`, OpenAPI + Scalar на `/scalar`).
+Domain (агрегаты, value objects, доменные сервисы; без зависимостей) ← Application (Commands/Queries + Handlers, Dtos, Extractors, порты `IAppDbContext`/`IVacancySource`) ← Infrastructure (EF, источники `Sources/`, фоновый сбор) ← Api (контроллеры, `Auth/` — cookie Identity и `X-Api-Key` через обработчик аутентификации, OpenAPI + Scalar на `/scalar`).
 
 ## Rules
 - Новый сценарий: `XxxCommand`/`XxxQuery` (record + DataAnnotations) и `XxxCommandHandler`/`XxxQueryHandler` в `Application/<Commands|Queries>/<Фича>/`; регистрация автоматическая (Scrutor)
@@ -22,7 +22,8 @@ Domain (агрегаты, value objects, доменные сервисы; без
 - Только nuget.org (`nuget.config`): в глобальном конфиге владельца недоступный источник
 - Вакансии собирает сервер через источники-плагины `IVacancySource`; hh.ru — публичные страницы без токена (`HhWebSource`), разбор только в `HhPageParser` + тест на фикстуре. `api.hh.ru` не использовать (403 без токена)
 - Не ускорять сбор: паузы `Collector:DelayMinMs/MaxMs`, лимит страниц; при капче/403/429 — остановка (`SourceBlockedException`), не обход
-- Секреты (`API_KEY`, пароль БД) только в `.env`
+- Доступ: без атрибутов эндпоинт — любой вошедший (fallback-политика); только для `Admin` — `[Authorize(Roles = Roles.Admin)]` на контроллере (`Users`, `Collector`, `Llm`), без входа — `[AllowAnonymous]`. Обработчики данных фильтруют по `ICurrentUser.Id` (`null` — владелец по умолчанию, пока нет пользователей; `X-Api-Key` — пользователь ключа с ролью `User`); чтение чужого по `?userId=` — только через `OwnerScope.Resolve`. Подробно — `../docs/BACKEND.md`, «Владельцы данных и доступ»
+- Секреты (`API_KEY`, `ADMIN_PASSWORD`, пароль БД) только в `.env`
 
 ## Boundaries
 - ⚠️ Миграции, смена схемы, новые NuGet-пакеты — спросить

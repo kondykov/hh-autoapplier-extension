@@ -15,9 +15,10 @@ public class SearchesController : ApiController
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<SearchDto>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAll([FromServices] GetSearchesQueryHandler handler, CancellationToken ct)
+    [ProducesResponseType(typeof(ForbiddenError), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> GetAll(Guid? userId, [FromServices] GetSearchesQueryHandler handler, CancellationToken ct)
     {
-        return Ok(await handler.Handle(new GetSearchesQuery(), ct));
+        return FromResult((await handler.Handle(new GetSearchesQuery(userId), ct)).Value);
     }
 
     /// <summary>

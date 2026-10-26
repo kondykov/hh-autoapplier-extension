@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using HhAutoApplier.Application.Abstractions;
+using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Vacancies;
@@ -26,10 +27,10 @@ public static class QuestionnaireAnswering
         Зарплатные ожидания — по пожеланиям кандидата, если их нет — «готов обсудить». Если нужного факта нет — честно и коротко: «расскажу на собеседовании».
         """;
 
-    public static LlmRequest BuildRequest(Vacancy vacancy, ResumeProfile? resume, FilterRules rules) =>
-        new([LlmMessage.System(System), LlmMessage.User(Describe(vacancy, resume, rules))], Temperature: 0.1, MaxTokens: MaxTokens, Json: true);
+    public static LlmRequest BuildRequest(JobApplication application, ResumeProfile? resume, FilterRules rules) =>
+        new([LlmMessage.System(System), LlmMessage.User(Describe(application.Vacancy, application.Questions, resume, rules))], Temperature: 0.1, MaxTokens: MaxTokens, Json: true);
 
-    private static string Describe(Vacancy vacancy, ResumeProfile? resume, FilterRules rules)
+    private static string Describe(Vacancy vacancy, IReadOnlyList<VacancyQuestion> questions, ResumeProfile? resume, FilterRules rules)
     {
         var text = new StringBuilder();
         text.AppendLine(resume is null
@@ -50,9 +51,9 @@ public static class QuestionnaireAnswering
             .AppendLine()
             .AppendLine("Анкета:");
 
-        for (var i = 0; i < vacancy.Questions.Count; i++)
+        for (var i = 0; i < questions.Count; i++)
         {
-            var q = vacancy.Questions[i];
+            var q = questions[i];
             var kind = q.Type switch
             {
                 QuestionType.Radio => "один вариант",

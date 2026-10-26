@@ -16,6 +16,7 @@
       }
     }
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
     main { max-width: 920px; margin: 0 auto; padding: 24px 16px 64px; }
     h1 { font-size: 22px; margin: 0 0 4px; }
@@ -57,23 +58,35 @@
   <h1>Ручная проверка</h1>
   <p class="sub">Вакансии, в которых LLM сомневается (#25). «Одобрить» — в очередь расширения с письмом из поля, «Отклонить» — пропуск с причиной.</p>
 
-  <div class="bar">
-    <input id="key" type="password" placeholder="Ключ API (X-Api-Key)" autocomplete="off" aria-label="Ключ API">
-    <button id="load" class="primary">Загрузить</button>
-    <span id="status" role="status"></span>
+  <form id="login" class="bar" hidden>
+    <input id="email" type="email" placeholder="Email" autocomplete="username" aria-label="Email" required>
+    <input id="password" type="password" placeholder="Пароль" autocomplete="current-password" aria-label="Пароль" required>
+    <button class="primary">Войти</button>
+  </form>
+
+  <div id="session" class="bar" hidden>
+    <span id="who"></span>
+    <button id="load" class="primary">Обновить</button>
+    <button id="logout">Выйти</button>
   </div>
+
+  <div class="bar"><span id="status" role="status"></span></div>
 
   <div id="list"></div>
 </main>
 
 <script>
   "use strict";
-  const KEY = "hh-review-api-key";
-  const keyInput = document.getElementById("key");
+  const loginForm = document.getElementById("login");
+  const session = document.getElementById("session");
+  const who = document.getElementById("who");
   const list = document.getElementById("list");
   const status = document.getElementById("status");
 
-  try { keyInput.value = localStorage.getItem(KEY) ?? ""; } catch { /* приватный режим — ключ вводится каждый раз */ }
+  // Раньше страница хранила ключ API; теперь вход по паролю — cookie сессии, ключ в браузере не нужен
+  try { localStorage.removeItem("hh-review-api-key"); } catch { /* хранилище недоступно */ }
+
+  class Unauthorized extends Error {}
 
   function setStatus(text, error = false) {
     status.textContent = text;
@@ -81,16 +94,12 @@
   }
 
   async function api(path, options = {}) {
-    const res = await fetch(path, {
-      ...options,
-      headers: { "X-Api-Key": keyInput.value.trim(), "Content-Type": "application/json" },
-    });
-    if (res.status === 401) throw new Error("неверный ключ API");
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      throw new Error(body?.message ?? `сервер ответил ${res.status}`);
-    }
-    return res.json();
+    const res = await fetch(path, { ...options, headers: { "Content-Type": "application/json" } });
+    const body = res.status === 204 ? null : await res.json().catch(() => null);
+    if (res.status === 401) throw new Unauthorized(body?.message ?? "нужен вход");
+    if (res.status === 403) throw new Error(body?.message ?? "нет прав на эти данные");
+    if (!res.ok) throw new Error(body?.message ?? `сервер ответил ${res.status}`);
+    return body;
   }
 
   // Данные вакансии — только текстом: описание приходит с hh.ru
@@ -99,6 +108,16 @@
     Object.assign(node, props);
     for (const child of children) if (child != null) node.append(child);
     return node;
+  }
+
+  // Ссылка — только http(s): javascript: и прочее из данных не попадает в href
+  function safeUrl(url) {
+    try {
+      const u = new URL(url);
+      return u.protocol === "https:" || u.protocol === "http:" ? u.href : "#";
+    } catch {
+      return "#";
+    }
   }
 
   function salary(v) {
@@ -117,7 +136,7 @@
     const result = el("span", { className: "result" });
 
     const node = el("article", { className: "card" },
-      el("h2", {}, el("a", { href: v.url, target: "_blank", rel: "noopener", textContent: v.title })),
+      el("h2", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title })),
       el("div", { className: "meta", textContent: [v.company, v.area, salary(v), v.workFormat, `балл ${v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.hasTest && "есть тест"].filter(Boolean).join(" · ") }),
       el("div", { className: "verdict", textContent: v.statusReason ?? v.llmReason ?? "LLM сомневается" }),
       v.stack?.length ? el("div", { className: "meta", textContent: `Стек: ${v.stack.join(", ")}` }) : null,
@@ -139,6 +158,7 @@
         const left = list.querySelectorAll("article.card:not(.decided)").length;
         setStatus(`«${v.title}»: ${done}. Без решения: ${left}`);
       } catch (e) {
+        if (e instanceof Unauthorized) showLogin();
         setStatus(`«${v.title}»: ${e.message}`, true);
         approve.disabled = decline.disabled = reason.disabled = letter.disabled = false;
       }
@@ -157,8 +177,19 @@
     list.replaceChildren(el("p", { className: "empty", textContent: "На проверке ничего нет." }));
   }
 
+  function showLogin() {
+    session.hidden = true;
+    loginForm.hidden = false;
+    document.getElementById("email").focus();
+  }
+
+  function showSession(user) {
+    loginForm.hidden = true;
+    session.hidden = false;
+    who.textContent = `Вы: ${user.name ?? user.email}`;
+  }
+
   async function load() {
-    try { localStorage.setItem(KEY, keyInput.value.trim()); } catch { /* без сохранения ключа */ }
     setStatus("Загружаю…");
     try {
       const items = await api("/api/vacancies?status=Review&take=200");
@@ -171,13 +202,36 @@
       setStatus(`На проверке: ${items.length}`);
     } catch (e) {
       list.replaceChildren();
+      if (e instanceof Unauthorized) showLogin();
       setStatus(e.message, true);
     }
   }
 
+  loginForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const password = document.getElementById("password");
+    try {
+      const user = await api("/api/auth/login", { method: "POST",
+        body: JSON.stringify({ email: document.getElementById("email").value.trim(), password: password.value }) });
+      password.value = "";
+      showSession(user);
+      await load();
+    } catch (err) {
+      setStatus(err.message, true);
+    }
+  };
+
+  document.getElementById("logout").onclick = async () => {
+    await api("/api/auth/logout", { method: "POST" }).catch(() => null);
+    list.replaceChildren();
+    setStatus("");
+    showLogin();
+  };
+
   document.getElementById("load").onclick = load;
-  keyInput.onkeydown = (e) => { if (e.key === "Enter") load(); };
-  if (keyInput.value) load();
+
+  // Сессия могла остаться с прошлого раза
+  api("/api/auth/me").then((user) => { showSession(user); return load(); }).catch(() => showLogin());
 </script>
 </body>
 </html>

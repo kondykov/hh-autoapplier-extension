@@ -1,4 +1,5 @@
 using HhAutoApplier.Application.Dtos;
+using HhAutoApplier.Application.Errors;
 using HhAutoApplier.Application.Queries.Reports;
 using Microsoft.AspNetCore.Mvc;
 
@@ -13,6 +14,7 @@ public class ReportsController : ApiController
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<VacancyDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ForbiddenError), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Get(
         [FromQuery] GetApplicationsReportQuery query,
         [FromServices] GetApplicationsReportQueryHandler handler,

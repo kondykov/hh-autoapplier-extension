@@ -1,5 +1,6 @@
 using HhAutoApplier.Application.Llm;
 using HhAutoApplier.Domain;
+using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Services;
@@ -14,30 +15,36 @@ public class CoverLetterTests
     private static readonly ResumeProfile DotNet = ResumeProfile.Create(".NET", "C# .NET", ["c#"], "5 лет на C#, ASP.NET Core, PostgreSQL",
         "Здравствуйте!\nМеня зовут Иван, пишу на C#.\n\nС уважением, Иван, @ivan_dev");
 
-    private static Vacancy Queued()
+    private static Vacancy Card()
     {
         var v = Vacancy.Create("1", "C# разработчик", "https://hh.ru/vacancy/1", "dotnet", Now);
         v.UpdateCard("Acme", null, null, null, null, null);
         v.UpdateDetails(null, "Пишем на ASP.NET Core", []);
-        v.Evaluate(VacancyEvaluator.Default, new FilterRules(), [DotNet]);
         return v;
+    }
+
+    private static JobApplication Queued()
+    {
+        var a = JobApplication.Create(Card(), null, Now);
+        a.Evaluate(VacancyEvaluator.Default, new FilterRules(), [DotNet], Now);
+        return a;
     }
 
     [Fact]
     public void BuildRequest_HasResumeTemplateAndVacancy()
     {
-        var text = VacancyAssessment.Serialize(CoverLetterWriting.BuildRequest(Queued(), DotNet));
+        var text = VacancyAssessment.Serialize(CoverLetterWriting.BuildRequest(Card(), DotNet));
         Assert.Contains("5 лет на C#", text);
         Assert.Contains("@ivan_dev", text);
         Assert.Contains("Acme", text);
         Assert.Contains("Пишем на ASP.NET Core", text);
 
-        var withoutResume = VacancyAssessment.Serialize(CoverLetterWriting.BuildRequest(Queued(), null));
+        var withoutResume = VacancyAssessment.Serialize(CoverLetterWriting.BuildRequest(Card(), null));
         Assert.Contains("не выбрано", withoutResume);
 
         // Без описания и шаблона — ни имени, ни стажа: ключевые слова не выдаются за опыт
         var bare = ResumeProfile.Create("PHP", "PHP", ["php", "laravel"]);
-        var text2 = VacancyAssessment.Serialize(CoverLetterWriting.BuildRequest(Queued(), bare));
+        var text2 = VacancyAssessment.Serialize(CoverLetterWriting.BuildRequest(Card(), bare));
         Assert.Contains("опыт не известен", text2);
         Assert.Contains("Шаблона письма нет — пиши без имени, подписи и контактов", text2);
         Assert.Contains("имя кандидата, подпись и контакты — только из шаблона", text2);
@@ -59,7 +66,7 @@ public class CoverLetterTests
     }
 
     [Fact]
-    public void Vacancy_LetterOnlyInQueue()
+    public void Application_LetterOnlyInQueue()
     {
         var v = Queued();
         Assert.Equal(VacancyStatus.Queued, v.Status);

@@ -46,6 +46,6 @@ public record ImportedVacancy
     public DateTimeOffset? PublishedAt { get; init; }
 }
 
-// На .NET 11: public union ImportVacanciesResult(ImportResultDto, ValidationError);
+// На .NET 11: public union ImportVacanciesResult(ImportResultDto, ValidationError, ConflictError);
 [GenerateOneOf]
-public partial class ImportVacanciesResult : OneOfBase<ImportResultDto, ValidationError>;
+public partial class ImportVacanciesResult : OneOfBase<ImportResultDto, ValidationError, ConflictError>;

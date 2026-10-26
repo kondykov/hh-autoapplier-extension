@@ -1,9 +1,13 @@
+using System.Net.Http.Json;
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Vacancies;
+using HhAutoApplier.Infrastructure.Identity;
 using HhAutoApplier.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Mvc.Testing.Handlers;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,6 +21,10 @@ namespace HhAutoApplier.Tests.Api;
 public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     public const string ApiKey = "test-key";
+
+    public const string AdminEmail = "admin@test.local";
+
+    public const string AdminPassword = "admin-password-1";
 
     private readonly PostgreSqlContainer _db = new PostgreSqlBuilder("postgres:17-alpine").Build();
 
@@ -36,6 +44,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         builder.UseSetting("ConnectionStrings:Default", _db.GetConnectionString());
         builder.UseSetting("Api:Key", ApiKey);
+        builder.UseSetting("Admin:Email", AdminEmail);
+        builder.UseSetting("Admin:Password", AdminPassword);
         builder.UseSetting("Hh:Enabled", "false");
         builder.UseSetting("Collector:CollectOnStartup", "false");
         builder.UseSetting("Collector:IntervalMinutes", "10080");
@@ -48,10 +58,20 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             services.AddSingleton<IVacancySource>(Source);
             services.RemoveAll<ILlmClient>();
             services.AddSingleton<ILlmClient>(Llm);
+            // Блокировка и смена пароля обрывают сессию сразу, а не через минуту
+            services.Configure<SecurityStampValidatorOptions>(o => o.ValidationInterval = TimeSpan.Zero);
         });
     }
 
-    public HttpClient CreateApiClient()
+    // Клиент администратора: вход по паролю (cookie) при первом запросе — уже после ResetAsync, когда учётка пересоздана
+    public HttpClient CreateApiClient() => CreateLoggedInClient(AdminEmail, AdminPassword);
+
+    // Клиент с входом по паролю при первом запросе; cookie сессии сохраняются между запросами
+    public HttpClient CreateLoggedInClient(string email, string password) =>
+        CreateDefaultClient(new Uri("http://localhost"), new LoginHandler(email, password), new CookieContainerHandler());
+
+    // Клиент по общему ключу API (X-Api-Key): действует от имени администратора из Admin:Email, но с ролью User
+    public HttpClient CreateKeyClient()
     {
         var client = CreateClient();
         client.DefaultRequestHeaders.Add("X-Api-Key", ApiKey);
@@ -63,8 +83,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         await using var scope = Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Database.ExecuteSqlRawAsync("""TRUNCATE "Vacancies", "Searches", "Resumes", "LlmCalls" RESTART IDENTITY""");
+        await db.Database.ExecuteSqlRawAsync("""TRUNCATE "Vacancies", "Searches", "Resumes", "LlmCalls", "ApiTokens", "AspNetUsers", "AspNetRoles" RESTART IDENTITY CASCADE""");
         await DbSeeder.SeedAsync(db);
+        await IdentitySeeder.SeedAsync(scope.ServiceProvider);
         Source.Reset();
         Llm.Reset();
     }
@@ -76,10 +97,37 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     }
 }
 
+// Перед первым запросом клиента входит по паролю; ответ входа проверяется, чтобы тест падал с понятной причиной
+public sealed class LoginHandler(string email, string password) : DelegatingHandler
+{
+    private bool _loggedIn;
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        if (!_loggedIn)
+        {
+            var login = new HttpRequestMessage(HttpMethod.Post, new Uri(request.RequestUri!, "/api/auth/login"))
+            {
+                Content = JsonContent.Create(new { email, password }),
+            };
+            var response = await base.SendAsync(login, ct);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException($"Вход {email} не удался: {(int)response.StatusCode} {await response.Content.ReadAsStringAsync(ct)}");
+
+            _loggedIn = true;
+        }
+
+        return await base.SendAsync(request, ct);
+    }
+}
+
 // Источник вакансий для тестов сбора: отдаёт заданные карточки или «блокируется», как hh.ru при капче
 public sealed class FakeVacancySource : IVacancySource
 {
-    private readonly List<(string Id, string Title, string Description)> _cards = [];
+    private readonly List<(string Id, string Title, string Description, bool Listed)> _cards = [];
+
+    // Страница вакансии не открывается (404, архив): LoadDetailsAsync — false
+    public HashSet<string> NoDetails { get; } = [];
 
     public bool Blocked { get; set; }
 
@@ -87,11 +135,15 @@ public sealed class FakeVacancySource : IVacancySource
 
     public string Name => "fake";
 
-    public void Add(string id, string title, string description) => _cards.Add((id, title, description));
+    public void Add(string id, string title, string description) => _cards.Add((id, title, description, true));
+
+    // Вакансия есть на hh.ru, но в выдачу поисков не попадает: доступна только по странице вакансии
+    public void AddUnlisted(string id, string title, string description) => _cards.Add((id, title, description, false));
 
     public void Reset()
     {
         _cards.Clear();
+        NoDetails.Clear();
         Blocked = false;
         DetailsLoaded = 0;
     }
@@ -103,15 +155,20 @@ public sealed class FakeVacancySource : IVacancySource
 
         IReadOnlyList<Vacancy> found = page > 0
             ? []
-            : _cards.Select(c => Vacancy.Create(c.Id, c.Title, $"https://hh.ru/vacancy/{c.Id}", search.Name, DateTimeOffset.UtcNow)).ToList();
+            : _cards.Where(c => c.Listed)
+                .Select(c => Vacancy.Create(c.Id, c.Title, $"https://hh.ru/vacancy/{c.Id}", search.Name, DateTimeOffset.UtcNow)).ToList();
         return Task.FromResult(found);
     }
 
+    // Как HhWebSource: страница вакансии даёт и название, и описание
     public Task<bool> LoadDetailsAsync(Vacancy vacancy, CancellationToken ct)
     {
         DetailsLoaded++;
-        var card = _cards.First(c => c.Id == vacancy.Id);
-        vacancy.UpdateDetails(null, card.Description, []);
+        var card = _cards.FirstOrDefault(c => c.Id == vacancy.Id);
+        if (card.Id is null || NoDetails.Contains(vacancy.Id))
+            return Task.FromResult(false);
+
+        vacancy.UpdateDetails(card.Title, card.Description, []);
         return Task.FromResult(true);
     }
 }
