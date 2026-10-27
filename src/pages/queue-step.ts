@@ -157,10 +157,12 @@ export class QueueStep implements PageStep {
       nav.go(responseUrl(next.id));
   }
 
-  // Сообщить исход на сервер (кроме пробного режима) и перейти к следующей вакансии
+  // Сообщить исход на сервер (кроме пробного режима) и перейти к следующей вакансии.
+  // Отклик, ушедший на hh.ru, сообщается всегда: очередь могли остановить или включить пробный режим, пока ждали подтверждения
   private async finish(item: QueueItem, result: ApplyResult, resume?: string): Promise<void> {
     const { state, logger, backend, config } = this.ctx;
-    const report = state.queueRunning && !config.queueDryRun ? toStatusReport(result) : null;
+    const sentToHh = result === "success" || result === "unclear";
+    const report = sentToHh || (state.queueRunning && !config.queueDryRun) ? toStatusReport(result) : null;
     if (report) {
       const sent = await backend.reportStatus(item.id, report, resume ?? item.resume);
       if (!sent.ok) {

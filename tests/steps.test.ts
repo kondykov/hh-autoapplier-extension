@@ -137,6 +137,22 @@ describe("QueueStep", () => {
     expect(visited).toEqual([RESPONSE("2")]);
   });
 
+  it("отклик ушёл, а очередь остановили или включили пробный режим — статус всё равно на сервер, дальше не идёт", async () => {
+    const { ctx, visited } = context({ url: RESPONSE("1"), queue: [item("1"), item("2")], result: "success", config: { queueDryRun: false } });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"] });
+    // Пока конвейер ждал подтверждения отклика, владелец остановил очередь и поставил галочку пробного режима
+    ctx.pipeline.applyOnPage.mockImplementation(async () => {
+      Object.assign(ctx.state, { queueRunning: false });
+      ctx.config.queueDryRun = true;
+      return "success";
+    });
+
+    await run(new QueueStep(ctx).resume());
+
+    expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", { status: "Applied", reason: null }, ".NET");
+    expect(visited).toEqual([]);
+  });
+
   it("пробный режим: на сервер ничего не уходит, очередь идёт дальше", async () => {
     const { ctx, visited } = context({ url: RESPONSE("1"), queue: [item("1"), item("2")], result: "dry_run" });
     Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"] });
