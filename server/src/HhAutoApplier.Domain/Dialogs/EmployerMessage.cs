@@ -107,7 +107,8 @@ public class EmployerMessage
         if (messageId == MessageId)
             return false;
 
-        (MessageId, Text, At, ReceivedAt) = (messageId, Cut(text.Trim(), MaxText), at, receivedAt);
+        // hh.ru отдаёт время с поясом (+03:00), а Npgsql пишет в timestamptz только UTC
+        (MessageId, Text, At, ReceivedAt) = (messageId, Cut(text.Trim(), MaxText), at.ToUniversalTime(), receivedAt);
         (Summary, SuggestedReply, LlmModel, AnalyzedAt, HandledAt) = (null, null, null, null, null);
         (AutoReply, AutoReplyAt, AutoReplyError) = (AutoReplyState.None, null, null);
 

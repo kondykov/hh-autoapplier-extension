@@ -76,6 +76,16 @@ public class DialogTests
     }
 
     [Fact]
+    public void MessageTime_StoredInUtc()
+    {
+        var moscow = new DateTimeOffset(2026, 10, 26, 15, 0, 0, TimeSpan.FromHours(3));
+        var message = EmployerMessage.Create(Guid.NewGuid(), 1, null, "C#", "Acme", 1, "Отказ", moscow, "DISCARD", Now, true);
+
+        Assert.Equal(TimeSpan.Zero, message.At.Offset);
+        Assert.Equal(moscow, message.At);
+    }
+
+    [Fact]
     public void EmptyText_Rejected()
     {
         Assert.Throws<DomainException>(() =>
