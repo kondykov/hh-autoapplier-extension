@@ -29,6 +29,7 @@ docker compose up -d --build                   # http://127.0.0.1:8080/health
 ```
 
 Подробнее:
+- [docs/USER_GUIDE.md](docs/USER_GUIDE.md): инструкция пользователя — установка, настройка, ежедневная работа, проблемы
 - [docs/ROADMAP.md](docs/ROADMAP.md): текущее состояние, планы и порядок доработок
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): модули расширения, конфиг, письма, резюме
 - [docs/BACKEND.md](docs/BACKEND.md): backend и API
