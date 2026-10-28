@@ -26,16 +26,26 @@ beforeEach(() => {
 });
 
 describe("fillQuestionnaire", () => {
-  it("отмечает варианты по тексту и пишет ответ в текстовое поле", () => {
+  // Клики — с паузой как у человека: таймеры прокручиваются
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  async function fill(answers: QuestionAnswer[]) {
+    const result = fillQuestionnaire(answers);
+    await vi.runAllTimersAsync();
+    return result;
+  }
+
+  it("отмечает варианты по тексту и пишет ответ в текстовое поле", async () => {
     renderResponsePage({ questionnaire: true });
-    expect(fillQuestionnaire(ANSWERS)).toEqual({ ok: true, missing: [] });
+    expect(await fill(ANSWERS)).toEqual({ ok: true, missing: [] });
     expect([checked("11"), checked("12"), checked("21"), checked("22")]).toEqual([false, true, true, false]);
     expect(salary()).toBe("от 250 000 ₽");
   });
 
-  it("сверяет вопрос и вариант без учёта регистра и пробелов; нет ответа или варианта — не ok", () => {
+  it("сверяет вопрос и вариант без учёта регистра и пробелов; нет ответа или варианта — не ok", async () => {
     renderResponsePage({ questionnaire: true });
-    const result = fillQuestionnaire([
+    const result = await fill([
       { question: `  ${QUESTIONS.solid.toUpperCase()} `, answer: ["dependency  inversion principle"] },
       { question: QUESTIONS.agree, answer: ["Возможно"] },
     ]);

@@ -22,3 +22,15 @@ export const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(re
 
 // Пауза между действиями на странице — с разбросом. Опрос состояния и таймауты — через wait, без разброса
 export const pause = (ms: number) => wait(jitter(ms));
+
+// Случайные интервалы, мс (решение владельца 2026-10-28 после боевого прогона: чуть дольше и случайно при кликах):
+// перед каждым кликом и между вакансиями очереди — равномерно в диапазоне
+export const RANGES = {
+  click: [500, 1500],
+  nextVacancy: [5000, 15000],
+} as const satisfies Record<string, readonly [number, number]>;
+
+export const between = ([min, max]: readonly [number, number], random: () => number = Math.random): number =>
+  Math.round(min + (max - min) * random());
+
+export const pauseBetween = (range: readonly [number, number]) => wait(between(range));

@@ -6,6 +6,7 @@ import { detectPageType } from "../dom/page-type";
 import { normalizeText, qs, qsa } from "../dom/query";
 import type { Logger } from "../infra/logger";
 import { isAlreadyRespondedOnPage, isOutlineDetected } from "./outcome-detector";
+import { humanClick } from "../dom/input";
 
 // dry_run — пробный режим: форма заполнена, кнопка «Отправить» найдена и активна, но не нажата
 export type SubmitResult = "success" | "outline" | "pending_response" | "disabled" | "unclear" | "failed" | "dry_run";
@@ -116,8 +117,7 @@ export async function attachLetterAndSubmit(
   const startPage = detectPageType();
   const hadModal = !!qs(SELECTORS.responseModal);
   submit.scrollIntoView({ block: "center", inline: "center" });
-  await pause(DELAYS.short);
-  submit.click();
+  await humanClick(submit);
   logger.log('Нажата кнопка "Отправить"', "step");
   return waitForSubmitResult(vacancy, startPage, hadModal, 8000, questionnaire);
 }

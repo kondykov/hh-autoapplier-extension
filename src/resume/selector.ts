@@ -3,6 +3,7 @@ import { SELECTORS } from "../core/selectors";
 import type { Vacancy } from "../core/state";
 import { normalizeText, qsa } from "../dom/query";
 import type { Logger } from "../infra/logger";
+import { humanClick } from "../dom/input";
 
 const currentTitle = () => normalizeText(document.querySelector(SELECTORS.resumeTitle)?.textContent);
 
@@ -33,7 +34,7 @@ export class ResumeSelector {
       this.logger.log("Выбор резюме недоступен (резюме одно)", "warn");
       return { failed: false };
     }
-    opener.click();
+    await humanClick(opener);
     await pause(DELAYS.animation);
     const option = qsa<HTMLElement>(SELECTORS.resumeOption).find((o) => normalizeText(o.textContent).includes(match));
     if (!option) {
@@ -41,7 +42,7 @@ export class ResumeSelector {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       return { failed: true };
     }
-    option.click();
+    await humanClick(option);
     await pause(DELAYS.animation);
 
     if (!currentTitle().includes(match)) {

@@ -1,7 +1,8 @@
-import { DELAYS, pause, wait } from "../core/delays";
+import { DELAYS, wait } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
 import { setNativeValue } from "../dom/input";
 import { normalizeText, qs } from "../dom/query";
+import { humanClick } from "../dom/input";
 
 export type SendResult = { ok: true } | { ok: false; error: string };
 
@@ -29,9 +30,8 @@ export async function sendChatMessage(text: string, timeoutMs = DELAYS.longWait)
 
   input.focus();
   setNativeValue(input, text);
-  await pause(DELAYS.small);
   const send = qs<HTMLButtonElement>(SELECTORS.chatSend);
-  if (send && !send.disabled) send.click();
+  if (send && !send.disabled) await humanClick(send);
   else input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true, cancelable: true }));
 
   const cleared = await waitFor(() => (qs<HTMLTextAreaElement>(SELECTORS.chatInput)?.value ?? "") === "" || undefined, DELAYS.retryNext);

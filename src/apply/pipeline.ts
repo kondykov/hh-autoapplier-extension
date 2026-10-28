@@ -8,6 +8,7 @@ import type { LetterProvider } from "../letters/letter-provider";
 import { fillQuestionnaire } from "../questions/fill";
 import { waitForApplyOutcome, type ApplyOutcome } from "./outcome-detector";
 import { attachLetterAndSubmit } from "./submit";
+import { humanClick } from "../dom/input";
 
 export type ApplyResult = "success" | "outline" | "skipped" | "disabled" | "unclear" | "failed" | "dry_run";
 
@@ -50,12 +51,13 @@ export class ApplyPipeline {
 
     const chosen = await this.deps.resumes.choose(vacancy);
     if (chosen.failed) {
-      qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
+      const close = qs<HTMLElement>(SELECTORS.responseModalClose);
+      if (close) await humanClick(close);
       state.skipped++;
       return "failed";
     }
     if (questionnaire) {
-      const filled = fillQuestionnaire(vacancy.answers ?? []);
+      const filled = await fillQuestionnaire(vacancy.answers ?? []);
       if (!filled.ok) {
         // Анкета на странице не совпала с ответами (работодатель её поменял) — не отправляем
         logger.log(`Анкета: нет ответа на ${filled.missing.length} вопр.: ${filled.missing.join(" | ").slice(0, 200)}`, "warn");

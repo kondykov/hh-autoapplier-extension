@@ -3,6 +3,7 @@ import { fillTextarea } from "../dom/cover-letter";
 import { setNativeValue } from "../dom/input";
 import { normalizeText, qs, qsa } from "../dom/query";
 import { extractQuestions, type CollectedQuestion, type QuestionType } from "./extract";
+import { humanClick } from "../dom/input";
 
 // Ответ backend на вопрос анкеты: варианты дословно (radio — один, checkbox — несколько) или текст одной строкой
 export interface QuestionAnswer {
@@ -20,17 +21,17 @@ const same = (a: string, b: string) => normalizeText(a).toLowerCase() === normal
 
 // Заполнить анкету на странице ответами backend. Вопрос ищется по тексту, вариант — по тексту в label.
 // Если хоть на один вопрос нет ответа — ok: false, отправлять такую форму нельзя
-export function fillQuestionnaire(answers: QuestionAnswer[], root: ParentNode = document): FillResult {
+export async function fillQuestionnaire(answers: QuestionAnswer[], root: ParentNode = document): Promise<FillResult> {
   const missing: string[] = [];
   for (const body of qsa(SELECTORS.taskBody, root)) {
     const question = normalizeText(qs(SELECTORS.taskQuestion, body)?.textContent);
     const answer = answers.find((a) => same(a.question, question))?.answer ?? [];
-    if (answer.length === 0 || !fillOne(body, answer)) missing.push(question);
+    if (answer.length === 0 || !(await fillOne(body, answer))) missing.push(question);
   }
   return { ok: missing.length === 0, missing };
 }
 
-function fillOne(body: Element, answer: string[]): boolean {
+async function fillOne(body: Element, answer: string[]): Promise<boolean> {
   const options = qsa<HTMLLabelElement>(SELECTORS.taskOption, body);
   if (options.length > 0) {
     const inputs = answer.map((value) => {
@@ -38,7 +39,7 @@ function fillOne(body: Element, answer: string[]): boolean {
       return label ? qs<HTMLInputElement>("input", label) : null;
     });
     if (inputs.some((i) => !i)) return false;
-    for (const input of inputs) if (!input!.checked) input!.click();
+    for (const input of inputs) if (!input!.checked) await humanClick(input!);
     return true;
   }
 

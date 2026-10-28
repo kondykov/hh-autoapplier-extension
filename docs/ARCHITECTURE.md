@@ -18,7 +18,7 @@ Backend описан в [BACKEND.md](BACKEND.md), план доработок �
 | `core/state.ts` | состояние (режим очереди, outline, unclear) и `StateRepository` |
 | `core/config.ts` | `AppConfig`, дефолты, `loadConfig`/`saveConfig` |
 | `core/selectors.ts` | все селекторы и текстовые маркеры hh.ru |
-| `core/delays.ts`, `core/daily-limit.ts` | задержки (`pause` — с разбросом ±30%, `wait` — для опроса), дневной лимит |
+| `core/delays.ts`, `core/daily-limit.ts` | задержки (`pause` — с разбросом ±30%, `pauseBetween(RANGES.…)` — случайно в диапазоне: перед каждым кликом `humanClick` 0,5–1,5 с, между вакансиями очереди 5–15 с; `wait` — для опроса), дневной лимит |
 | `search/vacancy-collector.ts` | карточки выдачи для импорта на сервер (`ImportCard`), без отбора |
 | `apply/` | конвейер отклика: распознавание исхода, письмо и отправка, `ApplyPipeline` |
 | `pages/vacancy-info.ts` | данные со страницы вакансии |
