@@ -81,7 +81,6 @@ export class ApplyPipeline {
         return "failed";
       case "unclear":
         logger.log('Отклик не подтверждён, добавляю в "Непонятное"', "warn");
-        state.addUnclear(this.item(vacancy));
         state.skipped++;
         return "unclear";
       default:
@@ -90,14 +89,9 @@ export class ApplyPipeline {
     }
   }
 
-  private item(vacancy: Vacancy) {
-    return { title: vacancy.title, link: vacancy.link || location.href, company: vacancy.company };
-  }
-
   // Очередь сама решает, куда идти дальше: вопросы анкеты — на сервер, затем следующая вакансия
   private async saveOutline(vacancy: Vacancy): Promise<ApplyResult> {
-    const { state, logger } = this.deps;
-    if (state.addOutline(this.item(vacancy))) logger.log(`Аутлайн: "${vacancy.title}"`, "warn");
+    this.deps.logger.log(`Анкета без ответов: "${vacancy.title}"`, "warn");
     await this.deps.onChange();
     return "outline";
   }

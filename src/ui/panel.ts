@@ -9,17 +9,12 @@ export const VERSION = typeof __VERSION__ === "string" ? __VERSION__ : "dev";
 
 export interface PanelStats {
   applied: number;
-  outline: number;
-  unclear: number;
   daily: number;
   dailyLimit: number;
 }
 
 export interface PanelHandlers {
   onSendSearch(): void;
-  onShowOutline(): void;
-  onShowUnclear(): void;
-  onClear(): void;
   onRejectNext(): void;
   onAutoReject(): void;
   // Чаты на сервер и «спасибо» на новые отказы (#26)
@@ -76,7 +71,7 @@ export class Panel implements LogSink {
       <div id="hh-autoapply-body">
         <div id="hh-captcha-banner" hidden>⚠ Капча! Очередь на паузе. Введите текст с картинки</div>
         <div class="hh-stats">
-          ${stat("applied", "Отклики")}${stat("outline", "Аутлайн")}${stat("unclear", "Непонятное")}
+          ${stat("applied", "Отклики")}
           ${stat("daily", "За день")}
         </div>
         <div class="hh-input-group"><label for="hh-input-limit">Дневной лимит</label><input id="hh-input-limit" type="number" min="1" class="hh-input" /></div>
@@ -95,11 +90,6 @@ export class Panel implements LogSink {
             <button class="hh-btn hh-btn-warn" id="hh-btn-confirm-yes"></button>
             <button class="hh-btn" id="hh-btn-confirm-no">Отмена</button>
           </div>
-        </div>
-        <div class="hh-btn-row">
-          <button class="hh-btn hh-btn-warn" id="hh-btn-outline">Аутлайн</button>
-          <button class="hh-btn hh-btn-warn" id="hh-btn-unclear">Непонятное</button>
-          <button class="hh-btn" id="hh-btn-clear">Очистить</button>
         </div>
         <div class="hh-btn-row">
           <button class="hh-btn hh-btn-warn" id="hh-btn-rej">Next Отказ</button>
@@ -128,9 +118,6 @@ export class Panel implements LogSink {
   private bind(): void {
     this.el("hh-btn-minimize").onclick = () => this.root.classList.toggle("minimized");
     this.el("hh-btn-send-search").onclick = () => this.handlers.onSendSearch();
-    this.el("hh-btn-outline").onclick = () => this.handlers.onShowOutline();
-    this.el("hh-btn-unclear").onclick = () => this.handlers.onShowUnclear();
-    this.el("hh-btn-clear").onclick = () => this.handlers.onClear();
     this.el("hh-btn-rej").onclick = () => this.handlers.onRejectNext();
     this.el("hh-btn-autorej").onclick = () => this.handlers.onAutoReject();
     this.el("hh-btn-autoreply").onclick = () => this.handlers.onAutoReply();
@@ -286,8 +273,6 @@ export class Panel implements LogSink {
   setStats(s: PanelStats): void {
     const set = (id: string, value: string | number) => (this.el(`hh-stat-${id}`).textContent = String(value));
     set("applied", s.applied);
-    set("outline", s.outline);
-    set("unclear", s.unclear);
     set("daily", `${s.daily} / ${s.dailyLimit}`);
   }
 }

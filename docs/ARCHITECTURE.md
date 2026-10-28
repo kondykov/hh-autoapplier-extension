@@ -15,7 +15,6 @@ Backend описан в [BACKEND.md](BACKEND.md), план доработок �
 | `pages/queue-step.ts` | режим «из очереди» |
 | `pages/reject-step.ts` | чаты: следующий отказ, авто-отказы |
 | `core/settings.ts` | настройки из панели: лимит, запасное письмо, сервер, поиск для выдачи, пробный режим |
-| `report/report-actions.ts` | «Аутлайн» и «Непонятное» (отчёт и анкеты — на сервере) |
 | `core/state.ts` | состояние (режим очереди, outline, unclear) и `StateRepository` |
 | `core/config.ts` | `AppConfig`, дефолты, `loadConfig`/`saveConfig` |
 | `core/selectors.ts` | все селекторы и текстовые маркеры hh.ru |

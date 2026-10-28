@@ -29,9 +29,6 @@ async function bootstrap() {
     storage,
     {
       onSendSearch: () => void controller.search.send(),
-      onShowOutline: () => controller.reports.showOutline(),
-      onShowUnclear: () => controller.reports.showUnclear(),
-      onClear: () => void controller.reports.clear(),
       onRejectNext: () => void controller.rejects.next(),
       onAutoReject: () => void controller.rejects.toggleAuto(),
       onAutoReply: () => void controller.dialogs.run(),

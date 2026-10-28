@@ -108,12 +108,11 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
     expect(deps.onApplied).not.toHaveBeenCalled();
   });
 
-  it("анкета: кладёт в аутлайн и не переходит на поиск в режиме очереди", async () => {
+  it("анкета без ответов: «outline», не переходит на поиск в режиме очереди", async () => {
     renderResponsePage({ questionnaire: true });
     const { deps, pipeline } = setup();
 
     expect(await run(pipeline.applyOnPage(vacancy()))).toBe("outline");
-    expect(deps.state.outline).toHaveLength(1);
     expect(location.href).toBe(RESPONSE_URL);
     expect(submits).toBe(0);
   });
@@ -124,7 +123,6 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
     const { deps, pipeline } = setup();
 
     expect(await run(pipeline.applyOnPage(vacancy()))).toBe("success");
-    expect(deps.state.outline).toHaveLength(0);
     expect(submits).toBe(1);
   });
 
@@ -160,7 +158,6 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
 
     expect(await run(pipeline.applyOnPage(vacancy()))).toBe("unclear");
     expect(submits).toBe(1);
-    expect(deps.state.unclear).toHaveLength(1);
     expect(deps.onApplied).not.toHaveBeenCalled();
   });
 

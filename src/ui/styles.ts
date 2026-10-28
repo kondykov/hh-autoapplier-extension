@@ -27,8 +27,4 @@ export const PANEL_CSS = `
 .hh-input{background:#0d1117;border:1px solid #444;color:#eee;padding:6px 8px;border-radius:4px;font-size:12px;width:100%;box-sizing:border-box}
 #hh-autoapply-log{background:#0d1117;border-radius:6px;padding:8px;max-height:120px;overflow-y:auto;font:11px Consolas,Monaco,monospace;margin-top:8px;line-height:1.5}
 .log-info{color:#58a6ff}.log-success{color:#3fb950}.log-warn{color:#d29922}.log-error{color:#f85149}.log-step{color:#bc8cff}
-#hh-autoapply-modal{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:2147483647;display:flex;align-items:center;justify-content:center}
-#hh-autoapply-modal .box{background:#1a1a2e;color:#eee;border:2px solid #e94560;border-radius:12px;width:600px;max-height:80vh;overflow:auto;padding:16px;font:13px sans-serif}
-#hh-autoapply-modal a{color:#58a6ff}
-#hh-autoapply-modal li{margin:6px 0}
 `;

@@ -100,6 +100,9 @@ async function overview() {
       el("h2", { textContent: "Что дальше" }),
       el("ul", {},
         stats.Review ? el("li", {}, `На проверке ${stats.Review}: `, el("a", { href: "#review", textContent: "решить" })) : null,
+        stats.Failed ? el("li", {}, `С ошибкой ${stats.Failed}: `, el("a", { href: "#vacancies/Failed", textContent: "вернуть в очередь или оставить" })) : null,
+        stats.Skipped ? el("li", {}, `Пропущено ${stats.Skipped} (LLM, правила или вы): `, el("a", { href: "#vacancies/Skipped", textContent: "пересмотреть и вернуть нужные в очередь" })) : null,
+        stats.Queued ? el("li", {}, `В очереди ${stats.Queued}: `, el("a", { href: "#vacancies/Queued", textContent: "лишние можно пропустить" })) : null,
         el("li", {}, "Ответы работодателей — ", el("a", { href: "#dialogs", textContent: "приглашения и вопросы с черновиками" })),
         el("li", {}, "Отчёт по откликам — ", el("a", { href: scoped("/api/report?format=csv"), textContent: "CSV" })),
         telegram?.configured && !readOnly() ? el("li", {}, telegram.linked ? `Telegram привязан${telegram.username ? ` (@${telegram.username})` : ""}` : "Telegram не привязан — ",
@@ -152,15 +155,49 @@ function salary(v) {
   return `${range.filter(Boolean).join(" ")} ${v.salaryCurrency ?? ""}`.trim();
 }
 
+// Решения по вакансии вне ручной проверки: пропущенную или упавшую — снова в очередь, ожидающую — пропустить (забыть)
+const REQUEUE = ["Skipped", "Failed"];
+const SKIPPABLE = ["Queued", "Pending", "Questionnaire", "New"];
+
+function vacancyActions(v, pill) {
+  if (readOnly()) return null;
+  if (v.status === "Review") return el("div", { className: "actions" }, el("a", { href: "#review", textContent: "Решить в «Проверке» →" }));
+
+  const result = el("span", { className: "result" });
+  const done = (node, status) => {
+    node.closest("article").classList.add("decided");
+    pill.textContent = STATUSES[status];
+    return `«${v.title}»: ${STATUSES[status]}`;
+  };
+
+  if (REQUEUE.includes(v.status)) {
+    const requeue = el("button", { className: "primary", textContent: "В очередь" });
+    requeue.onclick = () => run(requeue, () => post(`/api/vacancies/${encodeURIComponent(v.id)}/status`, { status: "Queued" }),
+      () => { requeue.remove(); result.textContent = "в очереди"; return done(result, "Queued"); });
+    return el("div", { className: "actions" }, requeue, result);
+  }
+
+  if (SKIPPABLE.includes(v.status)) {
+    const reason = el("input", { placeholder: "Причина (необязательно)", "aria-label": "Причина пропуска" });
+    const skip = el("button", { className: "danger", textContent: "Пропустить" });
+    skip.onclick = () => run(skip, () => post(`/api/vacancies/${encodeURIComponent(v.id)}/status`,
+      { status: "Skipped", reason: reason.value.trim() ? `пропущено вручную: ${reason.value.trim()}` : "пропущено вручную" }),
+    () => { skip.remove(); reason.remove(); result.textContent = "пропущена"; return done(result, "Skipped"); });
+    return el("div", { className: "actions" }, reason, skip, result);
+  }
+  return null;
+}
+
 function vacancyCard(v) {
+  const pill = el("span", { className: "pill", textContent: STATUSES[v.status] ?? v.status });
   return el("article", { className: "card" },
-    el("div", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title }), " ",
-      el("span", { className: "pill", textContent: STATUSES[v.status] ?? v.status })),
+    el("div", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title }), " ", pill),
     el("div", { className: "meta", textContent: [v.company, v.area, salary(v), v.workFormat, `балл ${v.llmScore ?? v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.searchName && `поиск ${v.searchName}`, v.appliedAt && `отклик ${date(v.appliedAt)}`].filter(Boolean).join(" · ") }),
     v.statusReason || v.llmReason ? el("div", { className: "reason", textContent: v.statusReason ?? v.llmReason }) : null,
     v.coverLetter ? el("details", {}, el("summary", { textContent: "Письмо" }), el("div", { className: "pre", textContent: v.coverLetter })) : null,
     v.history?.length ? el("details", {}, el("summary", { textContent: `История (${v.history.length})` }),
-      el("table", {}, v.history.map((h) => el("tr", {}, el("td", { textContent: date(h.at) }), el("td", { textContent: STATUSES[h.to] ?? h.to }), el("td", { textContent: h.reason ?? "" }))))) : null);
+      el("table", {}, v.history.map((h) => el("tr", {}, el("td", { textContent: date(h.at) }), el("td", { textContent: STATUSES[h.to] ?? h.to }), el("td", { textContent: h.reason ?? "" }))))) : null,
+    vacancyActions(v, pill));
 }
 
 // Ручная проверка (#25): вакансии, в которых LLM сомневается. «Одобрить» — в очередь с письмом из поля, «Отклонить» — пропуск с причиной

@@ -23,8 +23,6 @@ export interface Vacancy extends VacancyItem {
 }
 
 interface PersistedState {
-  outline: VacancyItem[];
-  unclear: VacancyItem[];
   applied: number;
   skipped: number;
   queueRunning: boolean;
@@ -36,8 +34,6 @@ interface PersistedState {
 }
 
 export class AppState {
-  outline: VacancyItem[] = [];
-  unclear: VacancyItem[] = [];
   applied = 0;
   skipped = 0;
   // Режим «из очереди» переживает переходы между страницами отклика
@@ -53,27 +49,8 @@ export class AppState {
   // Автоответы на отказы, где можно писать: переживают переход между чатами
   autoReplies: AutoReply[] = [];
 
-  // true, если вакансия добавлена впервые
-  addOutline(item: VacancyItem): boolean {
-    if (this.outline.some((o) => o.link === item.link)) return false;
-    this.outline.push(item);
-    return true;
-  }
-
-  addUnclear(item: VacancyItem): void {
-    if (!this.unclear.some((u) => u.link === item.link)) this.unclear.push(item);
-    this.addOutline(item);
-  }
-
-  clearOutline(): void {
-    this.outline = [];
-    this.unclear = [];
-  }
-
   toJSON(): PersistedState {
     return {
-      outline: this.outline,
-      unclear: this.unclear,
       applied: this.applied,
       skipped: this.skipped,
       queueRunning: this.queueRunning,
@@ -95,8 +72,6 @@ export class StateRepository {
   async load(): Promise<AppState> {
     const saved = await this.storage.get<Partial<PersistedState>>(KEY, {});
     const state = new AppState();
-    state.outline = saved.outline ?? [];
-    state.unclear = saved.unclear ?? [];
     state.applied = saved.applied ?? 0;
     state.skipped = saved.skipped ?? 0;
     state.queueRunning = saved.queueRunning ?? false;

@@ -9,7 +9,6 @@ import { QueueStep } from "../pages/queue-step";
 import { RejectStep } from "../pages/reject-step";
 import { SearchStep } from "../pages/search-step";
 import { browserNavigator, pageOf, pickStep, type Navigator, type StepContext } from "../pages/step-context";
-import { ReportActions } from "../report/report-actions";
 import type { ResumeSelector } from "../resume/selector";
 import type { Panel } from "../ui/panel";
 import type { AppConfig } from "./config";
@@ -43,7 +42,6 @@ export class Controller {
 
   readonly settings: Settings;
 
-  readonly reports: ReportActions;
 
   private readonly captcha: CaptchaGuard;
 
@@ -57,7 +55,6 @@ export class Controller {
       if (shown && d.state.queueRunning)
         void d.backend.reportEvent("Captcha", location.href);
     });
-    this.reports = new ReportActions(d.state, d.logger, () => this.persist(), (m, yes) => d.panel.ask(m, yes));
     this.settings = new Settings(d.config, d.storage, d.panel, d.logger, d.limit, d.backend, () => this.refresh());
 
     const ctx: StepContext = {
@@ -122,8 +119,6 @@ export class Controller {
     const { state, limit, panel } = this.d;
     panel.setStats({
       applied: state.applied,
-      outline: state.outline.length,
-      unclear: state.unclear.length,
       daily: await limit.count(),
       dailyLimit: limit.limit,
     });

@@ -64,9 +64,8 @@ describe("ApplyPipeline: анкета с ответами backend", () => {
 
   function pipeline(dryRun: boolean) {
     const logger = new Logger();
-    const state = new AppState();
     const p = new ApplyPipeline({
-      state,
+      state: new AppState(),
       logger,
       letters: new StaticTemplateProvider(() => "Письмо"),
       resumes: new ResumeSelector(logger),
@@ -74,7 +73,7 @@ describe("ApplyPipeline: анкета с ответами backend", () => {
       onChange: vi.fn(async () => {}),
       dryRun: () => dryRun,
     });
-    return { p, state };
+    return { p };
   }
 
   const vacancy = (answers?: QuestionAnswer[]): Vacancy => ({
@@ -88,9 +87,8 @@ describe("ApplyPipeline: анкета с ответами backend", () => {
 
   it("без ответов — анкета, как раньше", async () => {
     renderResponsePage({ questionnaire: true });
-    const { p, state } = pipeline(false);
+    const { p } = pipeline(false);
     expect(await run(p.applyOnPage(vacancy()))).toBe("outline");
-    expect(state.outline).toHaveLength(1);
     expect(submits).toBe(0);
   });
 
@@ -113,9 +111,8 @@ describe("ApplyPipeline: анкета с ответами backend", () => {
 
   it("анкета на странице не совпала с ответами — не отправляет", async () => {
     renderResponsePage({ questionnaire: true });
-    const { p, state } = pipeline(false);
+    const { p } = pipeline(false);
     expect(await run(p.applyOnPage(vacancy(ANSWERS.slice(0, 2))))).toBe("outline");
-    expect(state.outline).toHaveLength(1);
     expect(submits).toBe(0);
   });
 });
