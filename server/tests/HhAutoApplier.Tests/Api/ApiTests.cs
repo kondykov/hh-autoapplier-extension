@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using HhAutoApplier.Application.Llm;
 
 namespace HhAutoApplier.Tests.Api;
 
@@ -260,6 +261,42 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
         var all = (await Json(await _api.GetAsync("/api/queue"))).EnumerateArray().Select(v => v.GetProperty("coverLetter").GetString()).ToList();
         Assert.DoesNotContain(letter, all);
         Assert.Equal(0, (await Json(await _api.PostAsJsonAsync("/api/llm/letters/reset", new { vacancyIds = new[] { "404" } }))).GetProperty("reset").GetInt32());
+    }
+
+    // Цифры письма — только из фактов: одна исправленная попытка, иначе письма нет и вакансия сутки не переписывается
+    [Fact]
+    public async Task CoverLetters_FiguresNotFromFacts_RetryOnceThenGiveUp()
+    {
+        await SaveSearch();
+        await Json(await _api.PutAsJsonAsync("/api/resumes", new { name = ".NET", match = "C#", keywords = new[] { "c#" }, summary = "Снизил нагрузку на БД на 30–40%" }));
+        await Json(await Import("dotnet", Card("1", "C# разработчик"), Card("2", "C# разработчик")));
+        factory.Llm.Configured = true;
+
+        const string bad = "Здравствуйте! Снизил нагрузку на базу данных до 30 %, буду рад работать у вас.";
+        const string good = "Здравствуйте! Снизил нагрузку на базу данных на 30–40%, буду рад работать у вас.";
+        factory.Llm.Answers.Enqueue(bad);
+        factory.Llm.Answers.Enqueue(good);
+        factory.Llm.Answers.Enqueue(bad);
+        factory.Llm.Answers.Enqueue(bad);
+        var res = await Json(await _api.PostAsJsonAsync("/api/llm/letters", new { limit = 10 }));
+        Assert.Equal((1, 1), (res.GetProperty("written").GetInt32(), res.GetProperty("failed").GetInt32()));
+        Assert.Equal(4, factory.Llm.Calls);
+
+        // Повтор — с письмом модели и списком неверных цифр
+        var retry = factory.Llm.Requests[1].Messages;
+        Assert.Equal("assistant", retry[^2].Role);
+        Assert.Contains("30", retry[^1].Content);
+
+        var letters = (await Json(await _api.GetAsync("/api/queue"))).EnumerateArray()
+            .Select(v => v.GetProperty("coverLetter")).Where(l => l.ValueKind == JsonValueKind.String).Select(l => l.GetString()).ToList();
+        Assert.Equal([good], letters);
+        var errors = await factory.WithDbAsync(db => Task.FromResult(db.LlmCalls.Where(c => c.Error != null).Select(c => c.Error!).ToList()));
+        Assert.Equal(3, errors.Count);
+        Assert.All(errors, e => Assert.StartsWith(CoverLetterWriting.FiguresError, e));
+
+        // Вторая вакансия сутки не переписывается: запросов к LLM нет
+        await Json(await _api.PostAsJsonAsync("/api/llm/letters", new { limit = 10 }));
+        Assert.Equal(4, factory.Llm.Calls);
     }
 
     [Fact]

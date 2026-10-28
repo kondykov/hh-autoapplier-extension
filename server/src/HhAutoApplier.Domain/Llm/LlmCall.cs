@@ -42,6 +42,15 @@ public class LlmCall
             CreatedAt = at,
         };
 
+    // Модель ответила, но ответ не принят (например, цифры в письме не из фактов): ответ и причина — в журнал
+    public static LlmCall Rejected(string purpose, string? vacancyId, string model, string prompt, string response, string error, int promptTokens,
+        int completionTokens, DateTimeOffset at)
+    {
+        var call = Succeeded(purpose, vacancyId, model, prompt, response, promptTokens, completionTokens, at);
+        call.Error = error;
+        return call;
+    }
+
     public static LlmCall Failed(string purpose, string? vacancyId, string model, string prompt, string error, DateTimeOffset at) =>
         new()
         {
