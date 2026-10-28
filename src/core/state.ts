@@ -31,6 +31,7 @@ interface PersistedState {
   queueCurrent: QueueItem | null;
   queueTried: string[];
   queueRunApplied: number;
+  queueOpened: boolean;
   autoReplies: AutoReply[];
 }
 
@@ -46,6 +47,9 @@ export class AppState {
   queueTried: string[] = [];
   // Откликов, ушедших на hh.ru в этом запуске очереди: для лимита за запуск
   queueRunApplied = 0;
+  // Переход к форме queueCurrent уже начат. hh.ru после «Отправить» сам загружает новую страницу — она может прийти
+  // раньше нашего перехода и не должна считать, что форма следующей вакансии не открылась
+  queueOpened = false;
   // Автоответы на отказы, где можно писать: переживают переход между чатами
   autoReplies: AutoReply[] = [];
 
@@ -76,6 +80,7 @@ export class AppState {
       queueCurrent: this.queueCurrent,
       queueTried: this.queueTried,
       queueRunApplied: this.queueRunApplied,
+      queueOpened: this.queueOpened,
       autoReplies: this.autoReplies,
     };
   }
@@ -98,6 +103,7 @@ export class StateRepository {
     state.queueCurrent = saved.queueCurrent ?? null;
     state.queueTried = saved.queueTried ?? [];
     state.queueRunApplied = saved.queueRunApplied ?? 0;
+    state.queueOpened = saved.queueOpened ?? false;
     state.autoReplies = saved.autoReplies ?? [];
     return state;
   }

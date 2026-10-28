@@ -202,9 +202,21 @@ describe("QueueStep", () => {
     expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", expect.objectContaining({ status: "Skipped" }), ".NET");
   });
 
+  it("страница от hh.ru после прошлого отклика пришла раньше перехода — открыть форму, а не Failed", async () => {
+    const { ctx, visited } = context({ url: "https://hh.ru/vacancy/999?from=response", queue: [item("1")], config: { queueDryRun: false } });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"], queueOpened: false });
+
+    await run(new QueueStep(ctx).resume());
+
+    expect(visited).toEqual([RESPONSE("1")]);
+    expect(ctx.state.queueOpened).toBe(true);
+    expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
+    expect(ctx.pipeline.applyOnPage).not.toHaveBeenCalled();
+  });
+
   it("hh.ru не открыл форму: Failed без запуска конвейера", async () => {
     const { ctx } = context({ url: "https://hh.ru/vacancy/999", queue: [item("1")], config: { queueDryRun: false } });
-    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"] });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"], queueOpened: true });
 
     await run(new QueueStep(ctx).resume());
 

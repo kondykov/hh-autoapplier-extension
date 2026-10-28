@@ -47,6 +47,13 @@ export class QueueStep implements PageStep {
       await this.openNext();
       return;
     }
+    if (!isPageOf(nav.url(), current.id) && !state.queueOpened) {
+      // Страница загрузилась раньше перехода к текущей вакансии (её открыл hh.ru после прошлого отклика) — открыть форму
+      state.queueOpened = true;
+      await this.ctx.persist();
+      nav.go(responseUrl(current.id));
+      return;
+    }
     if (!isPageOf(nav.url(), current.id)) {
       // hh.ru не открыл форму отклика (вакансия в архиве, перенаправил на другую страницу) — идём дальше
       logger.log(`Форма отклика для "${current.title}" не открылась`, "warn");
@@ -153,14 +160,18 @@ export class QueueStep implements PageStep {
     }
 
     state.queueCurrent = next;
+    state.queueOpened = false;
     state.queueTried.push(next.id);
     await this.ctx.persist();
     panel.setStep(`Очередь: "${next.title}"`);
     logger.log(`Очередь: открываю "${next.title}" (${next.company})`, "step");
     await pause(DELAYS.step);
     // Пока ждали, режим могли остановить кнопкой
-    if (state.queueRunning)
+    if (state.queueRunning) {
+      state.queueOpened = true;
+      await this.ctx.persist();
       nav.go(responseUrl(next.id));
+    }
   }
 
   // Сообщить исход на сервер (кроме пробного режима) и перейти к следующей вакансии.
