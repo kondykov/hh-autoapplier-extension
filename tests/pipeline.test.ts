@@ -27,7 +27,6 @@ function setup(overrides: Partial<PipelineDeps> = {}) {
     letters: new StaticTemplateProvider(() => "Здравствуйте, {{company}}! Интересна вакансия {{title}}"),
     resumes: new ResumeSelector(logger),
     onApplied: vi.fn(async () => {}),
-    onOutline: vi.fn(async () => {}),
     onChange: vi.fn(async () => {}),
     dryRun: () => false,
     ...overrides,
@@ -109,12 +108,11 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
     expect(deps.onApplied).not.toHaveBeenCalled();
   });
 
-  it("анкета: сохраняет вопросы, кладёт в аутлайн и не переходит на поиск в режиме очереди", async () => {
+  it("анкета: кладёт в аутлайн и не переходит на поиск в режиме очереди", async () => {
     renderResponsePage({ questionnaire: true });
     const { deps, pipeline } = setup();
 
     expect(await run(pipeline.applyOnPage(vacancy()))).toBe("outline");
-    expect(deps.onOutline).toHaveBeenCalled();
     expect(deps.state.outline).toHaveLength(1);
     expect(location.href).toBe(RESPONSE_URL);
     expect(submits).toBe(0);
@@ -126,7 +124,7 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
     const { deps, pipeline } = setup();
 
     expect(await run(pipeline.applyOnPage(vacancy()))).toBe("success");
-    expect(deps.onOutline).not.toHaveBeenCalled();
+    expect(deps.state.outline).toHaveLength(0);
     expect(submits).toBe(1);
   });
 

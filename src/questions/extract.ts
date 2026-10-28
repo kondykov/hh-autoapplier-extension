@@ -10,13 +10,6 @@ export interface CollectedQuestion {
   answer: string;
 }
 
-export interface QuestionnaireEntry {
-  vacancyTitle: string;
-  vacancyUrl: string;
-  collectedAt: string;
-  answers: CollectedQuestion[];
-}
-
 function typeOf(body: Element): QuestionType {
   if (qs('input[type="radio"]', body)) return "radio";
   if (qs('input[type="checkbox"]', body)) return "checkbox";

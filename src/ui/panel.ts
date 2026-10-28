@@ -11,7 +11,6 @@ export interface PanelStats {
   applied: number;
   outline: number;
   unclear: number;
-  questions: number;
   daily: number;
   dailyLimit: number;
 }
@@ -21,8 +20,6 @@ export interface PanelHandlers {
   onShowOutline(): void;
   onShowUnclear(): void;
   onClear(): void;
-  onDownloadQuestions(): void;
-  onDownloadReport(): void;
   onRejectNext(): void;
   onAutoReject(): void;
   // Чаты на сервер и «спасибо» на новые отказы (#26)
@@ -80,7 +77,7 @@ export class Panel implements LogSink {
         <div id="hh-captcha-banner" hidden>⚠ Капча! Очередь на паузе. Введите текст с картинки</div>
         <div class="hh-stats">
           ${stat("applied", "Отклики")}${stat("outline", "Аутлайн")}${stat("unclear", "Непонятное")}
-          ${stat("questions", "Вопросы")}${stat("daily", "За день")}
+          ${stat("daily", "За день")}
         </div>
         <div class="hh-input-group"><label for="hh-input-limit">Дневной лимит</label><input id="hh-input-limit" type="number" min="1" class="hh-input" /></div>
         <div class="hh-input-group"><label for="hh-input-run-limit">Откликов за запуск очереди (0 — без ограничения)</label><input id="hh-input-run-limit" type="number" min="0" class="hh-input" /></div>
@@ -105,8 +102,6 @@ export class Panel implements LogSink {
           <button class="hh-btn" id="hh-btn-clear">Очистить</button>
         </div>
         <div class="hh-btn-row">
-          <button class="hh-btn hh-btn-secondary" id="hh-btn-dlq">Скачать вопросы</button>
-          <button class="hh-btn hh-btn-success" id="hh-btn-report">Отчёт (CSV)</button>
           <button class="hh-btn hh-btn-warn" id="hh-btn-rej">Next Отказ</button>
           <button class="hh-btn hh-btn-secondary" id="hh-btn-autorej">Авто-отказ</button>
         </div>
@@ -115,7 +110,7 @@ export class Panel implements LogSink {
         </div>
         <details class="hh-input-group"><summary>Сервер (backend)</summary>
           <label for="hh-input-server-url">Адрес</label><input id="hh-input-server-url" class="hh-input" placeholder="http://127.0.0.1:8080" />
-          <label for="hh-input-server-key">Токен (hh_…, POST /api/tokens)</label><input id="hh-input-server-key" type="password" class="hh-input" autocomplete="off" />
+          <label for="hh-input-server-key">Токен (hh_…; выпустить — веб-интерфейс backend, «Профиль»)</label><input id="hh-input-server-key" type="password" class="hh-input" autocomplete="off" />
           <label for="hh-input-import-search">Поиск на сервере для выдачи</label><input id="hh-input-import-search" class="hh-input" placeholder="имя поиска, например dotnet" />
           <button class="hh-btn" id="hh-btn-server-check">Проверить связь</button>
           <div class="hh-step-label" id="hh-server-status"></div>
@@ -136,8 +131,6 @@ export class Panel implements LogSink {
     this.el("hh-btn-outline").onclick = () => this.handlers.onShowOutline();
     this.el("hh-btn-unclear").onclick = () => this.handlers.onShowUnclear();
     this.el("hh-btn-clear").onclick = () => this.handlers.onClear();
-    this.el("hh-btn-dlq").onclick = () => this.handlers.onDownloadQuestions();
-    this.el("hh-btn-report").onclick = () => this.handlers.onDownloadReport();
     this.el("hh-btn-rej").onclick = () => this.handlers.onRejectNext();
     this.el("hh-btn-autorej").onclick = () => this.handlers.onAutoReject();
     this.el("hh-btn-autoreply").onclick = () => this.handlers.onAutoReply();
@@ -295,7 +288,6 @@ export class Panel implements LogSink {
     set("applied", s.applied);
     set("outline", s.outline);
     set("unclear", s.unclear);
-    set("questions", s.questions);
     set("daily", `${s.daily} / ${s.dailyLimit}`);
   }
 }

@@ -9,8 +9,6 @@ import { QueueStep } from "../pages/queue-step";
 import { RejectStep } from "../pages/reject-step";
 import { SearchStep } from "../pages/search-step";
 import { browserNavigator, pageOf, pickStep, type Navigator, type StepContext } from "../pages/step-context";
-import type { QuestionStore } from "../questions/store";
-import type { ApplicationStore } from "../report/applications";
 import { ReportActions } from "../report/report-actions";
 import type { ResumeSelector } from "../resume/selector";
 import type { Panel } from "../ui/panel";
@@ -28,8 +26,6 @@ interface ControllerDeps {
   logger: Logger;
   panel: Panel;
   letters: LetterProvider;
-  questions: QuestionStore;
-  applications: ApplicationStore;
   resumes: ResumeSelector;
   backend: BackendClient;
   nav?: Navigator;
@@ -61,7 +57,7 @@ export class Controller {
       if (shown && d.state.queueRunning)
         void d.backend.reportEvent("Captcha", location.href);
     });
-    this.reports = new ReportActions(d.state, d.questions, d.applications, d.logger, () => this.persist(), (m, yes) => d.panel.ask(m, yes));
+    this.reports = new ReportActions(d.state, d.logger, () => this.persist(), (m, yes) => d.panel.ask(m, yes));
     this.settings = new Settings(d.config, d.storage, d.panel, d.logger, d.limit, d.backend, () => this.refresh());
 
     const ctx: StepContext = {
@@ -110,19 +106,8 @@ export class Controller {
       onApplied: async (vacancy) => {
         await d.limit.increment();
         d.state.applied++;
-        await d.applications.add({
-          title: vacancy.title,
-          stack: (vacancy.stack ?? []).join(", "),
-          company: vacancy.company,
-          salary: vacancy.salary ?? "",
-          format: vacancy.format ?? "",
-          resume: vacancy.resume ?? "",
-          link: vacancy.link || location.href,
-          appliedAt: new Date().toISOString(),
-        });
         d.logger.log(`Отклик зарегистрирован: "${vacancy.title}"`, "success");
       },
-      onOutline: (vacancy) => this.reports.saveQuestions(vacancy),
       onChange: () => this.persist(),
       dryRun: () => d.state.queueRunning && d.config.queueDryRun,
     });
@@ -134,12 +119,11 @@ export class Controller {
   }
 
   private async refresh() {
-    const { state, limit, panel, questions } = this.d;
+    const { state, limit, panel } = this.d;
     panel.setStats({
       applied: state.applied,
       outline: state.outline.length,
       unclear: state.unclear.length,
-      questions: (await questions.list()).length,
       daily: await limit.count(),
       dailyLimit: limit.limit,
     });

@@ -6,8 +6,6 @@ import { StateRepository } from "../core/state";
 import { ConsoleSink, Logger } from "../infra/logger";
 import { ChromeStorage } from "../infra/storage";
 import { PreparedLetterProvider, StaticTemplateProvider } from "../letters/letter-provider";
-import { QuestionStore } from "../questions/store";
-import { ApplicationStore } from "../report/applications";
 import { ResumeSelector } from "../resume/selector";
 import { Panel, VERSION } from "../ui/panel";
 
@@ -25,8 +23,6 @@ async function bootstrap() {
   // Письмо от backend под вакансию приоритетнее универсального из панели
   const letters = new PreparedLetterProvider(new StaticTemplateProvider(() => config.coverLetterTemplate));
   const resumes = new ResumeSelector(logger);
-  const questions = new QuestionStore(storage);
-  const applications = new ApplicationStore(storage);
 
   let controller!: Controller;
   const panel = new Panel(
@@ -36,8 +32,6 @@ async function bootstrap() {
       onShowOutline: () => controller.reports.showOutline(),
       onShowUnclear: () => controller.reports.showUnclear(),
       onClear: () => void controller.reports.clear(),
-      onDownloadQuestions: () => void controller.reports.downloadQuestions(),
-      onDownloadReport: () => void controller.reports.downloadReport(),
       onRejectNext: () => void controller.rejects.next(),
       onAutoReject: () => void controller.rejects.toggleAuto(),
       onAutoReply: () => void controller.dialogs.run(),
@@ -65,7 +59,7 @@ async function bootstrap() {
   await panel.mount();
 
   const backend = new BackendClient(runtimeSender);
-  controller = new Controller({ storage, config, state, repo, limit, logger, panel, letters, questions, applications, resumes, backend });
+  controller = new Controller({ storage, config, state, repo, limit, logger, panel, letters, resumes, backend });
   await controller.init();
   logger.log(`Панель загружена (v${VERSION})`);
 }

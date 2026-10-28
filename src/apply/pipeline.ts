@@ -17,7 +17,6 @@ export interface PipelineDeps {
   letters: LetterProvider;
   resumes: ResumeSelector;
   onApplied: (vacancy: Vacancy) => Promise<void>;
-  onOutline: (vacancy: Vacancy) => Promise<void>;
   onChange: () => Promise<void>;
   // Пробный режим: всё, кроме нажатия «Отправить»
   dryRun: () => boolean;
@@ -99,7 +98,6 @@ export class ApplyPipeline {
   private async saveOutline(vacancy: Vacancy): Promise<ApplyResult> {
     const { state, logger } = this.deps;
     if (state.addOutline(this.item(vacancy))) logger.log(`Аутлайн: "${vacancy.title}"`, "warn");
-    await this.deps.onOutline(vacancy);
     await this.deps.onChange();
     return "outline";
   }

@@ -15,7 +15,7 @@ Backend описан в [BACKEND.md](BACKEND.md), план доработок �
 | `pages/queue-step.ts` | режим «из очереди» |
 | `pages/reject-step.ts` | чаты: следующий отказ, авто-отказы |
 | `core/settings.ts` | настройки из панели: лимит, запасное письмо, сервер, поиск для выдачи, пробный режим |
-| `report/report-actions.ts` | анкеты, отчёт CSV, «Аутлайн» и «Непонятное» |
+| `report/report-actions.ts` | «Аутлайн» и «Непонятное» (отчёт и анкеты — на сервере) |
 | `core/state.ts` | состояние (режим очереди, outline, unclear) и `StateRepository` |
 | `core/config.ts` | `AppConfig`, дефолты, `loadConfig`/`saveConfig` |
 | `core/selectors.ts` | все селекторы и текстовые маркеры hh.ru |
@@ -26,7 +26,7 @@ Backend описан в [BACKEND.md](BACKEND.md), план доработок �
 | `resume/selector.ts` | выбор резюме в форме отклика по `match` профиля, выбранного backend |
 | `letters/letter-provider.ts` | `LetterProvider`, шаблон с `{{title}}` и `{{company}}` |
 | `report/` | отчёт по откликам и экспорт в CSV, извлечение стека, зарплаты, формата работы |
-| `questions/` | сбор анкет работодателей, выгрузка JSON |
+| `questions/` | разбор анкеты со страницы и заполнение ответами с сервера |
 | `rejects/` | распознавание отказов и переход к следующему |
 | `captcha/guard.ts` | детектор капчи: ставит очередь на паузу, решает человек |
 | `dom/` | хелперы: `qs`/`qsa`, тип страницы, ввод в поля React |
