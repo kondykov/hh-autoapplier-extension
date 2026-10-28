@@ -64,6 +64,19 @@ public static class BotTexts
         return text.AppendLine().Append("Все ответы — на /dialogs.html").ToString();
     }
 
+    // Сводка вместо пачки сообщений: решать по одному — /review (с кнопками) или на /review.html
+    public static string ReviewDigest(IReadOnlyCollection<JobApplication> fresh, int total)
+    {
+        const int shown = 10;
+        var text = new StringBuilder().AppendLine($"На проверке новых: {fresh.Count} (всего {total})");
+        foreach (var a in fresh.OrderByDescending(a => a.LlmScore ?? a.Score).Take(shown))
+            text.AppendLine($"• {a.Vacancy.Title}{(string.IsNullOrWhiteSpace(a.Vacancy.Company) ? "" : $" — {a.Vacancy.Company}")} (LLM {a.LlmScore ?? a.Score})");
+        if (fresh.Count > shown)
+            text.AppendLine($"…и ещё {fresh.Count - shown}");
+
+        return text.AppendLine().Append("Решить: /review — по одному с кнопками, или /review.html").ToString();
+    }
+
     public static IReadOnlyList<BotButton> ReviewButtons(string vacancyId) =>
     [
         new BotButton("✅ Одобрить", $"{Approve}:{vacancyId}"),

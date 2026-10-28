@@ -1,8 +1,5 @@
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Application.Commands.Collecting;
-using HhAutoApplier.Application.Commands.Llm;
-using HhAutoApplier.Application.Commands.Notifications;
-using HhAutoApplier.Application.Dtos;
 using HhAutoApplier.Application.Errors;
 using HhAutoApplier.Application.Notifications;
 using HhAutoApplier.Domain.Notifications;
@@ -13,8 +10,8 @@ using Microsoft.Extensions.Options;
 
 namespace HhAutoApplier.Infrastructure.Collecting;
 
-// Расписание сбора: сразу при старте (если включено) и дальше раз в интервал. Сам сбор — CollectVacanciesCommandHandler,
-// после него — LLM-оценка новых, ответы на анкеты и письма для очереди (если LLM настроена), затем уведомления о проверке
+// Расписание сбора: сразу при старте (если включено) и дальше раз в интервал. Сам сбор — CollectVacanciesCommandHandler;
+// оценку, письма и уведомления о проверке делает LlmPipelineHostedService раз в минуту
 public class CollectorHostedService(
     IServiceScopeFactory scopes,
     IOptions<CollectorOptions> options,
@@ -46,25 +43,6 @@ public class CollectorHostedService(
                 if ((await collect.Handle(new CollectVacanciesCommand(), stop)).Value is SourceUnavailableError blocked)
                     await notifier.NotifyAdminsAsync(NotificationKind.SourceBlocked, $"source-blocked:{day}",
                         $"Сбор вакансий остановлен: {blocked.Message}. Следующая попытка — по расписанию.", stop);
-
-                if (services.GetRequiredService<ILlmClient>().IsConfigured)
-                {
-                    var evaluate = services.GetRequiredService<EvaluatePendingVacanciesCommandHandler>();
-                    var evaluated = await evaluate.Handle(new EvaluatePendingVacanciesCommand { Limit = 200 }, stop);
-
-                    var answers = services.GetRequiredService<AnswerQuestionnairesCommandHandler>();
-                    var answered = await answers.Handle(new AnswerQuestionnairesCommand { Limit = 200 }, stop);
-
-                    var letters = services.GetRequiredService<WriteCoverLettersCommandHandler>();
-                    var written = await letters.Handle(new WriteCoverLettersCommand { Limit = 200 }, stop);
-
-                    if (new[] { evaluated.Value, answered.Value, written.Value }.Select(StoppedBy).FirstOrDefault(r => r is not null) is { } reason)
-                        await notifier.NotifyAdminsAsync(NotificationKind.LlmUnavailable, $"llm:{day}",
-                            $"{reason}. Оценка, анкеты и письма продолжатся при следующем сборе.", stop);
-                }
-
-                // После писем: в сообщении о проверке уже есть письмо
-                await services.GetRequiredService<NotifyReviewsCommandHandler>().Handle(new NotifyReviewsCommand(), stop);
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested)
             {
@@ -78,14 +56,4 @@ public class CollectorHostedService(
             await Task.Delay(interval, stop);
         }
     }
-
-    // Почему проход LLM остановился раньше (лимит, провайдер); null — прошёл всё
-    private static string? StoppedBy(object? result) => result switch
-    {
-        LlmEvaluationResultDto r => r.StoppedBy,
-        QuestionnaireAnswersResultDto r => r.StoppedBy,
-        CoverLettersResultDto r => r.StoppedBy,
-        LlmUnavailableError e => e.Message,
-        _ => null,
-    };
 }

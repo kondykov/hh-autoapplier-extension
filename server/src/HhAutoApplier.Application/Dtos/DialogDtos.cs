@@ -5,8 +5,9 @@ namespace HhAutoApplier.Application.Dtos;
 // Чат, где ждёт автоответ на отказ: расширение отправляет свой шаблон и сообщает итог
 public record AutoReplyDto(long ChatId, string? VacancyId, string Title, string Company);
 
-// Итог приёма чатов: сколько новых сообщений работодателей, сколько откликов стали отказами и приглашениями
-public record ImportDialogsResultDto(int Received, int NewMessages, int Rejected, int Invited, IReadOnlyList<AutoReplyDto> AutoReplies);
+// Итог приёма чатов: сколько новых сообщений работодателей, сколько откликов стали отказами и приглашениями,
+// сколько потерянных откликов найдено по чатам (Recovered → Applied)
+public record ImportDialogsResultDto(int Received, int NewMessages, int Rejected, int Invited, int Recovered, IReadOnlyList<AutoReplyDto> AutoReplies);
 
 public record DialogsAnalysisResultDto(int Analyzed, int Failed, int Remaining, string? StoppedBy);
 

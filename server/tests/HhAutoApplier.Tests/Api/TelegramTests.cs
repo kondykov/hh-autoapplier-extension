@@ -67,14 +67,14 @@ public class TelegramTests(ApiFactory factory) : IAsyncLifetime
         return factory.CreateLoggedInClient(email, UserPassword);
     }
 
-    // Два сомнительных отклика администратора: 1 и 2 ждут ручной проверки
-    private async Task CreateReviews()
+    // Сомнительные отклики администратора: 1…count ждут ручной проверки
+    private async Task CreateReviews(int count = 2)
     {
         factory.Llm.Configured = true;
         await Json(await _admin.PutAsJsonAsync("/api/searches", new { name = "dotnet", query = "C#" }));
         object Card(string id) => new { id, title = $"C# разработчик {id}", company = "Acme", description = "", salaryCurrency = "RUR", workFormat = "Удалённо" };
-        await Json(await _admin.PostAsJsonAsync("/api/import", new { search = "dotnet", vacancies = new[] { Card("1"), Card("2") } }));
-        for (var i = 0; i < 2; i++)
+        await Json(await _admin.PostAsJsonAsync("/api/import", new { search = "dotnet", vacancies = Enumerable.Range(1, count).Select(i => Card($"{i}")).ToArray() }));
+        for (var i = 0; i < count; i++)
             factory.Llm.Answers.Enqueue("""{"verdict": "doubtful", "score": 55, "resume": ".NET", "reason": "мало опыта"}""");
         await Json(await _admin.PostAsJsonAsync("/api/llm/evaluate", new { limit = 10 }));
     }
@@ -179,6 +179,25 @@ public class TelegramTests(ApiFactory factory) : IAsyncLifetime
         Assert.All(sent, n => Assert.Equal(NotificationKind.Review, n.Kind));
         Assert.Equal(["1", "2"], sent.Select(n => n.VacancyId).Order());
         Assert.All(sent, n => Assert.Null(n.SentAt));
+    }
+
+    [Fact]
+    public async Task ReviewNotifications_ManyAtOnce_OneDigest_NotRepeatedOneByOne()
+    {
+        await Link(_admin, OwnerChat);
+        await CreateReviews(5);
+
+        Assert.Equal(1, await NotifyReviews());
+        Assert.Equal(0, await NotifyReviews());
+
+        var sent = await Notifications();
+        var digest = Assert.Single(sent, n => n.Attempts < Notification.MaxAttempts);
+        Assert.Contains("На проверке новых: 5 (всего 5)", digest.Text);
+        Assert.Contains("C# разработчик 3", digest.Text);
+        Assert.Contains("/review", digest.Text);
+        Assert.Null(digest.VacancyId);
+        // Отклики сводки по одному не придут: их уведомления сразу отменены
+        Assert.Equal(5, sent.Count(n => !n.Pending && n.Key.StartsWith("review:")));
     }
 
     [Fact]

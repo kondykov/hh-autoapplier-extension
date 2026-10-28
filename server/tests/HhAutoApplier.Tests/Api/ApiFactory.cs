@@ -2,8 +2,8 @@ using System.Net.Http.Json;
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Vacancies;
-using HhAutoApplier.Infrastructure.Dialogs;
 using HhAutoApplier.Infrastructure.Identity;
+using HhAutoApplier.Infrastructure.Llm;
 using HhAutoApplier.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
@@ -63,8 +63,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             services.AddSingleton<ILlmClient>(Llm);
             services.RemoveAll<ITelegramBot>();
             services.AddSingleton<ITelegramBot>(Telegram);
-            // Разбор ответов работодателей тесты вызывают явно: фоновый проход раз в минуту забирал бы ответы FakeLlm
-            services.Remove(services.Single(d => d.ImplementationType == typeof(DialogAnalysisHostedService)));
+            // LLM-проходы тесты вызывают явно: фоновый проход раз в минуту забирал бы ответы FakeLlm
+            services.Remove(services.Single(d => d.ImplementationType == typeof(LlmPipelineHostedService)));
             // Блокировка и смена пароля обрывают сессию сразу, а не через минуту
             services.Configure<SecurityStampValidatorOptions>(o => o.ValidationInterval = TimeSpan.Zero);
         });

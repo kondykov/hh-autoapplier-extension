@@ -1,7 +1,6 @@
 using System.Net;
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Infrastructure.Collecting;
-using HhAutoApplier.Infrastructure.Dialogs;
 using HhAutoApplier.Infrastructure.Identity;
 using HhAutoApplier.Infrastructure.Llm;
 using HhAutoApplier.Infrastructure.Persistence;
@@ -72,7 +71,7 @@ public static class DependencyInjection
         services.AddHostedService<TelegramHostedService>();
 
         services.AddHostedService<CollectorHostedService>();
-        services.AddHostedService<DialogAnalysisHostedService>();
+        services.AddHostedService<LlmPipelineHostedService>();
         return services;
     }
 }

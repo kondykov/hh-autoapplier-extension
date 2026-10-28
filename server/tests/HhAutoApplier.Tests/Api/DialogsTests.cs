@@ -86,6 +86,20 @@ public class DialogsTests(ApiFactory factory) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Import_ChatFindsLostApplication_AppliedThenRejected()
+    {
+        await Applied();
+        // Расширение не сообщило отклик: на сервере Failed, а на hh.ru есть чат с отказом
+        await Json(await _admin.PostAsJsonAsync("/api/import", new { search = "dotnet", vacancies = new[] { new { id = "4", title = "C# 4", company = "Acme", description = "", salaryCurrency = "RUR", workFormat = "Удалённо" } } }));
+        await Json(await _admin.PostAsJsonAsync("/api/vacancies/4/status", new { status = "Failed", reason = "форма не открылась" }));
+
+        var result = await Import(Chat(31, "4", "DISCARD", 301, Old));
+
+        Assert.Equal((1, 1), (result.GetProperty("recovered").GetInt32(), result.GetProperty("rejected").GetInt32()));
+        Assert.Equal(VacancyStatus.Rejected, await StatusOf("4"));
+    }
+
+    [Fact]
     public async Task Analysis_InvitationToTelegram_ParsedOrOther()
     {
         await Applied();
