@@ -63,6 +63,20 @@
     th { color: var(--muted); font-weight: 500; }
     .secret { font-family: ui-monospace, Consolas, monospace; background: var(--warn-bg); color: var(--warn); padding: 8px 10px; border-radius: 8px; word-break: break-all; }
     .empty { color: var(--muted); text-align: center; padding: 32px 0; }
+    /* Проверка и ответы работодателей */
+    .verdict, .summary { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 8px 10px; margin: 8px 0; font-size: 14px; }
+    .msg { white-space: pre-wrap; font-size: 14px; border-left: 3px solid var(--border); padding: 4px 0 4px 10px; margin: 8px 0; }
+    .kind { display: inline-block; border-radius: 6px; padding: 1px 8px; font-size: 13px; font-weight: 600; margin-right: 6px; border: 1px solid var(--border); }
+    .kind.Invitation { background: var(--ok); border-color: var(--ok); color: #fff; }
+    .kind.Question { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .desc { white-space: pre-wrap; font-size: 14px; max-height: 320px; overflow: auto; padding: 8px 0; }
+    label.field { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+    .card textarea { width: 100%; min-height: 160px; resize: vertical; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .actions input { flex: 1 1 200px; min-width: 0; }
+    .approve { background: var(--ok); border-color: var(--ok); color: #fff; }
+    .result { align-self: center; font-weight: 600; color: var(--accent); }
+    .decided { opacity: .55; }
   </style>
 </head>
 <body>
@@ -76,8 +90,8 @@
   <nav id="nav" hidden>
     <a href="#overview">Обзор</a>
     <a href="#vacancies">Вакансии</a>
-    <a href="review.html">Проверка ↗</a>
-    <a href="dialogs.html">Ответы работодателей ↗</a>
+    <a href="#review">Проверка</a>
+    <a href="#dialogs">Ответы работодателей</a>
     <a href="#searches">Поиски</a>
     <a href="#resumes">Резюме</a>
     <a href="#account">Профиль</a>

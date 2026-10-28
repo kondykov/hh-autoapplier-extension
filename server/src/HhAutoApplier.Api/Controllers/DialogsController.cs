@@ -12,7 +12,7 @@ namespace HhAutoApplier.Api.Controllers;
 public class DialogsController : ApiController
 {
     /// <summary>
-    /// Сообщения работодателей с разбором LLM, новые сверху; handled=false — необработанные. Страница — /dialogs.html.
+    /// Сообщения работодателей с разбором LLM, новые сверху; handled=false — необработанные. Страница — веб-интерфейс, «Ответы работодателей» (/#dialogs).
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<EmployerMessageDto>), StatusCodes.Status200OK)]

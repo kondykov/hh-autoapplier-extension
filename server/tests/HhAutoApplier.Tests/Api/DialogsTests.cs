@@ -129,7 +129,7 @@ public class DialogsTests(ApiFactory factory) : IAsyncLifetime
         Assert.Contains("https://hh.ru/chat/21", notification.Text);
         Assert.Contains("Удобно [время]", notification.Text);
 
-        // «Обработано» из Telegram — как на /dialogs.html; чужой чат не найти
+        // «Обработано» из Telegram — как в веб-интерфейсе; чужой чат не найти
         var press = (long chat, string data) => InScope(sp => sp.GetRequiredService<HandleTelegramCallbackCommandHandler>()
             .Handle(new HandleTelegramCallbackCommand { ChatId = chat, Data = data }));
         Assert.Equal("Чат не найден", (await press(100, "handled:999")).Notice);

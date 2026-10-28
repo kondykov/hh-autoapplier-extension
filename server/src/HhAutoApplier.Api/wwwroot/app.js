@@ -99,8 +99,8 @@ async function overview() {
     el("div", { className: "card" },
       el("h2", { textContent: "Что дальше" }),
       el("ul", {},
-        stats.Review ? el("li", {}, `На проверке ${stats.Review}: `, el("a", { href: "review.html", textContent: "решить" })) : null,
-        el("li", {}, "Ответы работодателей — ", el("a", { href: "dialogs.html", textContent: "приглашения и вопросы с черновиками" })),
+        stats.Review ? el("li", {}, `На проверке ${stats.Review}: `, el("a", { href: "#review", textContent: "решить" })) : null,
+        el("li", {}, "Ответы работодателей — ", el("a", { href: "#dialogs", textContent: "приглашения и вопросы с черновиками" })),
         el("li", {}, "Отчёт по откликам — ", el("a", { href: scoped("/api/report?format=csv"), textContent: "CSV" })),
         telegram?.configured && !readOnly() ? el("li", {}, telegram.linked ? `Telegram привязан${telegram.username ? ` (@${telegram.username})` : ""}` : "Telegram не привязан — ",
           telegram.linked ? null : el("a", { href: "#account", textContent: "привязать в профиле" })) : null)),
@@ -161,6 +161,124 @@ function vacancyCard(v) {
     v.coverLetter ? el("details", {}, el("summary", { textContent: "Письмо" }), el("div", { className: "pre", textContent: v.coverLetter })) : null,
     v.history?.length ? el("details", {}, el("summary", { textContent: `История (${v.history.length})` }),
       el("table", {}, v.history.map((h) => el("tr", {}, el("td", { textContent: date(h.at) }), el("td", { textContent: STATUSES[h.to] ?? h.to }), el("td", { textContent: h.reason ?? "" }))))) : null);
+}
+
+// Ручная проверка (#25): вакансии, в которых LLM сомневается. «Одобрить» — в очередь с письмом из поля, «Отклонить» — пропуск с причиной
+async function review() {
+  const items = (await api(scoped("/api/vacancies?status=Review&take=200"))).sort((a, b) => b.score - a.score);
+  const list = el("div", {}, items.length ? items.map(reviewCard) : el("p", { className: "empty", textContent: "На проверке ничего нет." }));
+  return [
+    el("h1", { textContent: "Проверка" }),
+    el("p", { className: "sub", textContent: `Вакансии, в которых LLM сомневается: ${items.length}. Письмо можно поправить перед одобрением.` }),
+    list,
+  ];
+}
+
+function reviewCard(v) {
+  const letter = el("textarea", { value: v.coverLetter ?? "", id: `letter-${v.id}`, disabled: readOnly(),
+    placeholder: "LLM ещё не написала письмо. Напишите своё или одобрите без письма — расширение возьмёт шаблон." });
+  const reason = el("input", { placeholder: "Причина отказа (необязательно)", "aria-label": "Причина отказа" });
+  const approve = el("button", { className: "approve", textContent: "Одобрить" });
+  const decline = el("button", { className: "danger", textContent: "Отклонить" });
+  const result = el("span", { className: "result" });
+
+  const node = el("article", { className: "card" },
+    el("h2", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title })),
+    el("div", { className: "meta", textContent: [v.company, v.area, salary(v) ?? "зарплата не указана", v.workFormat, `балл ${v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.hasTest && "есть тест"].filter(Boolean).join(" · ") }),
+    el("div", { className: "verdict", textContent: v.statusReason ?? v.llmReason ?? "LLM сомневается" }),
+    v.stack?.length ? el("div", { className: "meta", textContent: `Стек: ${v.stack.join(", ")}` }) : null,
+    el("details", {}, el("summary", { textContent: "Описание вакансии" }), el("div", { className: "desc", textContent: v.description || "описания нет" })),
+    v.questions?.length ? el("details", {}, el("summary", { textContent: `Анкета (${v.questions.length})` }),
+      v.questions.map((q) => el("div", { className: "reason" }, el("b", { textContent: q.question }), el("br"), q.answer.length ? q.answer.join("; ") : "ответа нет"))) : null,
+    el("label", { className: "field", for: letter.id, textContent: v.coverLetterModel ? `Письмо (${v.coverLetterModel === "manual" ? "ваше" : v.coverLetterModel})` : "Письмо" }),
+    letter,
+    readOnly() ? null : el("div", { className: "actions" }, approve, reason, decline, result));
+
+  // Карточка после решения остаётся на месте с итогом: если убрать её, следующая подъедет под курсор и лишний клик решит за неё
+  async function act(body, done) {
+    approve.disabled = decline.disabled = reason.disabled = letter.disabled = true;
+    try {
+      await post(`/api/vacancies/${encodeURIComponent(v.id)}/review`, body);
+      node.classList.add("decided");
+      result.textContent = done;
+      setStatus(`«${v.title}»: ${done}. Без решения: ${view.querySelectorAll("article.card:not(.decided)").length}`);
+    } catch (e) {
+      if (e instanceof Unauthorized) showLogin();
+      setStatus(`«${v.title}»: ${e.message}`, true);
+      approve.disabled = decline.disabled = reason.disabled = letter.disabled = false;
+    }
+  }
+
+  // Письмо уходит, только если его поправили: иначе остаётся письмо LLM с её моделью
+  approve.onclick = () => {
+    const text = letter.value.trim();
+    act({ approve: true, coverLetter: text && text !== (v.coverLetter ?? "").trim() ? text : null }, "одобрено, в очереди");
+  };
+  decline.onclick = () => act({ approve: false, reason: reason.value.trim() || null }, "отклонено");
+  return node;
+}
+
+// Ответы работодателей (#26): разбор LLM и черновик; отвечает человек — в чате hh.ru
+const KINDS = { Invitation: "Приглашение", Question: "Вопрос", Rejection: "Отказ", Other: "Прочее" };
+const AUTO_REPLY = { Pending: "автоответ ждёт отправки", Sent: "автоответ отправлен", Unavailable: "автоответ невозможен" };
+
+async function dialogs(filter = "open") {
+  const open = filter === "open";
+  const items = (await api(scoped(`/api/dialogs?take=200${open ? "&handled=false" : ""}`))).filter((m) => !open || m.kind !== "Rejection");
+  const select = el("select", { "aria-label": "Какие сообщения показать" },
+    el("option", { value: "open", textContent: "Необработанные, кроме отказов" }), el("option", { value: "all", textContent: "Все" }));
+  select.value = open ? "open" : "all";
+  select.onchange = () => { location.hash = `#dialogs/${select.value}`; };
+
+  return [
+    el("h1", { textContent: "Ответы работодателей" }),
+    el("p", { className: "sub", textContent: "Сообщения из чатов hh.ru присылает расширение («Автоответ» на странице чатов). LLM разбирает приглашения и вопросы и предлагает ответ — отправляете вы. Отказы распознаются без LLM." }),
+    el("div", { className: "bar" }, select, el("span", { className: "muted", textContent: `Сообщений: ${items.length}` })),
+    items.length ? items.map(dialogCard)
+      : el("p", { className: "empty", textContent: open ? "Новых ответов работодателей нет." : "Сообщений пока нет: нажмите «Автоответ» в панели расширения на странице чатов hh.ru." }),
+  ];
+}
+
+function dialogCard(m) {
+  const chatUrl = `https://hh.ru/chat/${encodeURIComponent(m.chatId)}`;
+  const rejection = m.kind === "Rejection";
+  const reply = el("textarea", { value: m.suggestedReply ?? "", id: `reply-${m.chatId}`,
+    placeholder: m.kind == null ? "LLM ещё не разобрала сообщение — обновите страницу через минуту." : "Черновика нет." });
+  const copy = el("button", { className: "primary", textContent: "Копировать и открыть чат" });
+  const done = el("button", { textContent: "Обработано" });
+  const result = el("span", { className: "result" });
+
+  const node = el("article", { className: m.handledAt ? "card decided" : "card" },
+    el("h2", {}, el("a", { href: chatUrl, target: "_blank", rel: "noopener", textContent: m.title || "Чат без вакансии" })),
+    el("div", { className: "meta" },
+      el("span", { className: `kind ${m.kind ?? "pending"}`, textContent: KINDS[m.kind] ?? "ждёт разбора" }),
+      [m.company, date(m.at), m.hhState && `hh: ${m.hhState}`, AUTO_REPLY[m.autoReply], m.autoReplyError, m.handledAt && "обработано"].filter(Boolean).join(" · ")),
+    m.summary ? el("div", { className: "summary", textContent: m.summary }) : null,
+    el("div", { className: "msg", textContent: m.text }),
+    rejection ? null : el("label", { className: "field", for: reply.id,
+      textContent: m.llmModel ? `Черновик ответа (${m.llmModel}) — поправьте [заглушки] перед отправкой` : "Черновик ответа" }),
+    rejection ? null : reply,
+    el("div", { className: "actions" }, rejection ? null : copy, m.handledAt || readOnly() ? null : done, result));
+
+  // Буфер обмена доступен не везде (http без localhost): тогда текст просто выделяется для Ctrl+C
+  copy.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(reply.value);
+      result.textContent = "скопировано";
+    } catch {
+      reply.select();
+      result.textContent = "выделено — скопируйте Ctrl+C";
+    }
+    window.open(chatUrl, "_blank", "noopener");
+  };
+
+  done.onclick = () => run(done, () => post(`/api/dialogs/${encodeURIComponent(m.chatId)}/handled`), () => {
+    node.classList.add("decided");
+    done.remove();
+    result.textContent = "обработано";
+    return `«${m.title}»: обработано`;
+  });
+  return node;
 }
 
 const lines = (text) => text.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
@@ -406,7 +524,7 @@ async function admin() {
 
 // ── Каркас ───────────────────────────────────────────────────────────
 
-const routes = { overview, vacancies, searches, resumes, account, admin };
+const routes = { overview, vacancies, review, dialogs, searches, resumes, account, admin };
 
 // Номер последней отрисовки: раздел, загрузившийся позже следующего перехода, не перерисовывает страницу
 let renders = 0;

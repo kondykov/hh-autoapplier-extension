@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace HhAutoApplier.Application.Commands.Telegram;
 
-// Кнопки под сообщениями бота. Ручная проверка — те же правила, что на /review.html (JobApplication.Approve/Decline), письмо — как написала LLM.
+// Кнопки под сообщениями бота. Ручная проверка — те же правила, что в веб-интерфейсе («Проверка») (JobApplication.Approve/Decline), письмо — как написала LLM.
 // Отклики и ответы работодателей ищутся только среди данных владельца привязанного чата
 public class HandleTelegramCallbackCommandHandler(
     IAppDbContext db,
@@ -75,7 +75,7 @@ public class HandleTelegramCallbackCommandHandler(
             : new BotCallbackResult("Отклонено", "❌ Отклонено");
     }
 
-    // Как «Обработано» на /dialogs.html
+    // Как «Обработано» в веб-интерфейсе («Ответы работодателей»)
     private async Task<BotCallbackResult> HandledAsync(Guid userId, string chatId, CancellationToken ct)
     {
         var id = long.TryParse(chatId, out var parsed) ? parsed : 0;

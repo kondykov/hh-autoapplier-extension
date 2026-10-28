@@ -328,11 +328,12 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ReviewPage_ServedWithoutKey()
+    public async Task OldPages_RedirectToWebInterface()
     {
         var page = await factory.CreateClient().GetAsync("/review.html");
         Assert.Equal(HttpStatusCode.OK, page.StatusCode);
-        Assert.Contains("Ручная проверка", await page.Content.ReadAsStringAsync());
+        Assert.Contains("url=/#review", await page.Content.ReadAsStringAsync());
+        Assert.Contains("url=/#dialogs", await (await factory.CreateClient().GetAsync("/dialogs.html")).Content.ReadAsStringAsync());
     }
 
     [Fact]

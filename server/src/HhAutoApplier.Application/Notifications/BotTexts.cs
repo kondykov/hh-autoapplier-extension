@@ -81,8 +81,8 @@ public static class BotTexts
             text.AppendLine($"Резюме: {application.ResumeProfile}");
 
         text.AppendLine().AppendLine(string.IsNullOrWhiteSpace(application.CoverLetter)
-            ? "Письма пока нет — расширение возьмёт свой шаблон. Поправить письмо — на /review.html."
-            : $"Письмо (поправить — на /review.html):\n{application.CoverLetter}");
+            ? "Письма пока нет — расширение возьмёт свой шаблон. Поправить письмо — в веб-интерфейсе, раздел «Проверка»."
+            : $"Письмо (поправить — в веб-интерфейсе, «Проверка»):\n{application.CoverLetter}");
 
         return new BotMessage(text.ToString().TrimEnd(), ReviewButtons(application.VacancyId));
     }
@@ -107,10 +107,10 @@ public static class BotTexts
         if (!string.IsNullOrWhiteSpace(message.SuggestedReply))
             text.AppendLine().AppendLine("Черновик ответа (отправьте сами в чате, поправив [заглушки]):").AppendLine(message.SuggestedReply);
 
-        return text.AppendLine().Append("Все ответы — на /dialogs.html").ToString();
+        return text.AppendLine().Append("Все ответы — в веб-интерфейсе, раздел «Ответы работодателей»").ToString();
     }
 
-    // Сводка вместо пачки сообщений: решать по одному — /review (с кнопками) или на /review.html
+    // Сводка вместо пачки сообщений: решать по одному — /review (с кнопками) или в веб-интерфейсе
     public static string ReviewDigest(IReadOnlyCollection<JobApplication> fresh, int total)
     {
         const int shown = 10;
@@ -120,7 +120,7 @@ public static class BotTexts
         if (fresh.Count > shown)
             text.AppendLine($"…и ещё {fresh.Count - shown}");
 
-        return text.AppendLine().Append("Решить: /review — по одному с кнопками, или /review.html").ToString();
+        return text.AppendLine().Append("Решить: /review — по одному с кнопками, или в веб-интерфейсе, раздел «Проверка»").ToString();
     }
 
     public static IReadOnlyList<BotButton> ReviewButtons(string vacancyId) =>

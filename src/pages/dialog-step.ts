@@ -56,7 +56,7 @@ export class DialogStep implements PageStep {
       }
       const r = res.result;
       logger.log(`Чатов: ${r.received}, новых сообщений работодателей: ${r.newMessages}, отказов: ${r.rejected}, приглашений: ${r.invited}${r.recovered ? `, найдено потерянных откликов: ${r.recovered}` : ""}. ` +
-        "Разбор и черновики ответов — в Telegram и на /dialogs.html", "success");
+        "Разбор и черновики ответов — в Telegram и в веб-интерфейсе backend («Ответы работодателей»)", "success");
 
       const writable: AutoReply[] = [];
       for (const reply of r.autoReplies) {
