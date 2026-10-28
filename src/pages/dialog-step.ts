@@ -44,16 +44,18 @@ export class DialogStep implements PageStep {
         chats = await this.chats.recent();
       } catch (e) {
         logger.log(`Чаты hh.ru не получены: ${(e as Error).message}`, "error");
+        panel.setStep("Автоответ: ошибка — см. журнал");
         return;
       }
 
       const res = await backend.importDialogs(chats);
       if (!res.ok) {
         logger.log(`Чаты не отправлены на сервер: ${res.error}`, "error");
+        panel.setStep("Автоответ: ошибка — см. журнал");
         return;
       }
       const r = res.result;
-      logger.log(`Чатов: ${r.received}, новых сообщений работодателей: ${r.newMessages}, отказов: ${r.rejected}, приглашений: ${r.invited}. ` +
+      logger.log(`Чатов: ${r.received}, новых сообщений работодателей: ${r.newMessages}, отказов: ${r.rejected}, приглашений: ${r.invited}${r.recovered ? `, найдено потерянных откликов: ${r.recovered}` : ""}. ` +
         "Разбор и черновики ответов — в Telegram и на /dialogs.html", "success");
 
       const writable: AutoReply[] = [];

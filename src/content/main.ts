@@ -43,6 +43,7 @@ async function bootstrap() {
       onAutoReply: () => void controller.dialogs.run(),
       onRejectionReplyChange: (text) => void controller.settings.setRejectionReply(text),
       onLimitChange: (value) => void controller.settings.setLimit(value),
+      onQueueRunLimitChange: (value) => void controller.settings.setQueueRunLimit(value),
       onLetterChange: (text) => void controller.settings.setLetter(text),
       onServerChange: (url, apiKey) => void controller.settings.setServer(url, apiKey),
       onImportSearchChange: (name) => void controller.settings.setImportSearch(name),
@@ -52,6 +53,7 @@ async function bootstrap() {
     },
     {
       limit: config.dailyLimit,
+      queueRunLimit: config.queueRunLimit,
       letter: config.coverLetterTemplate,
       server: config.server,
       importSearch: config.importSearch,

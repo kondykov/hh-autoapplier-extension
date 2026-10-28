@@ -49,6 +49,8 @@ export interface DialogsCounts {
   newMessages: number;
   rejected: number;
   invited: number;
+  // Отклики, чей статус потерялся, найденные по чатам: на сервере стали Applied
+  recovered?: number;
   autoReplies: AutoReply[];
 }
 

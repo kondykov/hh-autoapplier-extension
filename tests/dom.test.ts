@@ -51,7 +51,7 @@ describe("config", () => {
     const storage = new MemoryStorage();
     await storage.set("hh_autoapply_config", { presets: [{ name: "x" }], rules: { stopWords: ["php"] }, resumes: [], searchRedirectUrl: "u", importSearch: "dotnet" });
     const cfg = await loadConfig(storage);
-    expect(Object.keys(cfg).sort()).toEqual(["coverLetterTemplate", "dailyLimit", "importSearch", "queueDryRun", "rejectionReply", "server"]);
+    expect(Object.keys(cfg).sort()).toEqual(["coverLetterTemplate", "dailyLimit", "importSearch", "queueDryRun", "queueRunLimit", "rejectionReply", "server"]);
     expect(cfg.importSearch).toBe("dotnet");
     expect(cfg.rejectionReply).toBe(DEFAULT_CONFIG.rejectionReply);
   });

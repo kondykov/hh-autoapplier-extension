@@ -13,6 +13,8 @@ export interface AppConfig {
   // Письмо, если backend не прислал своего (LLM выключена или не успела)
   coverLetterTemplate: string;
   dailyLimit: number;
+  // Откликов за один запуск очереди: после стольких отправленных очередь останавливается сама; 0 — без ограничения
+  queueRunLimit: number;
   server: ServerSettings;
   // Поиск на сервере, в который уходит выдача со страницы (POST /api/import)
   importSearch: string;
@@ -29,6 +31,7 @@ const LOCAL_LETTER = typeof __DEFAULT_LETTER__ === "string" ? __DEFAULT_LETTER__
 export const DEFAULT_CONFIG: AppConfig = {
   coverLetterTemplate: LOCAL_LETTER || "Здравствуйте.\nМеня заинтересовала ваша вакансия.\n\nС уважением,",
   dailyLimit: 150,
+  queueRunLimit: 0,
   server: DEFAULT_SERVER,
   importSearch: "",
   queueDryRun: true,
@@ -43,6 +46,7 @@ export async function loadConfig(storage: KeyValueStorage): Promise<AppConfig> {
   return {
     coverLetterTemplate: saved.coverLetterTemplate ?? DEFAULT_CONFIG.coverLetterTemplate,
     dailyLimit: saved.dailyLimit ?? DEFAULT_CONFIG.dailyLimit,
+    queueRunLimit: saved.queueRunLimit ?? DEFAULT_CONFIG.queueRunLimit,
     server: { ...DEFAULT_SERVER, ...saved.server },
     importSearch: saved.importSearch ?? DEFAULT_CONFIG.importSearch,
     queueDryRun: saved.queueDryRun ?? DEFAULT_CONFIG.queueDryRun,

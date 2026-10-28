@@ -30,6 +30,7 @@ interface PersistedState {
   queueRunning: boolean;
   queueCurrent: QueueItem | null;
   queueTried: string[];
+  queueRunApplied: number;
   autoReplies: AutoReply[];
 }
 
@@ -43,6 +44,8 @@ export class AppState {
   queueCurrent: QueueItem | null = null;
   // id, уже опробованные в этом запуске: в пробном режиме сервер о них не знает и вернёт их снова
   queueTried: string[] = [];
+  // Откликов, ушедших на hh.ru в этом запуске очереди: для лимита за запуск
+  queueRunApplied = 0;
   // Автоответы на отказы, где можно писать: переживают переход между чатами
   autoReplies: AutoReply[] = [];
 
@@ -72,6 +75,7 @@ export class AppState {
       queueRunning: this.queueRunning,
       queueCurrent: this.queueCurrent,
       queueTried: this.queueTried,
+      queueRunApplied: this.queueRunApplied,
       autoReplies: this.autoReplies,
     };
   }
@@ -93,6 +97,7 @@ export class StateRepository {
     state.queueRunning = saved.queueRunning ?? false;
     state.queueCurrent = saved.queueCurrent ?? null;
     state.queueTried = saved.queueTried ?? [];
+    state.queueRunApplied = saved.queueRunApplied ?? 0;
     state.autoReplies = saved.autoReplies ?? [];
     return state;
   }

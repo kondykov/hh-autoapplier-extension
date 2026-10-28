@@ -13,6 +13,7 @@ async function mount(onQueueDryRunChange: (enabled: boolean) => void = () => {})
   }) as PanelHandlers;
   const panel = new Panel(new MemoryStorage(), handlers, {
     limit: 200,
+    queueRunLimit: 0,
     letter: "",
     server: DEFAULT_SERVER,
     importSearch: "",

@@ -29,6 +29,7 @@ export class QueueStep implements PageStep {
     state.queueRunning = true;
     state.queueCurrent = null;
     state.queueTried = [];
+    state.queueRunApplied = 0;
     panel.setQueueActive(true);
     logger.log(
       config.queueDryRun ? "Очередь: пробный режим — «Отправить» не нажимается, статусы на сервер не уходят" : "Очередь: отклики отправляются",
@@ -111,7 +112,12 @@ export class QueueStep implements PageStep {
   }
 
   private async openNext(): Promise<void> {
-    const { state, panel, logger, backend, limit, nav } = this.ctx;
+    const { state, panel, logger, backend, limit, nav, config } = this.ctx;
+    if (config.queueRunLimit > 0 && state.queueRunApplied >= config.queueRunLimit) {
+      stopQueue(this.ctx, `Лимит запуска: отправлено ${state.queueRunApplied} из ${config.queueRunLimit}`);
+      await this.ctx.persist();
+      return;
+    }
     if (await limit.isReached()) {
       stopQueue(this.ctx, `Достигнут дневной лимит (${limit.limit})`);
       reportDailyLimit(this.ctx);
@@ -162,6 +168,7 @@ export class QueueStep implements PageStep {
   private async finish(item: QueueItem, result: ApplyResult, resume?: string): Promise<void> {
     const { state, logger, backend, config } = this.ctx;
     const sentToHh = result === "success" || result === "unclear";
+    if (sentToHh) state.queueRunApplied++;
     const report = sentToHh || (state.queueRunning && !config.queueDryRun) ? toStatusReport(result) : null;
     if (report) {
       const sent = await backend.reportStatus(item.id, report, resume ?? item.resume);

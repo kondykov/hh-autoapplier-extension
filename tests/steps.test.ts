@@ -137,6 +137,22 @@ describe("QueueStep", () => {
     expect(visited).toEqual([RESPONSE("2")]);
   });
 
+  it("лимит за запуск: после N отправленных очередь останавливается сама", async () => {
+    const { ctx, visited, messages } = context({ url: RESPONSE("1"), queue: [item("1"), item("2")], result: "success", config: { queueDryRun: false, queueRunLimit: 1 } });
+
+    await run(new QueueStep(ctx).toggle());
+    expect(ctx.state.queueRunApplied).toBe(0);
+    expect(visited).toEqual([RESPONSE("1")]);
+
+    await run(new QueueStep(ctx).resume());
+
+    expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", { status: "Applied", reason: null }, ".NET");
+    expect(ctx.state.queueRunApplied).toBe(1);
+    expect(ctx.state.queueRunning).toBe(false);
+    expect(visited).toEqual([RESPONSE("1")]);
+    expect(messages.at(-1)).toContain("Лимит запуска: отправлено 1 из 1");
+  });
+
   it("отклик ушёл, а очередь остановили или включили пробный режим — статус всё равно на сервер, дальше не идёт", async () => {
     const { ctx, visited } = context({ url: RESPONSE("1"), queue: [item("1"), item("2")], result: "success", config: { queueDryRun: false } });
     Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"] });
@@ -336,5 +352,17 @@ describe("DialogStep", () => {
     expect(send).not.toHaveBeenCalled();
     expect(ctx.backend.reportAutoReply).not.toHaveBeenCalled();
     expect(ctx.state.autoReplies).toEqual([]);
+  });
+});
+
+describe("DialogStep: ошибки", () => {
+  it("сервер не принял чаты — в панели ошибка, а не «Собираю чаты…»", async () => {
+    const { ctx } = context({ url: "https://tver.hh.ru/chat" });
+    ctx.backend.importDialogs.mockResolvedValue({ ok: false, error: "сервер ответил 500" } as never);
+    const chats = { recent: vi.fn(async () => []), writePossibility: vi.fn() };
+
+    await run(new DialogStep(ctx, chats, vi.fn()).run());
+
+    expect(ctx.panel.setStep).toHaveBeenLastCalledWith("Автоответ: ошибка — см. журнал");
   });
 });

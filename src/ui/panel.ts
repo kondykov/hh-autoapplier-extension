@@ -26,6 +26,7 @@ export interface PanelHandlers {
   onRejectionReplyChange(text: string): void;
   onLetterChange(text: string): void;
   onLimitChange(limit: number): void;
+  onQueueRunLimitChange(limit: number): void;
   // apiKey: null — не менять сохранённый ключ
   onServerChange(url: string, apiKey: string | null): void;
   onImportSearchChange(name: string): void;
@@ -44,6 +45,7 @@ export class Panel implements LogSink {
     private handlers: PanelHandlers,
     private initial: {
       limit: number;
+      queueRunLimit: number;
       letter: string;
       server: ServerSettings;
       importSearch: string;
@@ -77,6 +79,7 @@ export class Panel implements LogSink {
           ${stat("questions", "Вопросы")}${stat("daily", "За день")}
         </div>
         <div class="hh-input-group"><label for="hh-input-limit">Дневной лимит</label><input id="hh-input-limit" type="number" min="1" class="hh-input" /></div>
+        <div class="hh-input-group"><label for="hh-input-run-limit">Откликов за запуск очереди (0 — без ограничения)</label><input id="hh-input-run-limit" type="number" min="0" class="hh-input" /></div>
         <div class="hh-step-info"><div class="hh-step-label">Текущий шаг</div><div class="hh-step-desc" id="hh-step-desc"></div></div>
         <div class="hh-btn-row">
           <button class="hh-btn hh-btn-primary" id="hh-btn-queue" title="Одобренные вакансии с сервера">Из очереди</button>
@@ -180,6 +183,13 @@ export class Panel implements LogSink {
     const importSearch = this.el<HTMLInputElement>("hh-input-import-search");
     importSearch.value = this.initial.importSearch;
     importSearch.onchange = () => this.handlers.onImportSearchChange(importSearch.value.trim());
+
+    const runLimit = this.el<HTMLInputElement>("hh-input-run-limit");
+    runLimit.value = String(this.initial.queueRunLimit);
+    runLimit.onchange = () => {
+      const value = parseInt(runLimit.value, 10);
+      if (value >= 0) this.handlers.onQueueRunLimitChange(value);
+    };
 
     const limit = this.el<HTMLInputElement>("hh-input-limit");
     limit.value = String(this.initial.limit);

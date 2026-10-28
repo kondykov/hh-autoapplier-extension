@@ -26,6 +26,11 @@ export class Settings {
     await this.refresh();
   }
 
+  async setQueueRunLimit(value: number) {
+    this.config.queueRunLimit = Math.max(0, Math.floor(value));
+    await this.save();
+  }
+
   async setLetter(text: string) {
     this.config.coverLetterTemplate = text;
     await this.save();
