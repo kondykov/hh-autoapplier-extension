@@ -1,4 +1,5 @@
 using HhAutoApplier.Domain.Applications;
+using HhAutoApplier.Domain.Candidates;
 using HhAutoApplier.Domain.Dialogs;
 using HhAutoApplier.Domain.Llm;
 using HhAutoApplier.Domain.Notifications;
@@ -21,6 +22,8 @@ public interface IAppDbContext
     DbSet<SearchProfile> Searches { get; }
 
     DbSet<ResumeProfile> Resumes { get; }
+
+    DbSet<CandidateProfile> CandidateProfiles { get; }
 
     DbSet<LlmCall> LlmCalls { get; }
 

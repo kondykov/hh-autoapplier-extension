@@ -1,5 +1,6 @@
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Domain.Applications;
+using HhAutoApplier.Domain.Candidates;
 using HhAutoApplier.Domain.Dialogs;
 using HhAutoApplier.Domain.Llm;
 using HhAutoApplier.Domain.Resumes;
@@ -26,6 +27,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<SearchProfile> Searches => Set<SearchProfile>();
 
     public DbSet<ResumeProfile> Resumes => Set<ResumeProfile>();
+
+    public DbSet<CandidateProfile> CandidateProfiles => Set<CandidateProfile>();
 
     public DbSet<LlmCall> LlmCalls => Set<LlmCall>();
 

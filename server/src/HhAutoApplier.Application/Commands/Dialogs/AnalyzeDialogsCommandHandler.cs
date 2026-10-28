@@ -41,6 +41,7 @@ public class AnalyzeDialogsCommandHandler(
             .ToDictionaryAsync(a => (a.UserId, a.VacancyId), a => a.ResumeProfile!, ct);
         var resumes = await db.Resumes.AsNoTracking().Where(r => r.UserId != null && userIds.Contains(r.UserId.Value))
             .ToDictionaryAsync(r => (r.UserId!.Value, r.Name), ct);
+        var profiles = await db.CandidateProfiles.AsNoTracking().Where(p => p.UserId != null && userIds.Contains(p.UserId.Value)).ToListAsync(ct);
 
         int analyzed = 0, failed = 0;
         string? stoppedBy = null;
@@ -49,7 +50,7 @@ public class AnalyzeDialogsCommandHandler(
             var resume = message.VacancyId is { } v && applied.GetValueOrDefault((message.UserId, v)) is { } name
                 ? resumes.GetValueOrDefault((message.UserId, name))
                 : null;
-            var request = DialogAnalysis.BuildRequest(message, resume);
+            var request = DialogAnalysis.BuildRequest(message, resume, profiles.FirstOrDefault(p => p.UserId == message.UserId));
             var prompt = VacancyAssessment.Serialize(request);
             var subject = message.VacancyId ?? $"chat:{message.ChatId}";
 

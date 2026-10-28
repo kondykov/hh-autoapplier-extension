@@ -27,13 +27,15 @@ public class WriteCoverLettersCommandHandler(
             .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
         // Резюме ищется у владельца отклика: имена у разных пользователей совпадают
         var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => (r.UserId, r.Name), ct);
+        // Профиль кандидата (#35) — владельца отклика; пользователей немного, все профили — одним запросом
+        var profiles = await db.CandidateProfiles.AsNoTracking().ToListAsync(ct);
 
         int written = 0, failed = 0;
         string? stoppedBy = null;
         foreach (var application in queued)
         {
             var resume = application.ResumeProfile is { } name ? resumes.GetValueOrDefault((application.UserId, name)) : null;
-            var request = CoverLetterWriting.BuildRequest(application.Vacancy, resume);
+            var request = CoverLetterWriting.BuildRequest(application.Vacancy, resume, profiles.FirstOrDefault(p => p.UserId == application.UserId));
             var prompt = VacancyAssessment.Serialize(request);
 
             LlmResult result;

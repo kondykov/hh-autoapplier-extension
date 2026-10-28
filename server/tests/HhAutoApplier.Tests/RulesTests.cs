@@ -41,6 +41,25 @@ public class RulesTests
         Assert.DoesNotContain("Java", stack);
     }
 
+    // Границы слова — у всех вариантов шаблона: короткие «go», «ts», «js», «git» не находятся внутри слов
+    [Theory]
+    [InlineData("Python, Django", "Go")]
+    [InlineData("Работа с клиентами, clients и experts", "TypeScript")]
+    [InlineData("Legit компания, nodejs не нужен", "Git")]
+    [InlineData("Golang не нужен, только Django", "JavaScript")]
+    public void Stack_ShortNamesOnlyAsWholeWords(string text, string absent) =>
+        Assert.DoesNotContain(absent, StackExtractor.Extract(text));
+
+    [Theory]
+    [InlineData("Бэкенд на Go и gRPC", "Go")]
+    [InlineData("Golang-разработчик", "Go")]
+    [InlineData("React + TS", "TypeScript")]
+    [InlineData("Node.js, JS", "JavaScript")]
+    [InlineData("Git, GitLab CI", "Git")]
+    [InlineData("MySQL и MSSQL", "SQL")]
+    public void Stack_ShortNamesFound(string text, string present) =>
+        Assert.Contains(present, StackExtractor.Extract(text));
+
     [Fact]
     public void Evaluate_ExcludeKeyword_Skips()
     {

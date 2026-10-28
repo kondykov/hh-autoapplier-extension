@@ -206,6 +206,9 @@ public sealed class FakeLlmClient : ILlmClient
 
     public int Calls { get; private set; }
 
+    // Запросы к LLM по порядку: что попало в промпт
+    public List<LlmRequest> Requests { get; } = [];
+
     public bool IsConfigured => Configured;
 
     public void Reset()
@@ -213,6 +216,7 @@ public sealed class FakeLlmClient : ILlmClient
         Answers.Clear();
         Configured = false;
         Calls = 0;
+        Requests.Clear();
     }
 
     public Task<LlmResult> CompleteAsync(LlmRequest request, CancellationToken ct = default)
@@ -221,6 +225,7 @@ public sealed class FakeLlmClient : ILlmClient
             throw new LlmUnavailableException("LLM не настроена: задайте LLM_API_KEY");
 
         Calls++;
+        Requests.Add(request);
         if (!Answers.TryDequeue(out var answer))
             throw new LlmUnavailableException("дневной лимит запросов исчерпан");
 

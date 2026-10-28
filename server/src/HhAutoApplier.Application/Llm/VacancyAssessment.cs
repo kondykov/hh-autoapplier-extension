@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using HhAutoApplier.Application.Abstractions;
+using HhAutoApplier.Domain.Candidates;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Vacancies;
@@ -26,17 +27,20 @@ public static class VacancyAssessment
         fit — стоит откликаться; doubtful — есть сомнения (роль, уровень, стек совпадают частично, неясные условия);
         reject — явно не подходит (другая профессия или роль, уровень, основной стек, условия).
         resume — какое резюме из списка лучше отправить; null, если не подходит ни одно.
+        Профиль кандидата, если дан, — факты о нём наравне с резюме: учитывай факты по навыкам, прежде чем решить, что опыта нет.
         """;
 
-    public static LlmRequest BuildRequest(Vacancy vacancy, IReadOnlyCollection<ResumeProfile> resumes, FilterRules rules) =>
-        new([LlmMessage.System(System), LlmMessage.User(Describe(vacancy, resumes, rules))], Temperature: 0.1, MaxTokens: MaxTokens, Json: true);
+    public static LlmRequest BuildRequest(Vacancy vacancy, IReadOnlyCollection<ResumeProfile> resumes, FilterRules rules, CandidateProfile? profile = null) =>
+        new([LlmMessage.System(System), LlmMessage.User(Describe(vacancy, resumes, rules, profile))], Temperature: 0.1, MaxTokens: MaxTokens, Json: true);
 
-    private static string Describe(Vacancy vacancy, IReadOnlyCollection<ResumeProfile> resumes, FilterRules rules)
+    private static string Describe(Vacancy vacancy, IReadOnlyCollection<ResumeProfile> resumes, FilterRules rules, CandidateProfile? profile)
     {
         var text = new StringBuilder();
         text.AppendLine("Резюме кандидата:");
         foreach (var r in resumes)
             text.AppendLine($"- {r.Name}: {r.Summary ?? "подробного описания нет, ключевые слова: " + string.Join(", ", r.Keywords)}");
+        if (CandidateContext.Describe(profile, $"{vacancy.Title}\n{vacancy.Description}", vacancy.Stack) is { } candidate)
+            text.AppendLine(candidate);
 
         var limits = new List<string>();
         if (rules.ExcludeKeywords.Count > 0)

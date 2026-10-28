@@ -101,6 +101,31 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.ToTable("JobApplications");
                 });
 
+            modelBuilder.Entity("HhAutoApplier.Domain.Candidates.CandidateProfile", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("General")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("UserId"), false);
+
+                    b.ToTable("CandidateProfiles", (string)null);
+                });
+
             modelBuilder.Entity("HhAutoApplier.Domain.Dialogs.EmployerMessage", b =>
                 {
                     b.Property<long>("Id")
@@ -804,6 +829,41 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.Navigation("Search");
 
                     b.Navigation("Vacancy");
+                });
+
+            modelBuilder.Entity("HhAutoApplier.Domain.Candidates.CandidateProfile", b =>
+                {
+                    b.HasOne("HhAutoApplier.Infrastructure.Identity.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.OwnsMany("HhAutoApplier.Domain.Candidates.SkillFact", "Skills", b1 =>
+                        {
+                            b1.Property<int>("CandidateProfileId");
+
+                            b1.Property<int>("__synthesizedOrdinal")
+                                .ValueGeneratedOnAdd();
+
+                            b1.Property<string>("Facts")
+                                .IsRequired();
+
+                            b1.Property<string>("Skill")
+                                .IsRequired();
+
+                            b1.HasKey("CandidateProfileId", "__synthesizedOrdinal");
+
+                            b1.ToTable("CandidateProfiles");
+
+                            b1
+                                .ToJson("Skills")
+                                .HasColumnType("jsonb");
+
+                            b1.WithOwner()
+                                .HasForeignKey("CandidateProfileId");
+                        });
+
+                    b.Navigation("Skills");
                 });
 
             modelBuilder.Entity("HhAutoApplier.Domain.Dialogs.EmployerMessage", b =>

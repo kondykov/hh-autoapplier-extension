@@ -388,14 +388,56 @@ function searchForm(s) {
 }
 
 async function resumes() {
-  const items = await api(scoped("/api/resumes"));
+  const [items, profile] = await Promise.all([api(scoped("/api/resumes")), api(scoped("/api/profile"))]);
   const list = items.map((r) => resumeForm(r));
   if (!readOnly()) list.push(resumeForm(null));
   return [
     el("h1", { textContent: "Резюме" }),
     el("p", { className: "sub", textContent: "Профили резюме: «совпадение» — часть названия резюме на hh.ru, по ней расширение выбирает резюме. Описание и шаблон письма читает LLM." }),
+    candidateForm(profile),
     list,
   ];
+}
+
+// Профиль кандидата (#35): общая часть и факты по навыкам — общие для всех резюме.
+// Под вакансию LLM получает общую часть и факты только по навыкам этой вакансии
+function candidateForm(profile) {
+  const general = el("textarea", { value: profile.general ?? "", disabled: readOnly(),
+    placeholder: "Уровень, стаж, формат работы, город, языки, пожелания" });
+  const rows = el("div");
+
+  function skillRow(s = { skill: "", facts: "" }) {
+    const skill = el("input", { value: s.skill, placeholder: "Навык, синонимы через «/»: EF Core / Entity Framework", "aria-label": "Навык", disabled: readOnly() });
+    const facts = el("textarea", { value: s.facts, placeholder: "Где применял, сколько, что делал, цифры", "aria-label": "Факты", disabled: readOnly() });
+    facts.style.minHeight = "70px";
+    const remove = el("button", { type: "button", className: "danger", textContent: "Убрать" });
+    const row = el("div", { className: "card", style: "padding:10px" }, skill, facts, readOnly() ? null : el("div", { className: "actions" }, remove));
+    skill.style.width = "100%";
+    skill.style.marginBottom = "6px";
+    remove.onclick = () => row.remove();
+    row.read = () => ({ skill: skill.value.trim(), facts: facts.value.trim() });
+    return row;
+  }
+
+  rows.append(...profile.skills.map(skillRow));
+  if (!readOnly() && profile.skills.length === 0) rows.append(skillRow());
+
+  const add = el("button", { type: "button", textContent: "+ Навык" });
+  add.onclick = () => rows.append(skillRow());
+  const save = el("button", { className: "primary", textContent: "Сохранить профиль" });
+  const form = el("form", { className: "card" },
+    el("h2", { textContent: "Профиль кандидата" }),
+    el("p", { className: "muted", textContent: "Общий для всех резюме. В письмо, оценку, ответы анкет и разбор ответов LLM получает общую часть и факты только по навыкам вакансии. Пишите только то, что было: это уходит работодателю от вашего имени." }),
+    el("label", { className: "field", textContent: "Общая часть" }), general,
+    el("label", { className: "field", textContent: `Факты по навыкам (${profile.skills.length})` }), rows,
+    readOnly() ? null : el("div", { className: "actions" }, add, save));
+
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    run(save, () => put("/api/profile", { general: general.value.trim() || null, skills: [...rows.children].map((r) => r.read()) }),
+      (saved) => { render(); return `Профиль кандидата сохранён: навыков ${saved.skills.length}`; });
+  };
+  return form;
 }
 
 function resumeForm(r) {

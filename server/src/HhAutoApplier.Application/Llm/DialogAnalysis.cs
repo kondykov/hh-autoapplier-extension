@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using HhAutoApplier.Application.Abstractions;
+using HhAutoApplier.Domain.Candidates;
 using HhAutoApplier.Domain.Dialogs;
 using HhAutoApplier.Domain.Resumes;
 
@@ -26,7 +27,7 @@ public static class DialogAnalysis
         rejection — отказ; other — остальное (автоматическое уведомление, просмотр резюме).
         summary — что хочет работодатель и что от кандидата требуется (сроки, время, ссылка — если есть в сообщении).
         reply — короткий вежливый ответ по-русски, 1–4 предложения, без подписи и контактов.
-        Только факты из сообщения и резюме: не придумывай опыт, цифры, даты и время. Не приписывай кандидату роли, навыки и опыт,
+        Только факты из сообщения, резюме и профиля кандидата: не придумывай опыт, цифры, даты и время. Не приписывай кандидату роли, навыки и опыт,
         которых нет в резюме дословно (например, управление проектами у разработчика); спрашивают про такой опыт — заглушка [ваш опыт …].
         Где нужен ответ кандидата
         (удобное время, ожидания по зарплате), оставь заметную заглушку в квадратных скобках, например [удобное время].
@@ -35,10 +36,10 @@ public static class DialogAnalysis
 
     private const int MaxMessage = 3000;
 
-    public static LlmRequest BuildRequest(EmployerMessage message, ResumeProfile? resume) =>
-        new([LlmMessage.System(System), LlmMessage.User(Describe(message, resume))], Temperature: 0.2, MaxTokens: MaxTokens, Json: true);
+    public static LlmRequest BuildRequest(EmployerMessage message, ResumeProfile? resume, CandidateProfile? profile = null) =>
+        new([LlmMessage.System(System), LlmMessage.User(Describe(message, resume, profile))], Temperature: 0.2, MaxTokens: MaxTokens, Json: true);
 
-    private static string Describe(EmployerMessage message, ResumeProfile? resume)
+    private static string Describe(EmployerMessage message, ResumeProfile? resume, CandidateProfile? profile)
     {
         var text = new StringBuilder()
             .AppendLine($"Вакансия: {(message.Title == "" ? "не указана" : message.Title)}")
@@ -46,6 +47,9 @@ public static class DialogAnalysis
             .AppendLine($"Состояние отклика на hh.ru: {message.HhState ?? "не указано"}");
         if (resume is not null)
             text.AppendLine($"Резюме кандидата ({resume.Name}): {resume.Summary ?? "описания нет, ключевые слова: " + string.Join(", ", resume.Keywords)}");
+        // Факты — по навыкам, о которых пишет работодатель
+        if (CandidateContext.Describe(profile, $"{message.Title}\n{message.Text}") is { } candidate)
+            text.AppendLine(candidate);
 
         var body = message.Text.Length > MaxMessage ? message.Text[..MaxMessage] + "…" : message.Text;
         return text.AppendLine().AppendLine("Сообщение работодателя:").Append(body).ToString();

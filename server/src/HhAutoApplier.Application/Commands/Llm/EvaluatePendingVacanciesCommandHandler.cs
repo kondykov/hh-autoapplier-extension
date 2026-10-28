@@ -27,6 +27,8 @@ public class EvaluatePendingVacanciesCommandHandler(
             .OrderBy(a => a.Vacancy.CollectedAt).Take(command.Limit).ToListAsync(ct);
         // Резюме — владельца отклика, правила — поиска, который нашёл вакансию
         var resumesByOwner = (await db.Resumes.AsNoTracking().ToListAsync(ct)).ToLookup(r => r.UserId);
+        // Профиль кандидата (#35) — владельца отклика; пользователей немного, все профили — одним запросом
+        var profiles = await db.CandidateProfiles.AsNoTracking().ToListAsync(ct);
 
         int fit = 0, doubtful = 0, rejected = 0;
         string? stoppedBy = null;
@@ -34,7 +36,8 @@ public class EvaluatePendingVacanciesCommandHandler(
         {
             var rules = application.Rules;
             var resumes = resumesByOwner[application.UserId].ToList();
-            var request = VacancyAssessment.BuildRequest(application.Vacancy, resumes, rules);
+            var request = VacancyAssessment.BuildRequest(application.Vacancy, resumes, rules,
+                profiles.FirstOrDefault(p => p.UserId == application.UserId));
             var prompt = VacancyAssessment.Serialize(request);
 
             LlmResult result;

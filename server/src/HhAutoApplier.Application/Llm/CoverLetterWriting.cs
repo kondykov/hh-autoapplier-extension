@@ -1,5 +1,6 @@
 using System.Text;
 using HhAutoApplier.Application.Abstractions;
+using HhAutoApplier.Domain.Candidates;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Vacancies;
 
@@ -22,7 +23,7 @@ public static class CoverLetterWriting
         Ты помогаешь соискателю писать сопроводительные письма к откликам на hh.ru.
         Напиши письмо по-русски под конкретную вакансию: 3–6 предложений, до 900 знаков, деловой и живой тон без канцелярита.
         Упомяни 1–3 навыка или опыта кандидата из резюме, которые прямо отвечают требованиям вакансии, и назови компанию или роль.
-        Строго только факты из резюме и шаблона — письмо уходит работодателю от имени кандидата:
+        Строго только факты из резюме, профиля кандидата и шаблона — письмо уходит работодателю от имени кандидата (ниже «резюме» — это резюме вместе с профилем):
         - имя кандидата, подпись и контакты — только из шаблона, дословно; без шаблона — письмо без имени, без подписи и без контактов;
         - годы, стаж, проценты, сроки и другие цифры — дословно как в резюме или шаблоне (диапазон не сужай); иначе без цифр;
         - навыки, технологии и проекты — только из резюме или шаблона; если требование вакансии в резюме не упомянуто, не приписывай его кандидату, а напиши об интересе к задаче;
@@ -34,12 +35,15 @@ public static class CoverLetterWriting
         """;
 
     // Низкая температура: письмо ближе к фактам резюме и шаблону
-    public static LlmRequest BuildRequest(Vacancy vacancy, ResumeProfile? resume) =>
-        new([LlmMessage.System(System), LlmMessage.User(Describe(vacancy, resume))], Temperature: 0.2, MaxTokens: MaxTokens);
+    public static LlmRequest BuildRequest(Vacancy vacancy, ResumeProfile? resume, CandidateProfile? profile = null) =>
+        new([LlmMessage.System(System), LlmMessage.User(Describe(vacancy, resume, profile))], Temperature: 0.2, MaxTokens: MaxTokens);
 
-    private static string Describe(Vacancy vacancy, ResumeProfile? resume)
+    private static string Describe(Vacancy vacancy, ResumeProfile? resume, CandidateProfile? profile)
     {
         var text = new StringBuilder();
+        if (CandidateContext.Describe(profile, $"{vacancy.Title}\n{vacancy.Description}", vacancy.Stack) is { } candidate)
+            text.AppendLine(candidate).AppendLine();
+
         if (resume is not null)
         {
             text.AppendLine($"Резюме кандидата ({resume.Name}):")

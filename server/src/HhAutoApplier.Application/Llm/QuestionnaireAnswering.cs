@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Domain.Applications;
+using HhAutoApplier.Domain.Candidates;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Vacancies;
@@ -23,19 +24,22 @@ public static class QuestionnaireAnswering
         Ответь только JSON-объектом без пояснений вокруг: {"answers": [<ответ на вопрос 1>, <ответ на вопрос 2>, …]} — ровно по одному ответу на каждый вопрос, в том же порядке.
         Ответ на вопрос с одним вариантом — строка с текстом варианта дословно; с несколькими вариантами — массив строк с текстами вариантов дословно; на текстовый вопрос — строка по-русски, 1–3 предложения.
         Вопросы на знания (тест) — выбери правильный вариант.
-        Вопросы о кандидате — отвечай только по резюме и пожеланиям: не выдумывай опыт, проекты, ссылки и цифры.
+        Вопросы о кандидате — отвечай только по резюме, профилю кандидата и пожеланиям: не выдумывай опыт, проекты, ссылки и цифры.
         Зарплатные ожидания — по пожеланиям кандидата, если их нет — «готов обсудить». Если нужного факта нет — честно и коротко: «расскажу на собеседовании».
         """;
 
-    public static LlmRequest BuildRequest(JobApplication application, ResumeProfile? resume, FilterRules rules) =>
-        new([LlmMessage.System(System), LlmMessage.User(Describe(application.Vacancy, application.Questions, resume, rules))], Temperature: 0.1, MaxTokens: MaxTokens, Json: true);
+    public static LlmRequest BuildRequest(JobApplication application, ResumeProfile? resume, FilterRules rules, CandidateProfile? profile = null) =>
+        new([LlmMessage.System(System), LlmMessage.User(Describe(application.Vacancy, application.Questions, resume, rules, profile))], Temperature: 0.1, MaxTokens: MaxTokens, Json: true);
 
-    private static string Describe(Vacancy vacancy, IReadOnlyList<VacancyQuestion> questions, ResumeProfile? resume, FilterRules rules)
+    private static string Describe(Vacancy vacancy, IReadOnlyList<VacancyQuestion> questions, ResumeProfile? resume, FilterRules rules, CandidateProfile? profile)
     {
         var text = new StringBuilder();
         text.AppendLine(resume is null
             ? "Резюме кандидата: не выбрано."
             : $"Резюме кандидата ({resume.Name}): {resume.Summary ?? "подробного описания нет, ключевые слова: " + string.Join(", ", resume.Keywords)}");
+        // Вопросы анкеты — тоже про стек: по ним подбираются факты
+        if (CandidateContext.Describe(profile, $"{vacancy.Title}\n{vacancy.Description}\n{string.Join("\n", questions.Select(q => q.Text))}") is { } candidate)
+            text.AppendLine(candidate);
 
         var wishes = new List<string>();
         if (rules.MinSalaryRub is { } min)

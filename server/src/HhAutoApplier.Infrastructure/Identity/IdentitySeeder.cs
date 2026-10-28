@@ -69,6 +69,8 @@ public static class IdentitySeeder
             .ExecuteUpdateAsync(u => u.SetProperty(s => s.UserId, owner), ct);
         await db.Resumes.Where(r => r.UserId == null && !db.Resumes.Any(o => o.UserId == owner && o.Name == r.Name))
             .ExecuteUpdateAsync(u => u.SetProperty(r => r.UserId, owner), ct);
+        await db.CandidateProfiles.Where(p => p.UserId == null && !db.CandidateProfiles.Any(o => o.UserId == owner))
+            .ExecuteUpdateAsync(u => u.SetProperty(p => p.UserId, owner), ct);
         await db.JobApplications.Where(a => a.UserId == null && !db.JobApplications.Any(o => o.UserId == owner && o.VacancyId == a.VacancyId))
             .ExecuteUpdateAsync(u => u.SetProperty(a => a.UserId, owner), ct);
 
