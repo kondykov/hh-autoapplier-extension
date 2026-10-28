@@ -21,8 +21,14 @@ public class HandleTelegramMessageCommandHandler(IAppDbContext db, IUserService 
             return [];
 
         var parts = command.Text.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        // В группах Telegram дописывает имя бота: /status@my_bot
-        var name = parts.Length > 0 ? parts[0].Split('@')[0].ToLowerInvariant() : "";
+        // В группах Telegram дописывает имя бота: /status@my_bot. Кнопка меню присылает свою подпись
+        var name = command.Text.Trim() switch
+        {
+            BotTexts.StatusButton => "/status",
+            BotTexts.ReviewButton => "/review",
+            BotTexts.HelpButton => "/help",
+            _ => parts.Length > 0 ? parts[0].Split('@')[0].ToLowerInvariant() : "",
+        };
         var argument = parts.Length > 1 ? parts[1] : "";
 
         if (name == "/start" && argument != "")
@@ -42,11 +48,10 @@ public class HandleTelegramMessageCommandHandler(IAppDbContext db, IUserService 
             case "/review":
                 return await ReviewAsync(chat.UserId, ct);
             case "/stop":
-                chat.Unlink();
-                await db.SaveChangesAsync(ct);
-                return [new BotMessage("Чат отвязан: уведомлений больше не будет. Привязать снова — новым кодом: /start <код>")];
+                // Отвязка — кнопкой подтверждения (HandleTelegramCallbackCommandHandler): привязать обратно можно только новым кодом
+                return [BotTexts.UnlinkConfirm()];
             default:
-                return [new BotMessage(BotTexts.Help)];
+                return [new BotMessage(BotTexts.Help) { Menu = BotMenu.Show }];
         }
     }
 
@@ -72,7 +77,7 @@ public class HandleTelegramMessageCommandHandler(IAppDbContext db, IUserService 
         chat.Link(command.ChatId, command.Username, clock.GetUtcNow());
         await db.SaveChangesAsync(ct);
         var user = await users.FindAsync(chat.UserId, ct);
-        return new BotMessage($"Чат привязан к {user?.Email ?? "учётной записи"}.\n\n{BotTexts.Help}");
+        return new BotMessage($"Чат привязан к {user?.Email ?? "учётной записи"}.\n\n{BotTexts.Help}") { Menu = BotMenu.Show };
     }
 
     private async Task<BotMessage> StatusAsync(Guid userId, CancellationToken ct)
@@ -83,13 +88,13 @@ public class HandleTelegramMessageCommandHandler(IAppDbContext db, IUserService 
         var applied = await db.JobApplications.CountAsync(a => a.UserId == userId && a.AppliedAt >= since, ct);
 
         int Count(VacancyStatus status) => counts.GetValueOrDefault(status);
-        return new BotMessage($"""
+        return BotTexts.Status($"""
             В очереди: {Count(VacancyStatus.Queued)}
             На проверке: {Count(VacancyStatus.Review)}
             Анкеты ждут LLM: {Count(VacancyStatus.Questionnaire)}
             Ждут оценки LLM: {Count(VacancyStatus.Pending)}
             Откликов за сутки: {applied}, всего: {Count(VacancyStatus.Applied) + Count(VacancyStatus.Rejected)}
-            """);
+            """, Count(VacancyStatus.Review));
     }
 
     private async Task<IReadOnlyList<BotMessage>> ReviewAsync(Guid userId, CancellationToken ct)

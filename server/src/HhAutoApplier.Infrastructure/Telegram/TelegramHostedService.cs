@@ -31,6 +31,9 @@ public class TelegramHostedService(
 
     private static readonly LinkPreviewOptions NoPreview = new() { IsDisabled = true };
 
+    // Лимит текста сообщения Telegram
+    private const int MaxText = 4096;
+
     protected override Task ExecuteAsync(CancellationToken stop)
     {
         if (bot.Client is not { } client)
@@ -39,7 +42,7 @@ public class TelegramHostedService(
             return Task.CompletedTask;
         }
 
-        return Task.WhenAll(ReceiveAsync(client, stop), SendAsync(client, stop));
+        return Task.WhenAll(SetCommandsAsync(client, stop), ReceiveAsync(client, stop), SendAsync(client, stop));
     }
 
     private async Task ReceiveAsync(ITelegramBotClient client, CancellationToken stop)
@@ -96,8 +99,7 @@ public class TelegramHostedService(
                 Text = text,
                 Username = message.From?.Username,
             }, ct);
-            foreach (var reply in replies)
-                await client.SendMessage(message.Chat.Id, reply.Text, replyMarkup: Keyboard(reply.Buttons), linkPreviewOptions: NoPreview, cancellationToken: ct);
+            await SendRepliesAsync(client, message.Chat.Id, replies, ct);
         }
         else if (update.CallbackQuery is { Data: { } data, Message: { } source } callback)
         {
@@ -110,10 +112,50 @@ public class TelegramHostedService(
 
             var handler = scope.ServiceProvider.GetRequiredService<HandleTelegramCallbackCommandHandler>();
             var result = await handler.Handle(new HandleTelegramCallbackCommand { ChatId = source.Chat.Id, Data = data }, ct);
-            await client.AnswerCallbackQuery(callback.Id, result.Notice, cancellationToken: ct);
+            await client.AnswerCallbackQuery(callback.Id, result.Notice == "" ? null : result.Notice, cancellationToken: ct);
             if (result.Status is not null)
-                await client.EditMessageText(source.Chat.Id, source.MessageId, $"{source.Text}\n\n{result.Status}", linkPreviewOptions: NoPreview,
-                    cancellationToken: ct);
+            {
+                var edited = $"{source.Text}\n\n{result.Status}";
+                // Длинное сообщение (письмо, ответ работодателя) не дописать сверх лимита — только убрать кнопки
+                if (edited.Length <= MaxText)
+                    await client.EditMessageText(source.Chat.Id, source.MessageId, edited, linkPreviewOptions: NoPreview, cancellationToken: ct);
+                else
+                    await client.EditMessageReplyMarkup(source.Chat.Id, source.MessageId, cancellationToken: ct);
+            }
+
+            await SendRepliesAsync(client, source.Chat.Id, result.Replies, ct);
+        }
+    }
+
+    private static async Task SendRepliesAsync(ITelegramBotClient client, long chatId, IReadOnlyList<BotMessage> replies, CancellationToken ct)
+    {
+        foreach (var reply in replies)
+            await client.SendMessage(chatId, reply.Text, replyMarkup: Markup(reply), linkPreviewOptions: NoPreview, cancellationToken: ct);
+    }
+
+    // Кнопки под сообщением или меню внизу чата: у сообщения Telegram одна разметка
+    private static ReplyMarkup? Markup(BotMessage message) => message switch
+    {
+        { Buttons.Count: > 0 } => Keyboard(message.Buttons),
+        { Menu: BotMenu.Show } => new ReplyKeyboardMarkup(BotTexts.MenuRows.Select(row => row.Select(text => new KeyboardButton(text))))
+        {
+            ResizeKeyboard = true,
+            IsPersistent = true,
+        },
+        { Menu: BotMenu.Remove } => new ReplyKeyboardRemove(),
+        _ => null,
+    };
+
+    // Меню команд («/» в поле ввода); не вышло — бот работает и без него
+    private async Task SetCommandsAsync(ITelegramBotClient client, CancellationToken ct)
+    {
+        try
+        {
+            await client.SetMyCommands(BotTexts.Commands.Select(c => new BotCommand(c.Command, c.Description)), cancellationToken: ct);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            logger.LogWarning("Telegram: меню команд не установлено — {Message}", e.Message);
         }
     }
 
@@ -161,7 +203,7 @@ public class TelegramHostedService(
                 continue;
             }
 
-            var buttons = notification is { Kind: NotificationKind.Review, VacancyId: { } vacancyId } ? BotTexts.ReviewButtons(vacancyId) : [];
+            var buttons = BotTexts.NotificationButtons(notification.Kind, notification.Key, notification.VacancyId);
             try
             {
                 await client.SendMessage(chatId, notification.Text, replyMarkup: Keyboard(buttons), linkPreviewOptions: NoPreview, cancellationToken: ct);

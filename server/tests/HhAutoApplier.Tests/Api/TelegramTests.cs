@@ -135,8 +135,52 @@ public class TelegramTests(ApiFactory factory) : IAsyncLifetime
         Assert.Contains("На проверке: 2", Assert.Single(await Send(OwnerChat, "/status@test_bot")).Text);
         Assert.Contains("/review", Assert.Single(await Send(OwnerChat, "привет")).Text);
 
-        Assert.Contains("отвязан", Assert.Single(await Send(OwnerChat, "/stop")).Text);
+        // Отвязка — только подтверждением
+        var confirm = Assert.Single(await Send(OwnerChat, "/stop"));
+        Assert.Equal(["unlink:", "cancel:"], confirm.Buttons.Select(b => b.Data));
+        Assert.Equal("Отменено", (await Press(OwnerChat, "cancel:")).Status);
+        Assert.Contains("На проверке: 2", Assert.Single(await Send(OwnerChat, "/status")).Text);
+
+        var unlinked = await Press(OwnerChat, "unlink:");
+        Assert.Contains("отвязан", unlinked.Status);
+        Assert.Equal(BotMenu.Remove, Assert.Single(unlinked.Replies).Menu);
         Assert.Equal(BotTexts.NotLinked, Assert.Single(await Send(OwnerChat, "/status")).Text);
+    }
+
+    [Fact]
+    public async Task Buttons_MenuStatusAndReview()
+    {
+        await Link(_admin, OwnerChat);
+        Assert.Equal(BotMenu.Show, Assert.Single(await Send(OwnerChat, BotTexts.HelpButton)).Menu);
+        // Проверять нечего — у статуса меню, без кнопки
+        var empty = Assert.Single(await Send(OwnerChat, BotTexts.StatusButton));
+        Assert.Empty(empty.Buttons);
+        Assert.Equal(BotMenu.Show, empty.Menu);
+
+        await CreateReviews();
+        var status = Assert.Single(await Send(OwnerChat, BotTexts.StatusButton));
+        Assert.Contains("На проверке: 2", status.Text);
+        var show = Assert.Single(status.Buttons);
+        Assert.Contains("(2)", show.Text);
+
+        // Кнопка «На проверке» — как /review: сообщения с кнопками решения, исходное не меняется
+        var pressed = await Press(OwnerChat, show.Data);
+        Assert.Null(pressed.Status);
+        Assert.Equal(2, pressed.Replies.Count);
+        Assert.All(pressed.Replies, r => Assert.Equal(2, r.Buttons.Count));
+        Assert.Equal(2, (await Send(OwnerChat, BotTexts.ReviewButton)).Count);
+
+        Assert.Equal("Неизвестная кнопка", (await Press(OwnerChat, "nonsense")).Notice);
+        Assert.Equal("Чат не привязан", (await Press(UserChat, show.Data)).Notice);
+    }
+
+    [Fact]
+    public void NotificationButtons_ByKind()
+    {
+        Assert.Equal(["approve:7", "decline:7"], BotTexts.NotificationButtons(NotificationKind.Review, "review:1", "7").Select(b => b.Data));
+        Assert.Equal(["review:"], BotTexts.NotificationButtons(NotificationKind.Review, "review-digest:5", null).Select(b => b.Data));
+        Assert.Equal(["handled:21"], BotTexts.NotificationButtons(NotificationKind.EmployerReply, "dialog:21:201", null).Select(b => b.Data));
+        Assert.Empty(BotTexts.NotificationButtons(NotificationKind.Captcha, "captcha:1", null));
     }
 
     [Fact]

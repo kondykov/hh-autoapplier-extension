@@ -2,6 +2,7 @@ using System.Text;
 using HhAutoApplier.Application.Dtos;
 using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Dialogs;
+using HhAutoApplier.Domain.Notifications;
 
 namespace HhAutoApplier.Application.Notifications;
 
@@ -9,9 +10,10 @@ namespace HhAutoApplier.Application.Notifications;
 public static class BotTexts
 {
     public const string Help = """
-        Команды:
+        Кнопки меню внизу чата или команды:
         /status — очередь, проверка и отклики за сутки
         /review — отклики на проверке с кнопками «Одобрить» и «Отклонить»
+        /help — эта справка
         /stop — отвязать чат
 
         Уведомления: отклик на проверке, приглашения и вопросы работодателей с черновиком ответа, капча и дневной лимит в расширении, анкета без ответа LLM; администратору — сбои сбора и LLM.
@@ -19,9 +21,53 @@ public static class BotTexts
 
     public const string NotLinked = "Чат не привязан. Получите код на backend (POST /api/telegram/link после входа по паролю) и отправьте сюда: /start <код>";
 
+    // Кнопки меню присылают свой текст как обычное сообщение — бот понимает его как команду
+    public const string StatusButton = "📊 Статус";
+
+    public const string ReviewButton = "📝 На проверке";
+
+    public const string HelpButton = "❓ Помощь";
+
+    public static readonly IReadOnlyList<IReadOnlyList<string>> MenuRows = [[StatusButton, ReviewButton], [HelpButton]];
+
+    // Меню команд бота («/» в поле ввода)
+    public static readonly IReadOnlyList<(string Command, string Description)> Commands =
+    [
+        ("status", "Очередь, проверка и отклики за сутки"),
+        ("review", "Отклики на проверке"),
+        ("help", "Справка"),
+        ("stop", "Отвязать чат"),
+    ];
+
+    // Data кнопок: «действие:аргумент»
     public const string Approve = "approve";
 
     public const string Decline = "decline";
+
+    public const string ShowReview = "review";
+
+    public const string Unlink = "unlink";
+
+    public const string Cancel = "cancel";
+
+    public const string Handled = "handled";
+
+    public static BotMessage UnlinkConfirm() =>
+        new("Отвязать чат? Уведомления перестанут приходить, привязать снова можно только новым кодом.",
+            [new BotButton("Отвязать", $"{Unlink}:"), new BotButton("Отмена", $"{Cancel}:")]);
+
+    // Счётчики с кнопкой перехода к проверке, если есть что проверять
+    public static BotMessage Status(string text, int review) =>
+        review > 0 ? new BotMessage(text, [new BotButton($"{ReviewButton} ({review})", $"{ShowReview}:")]) : new BotMessage(text) { Menu = BotMenu.Show };
+
+    // Кнопки уведомления по его виду: отклик — решить, сводка — показать по одному, ответ работодателя — отметить обработанным
+    public static IReadOnlyList<BotButton> NotificationButtons(NotificationKind kind, string key, string? vacancyId) => kind switch
+    {
+        NotificationKind.Review when vacancyId is not null => ReviewButtons(vacancyId),
+        NotificationKind.Review when key.StartsWith("review-digest:") => [new BotButton("📝 Решить по одному", $"{ShowReview}:")],
+        NotificationKind.EmployerReply when key.Split(':') is ["dialog", var chatId, ..] => [new BotButton("✔ Обработано", $"{Handled}:{chatId}")],
+        _ => [],
+    };
 
     // Сомнительный отклик для решения в чате; Data кнопок — «действие:id вакансии» (лимит Telegram — 64 байта)
     public static BotMessage Review(JobApplication application)
