@@ -160,10 +160,10 @@ public class OwnershipTests(ApiFactory factory) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ApiKey_AdminEmailUsersData_WithUserRole()
+    public async Task Token_OwnersData_WithUserRole()
     {
         await SaveSearch(_admin, "admin-search");
-        var key = factory.CreateKeyClient();
+        var key = factory.CreateTokenClient();
 
         Assert.Equal(["admin-search"], await Names(key, "/api/searches"));
         Assert.Equal([".NET", "PHP"], await Names(key, "/api/resumes"));
@@ -173,7 +173,7 @@ public class OwnershipTests(ApiFactory factory) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden, (await key.PostAsync("/api/collect", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await key.PostAsync("/api/llm/check", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await key.GetAsync("/api/users")).StatusCode);
-        // Ключ — роль User: чужие данные по ?userId недоступны
+        // Токен — роль User: чужие данные по ?userId недоступны
         var (idA, _) = await CreateUser("a@test.local");
         Assert.Equal(HttpStatusCode.Forbidden, (await key.GetAsync($"/api/vacancies?userId={idA}")).StatusCode);
     }

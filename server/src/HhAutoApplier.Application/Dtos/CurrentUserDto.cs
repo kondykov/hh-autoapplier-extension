@@ -9,6 +9,6 @@ public record CurrentUserDto
 
     public required string Role { get; init; }
 
-    // Вход по общему ключу API: роль всегда User
+    // Вход по персональному токену: роль всегда User
     public bool ViaApiKey { get; init; }
 }

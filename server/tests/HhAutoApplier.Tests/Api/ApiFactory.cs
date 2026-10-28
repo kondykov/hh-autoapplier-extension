@@ -21,7 +21,6 @@ namespace HhAutoApplier.Tests.Api;
 // hh.ru не используется: источник вакансий подменён, фоновый сбор не стартует
 public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    public const string ApiKey = "test-key";
 
     public const string AdminEmail = "admin@test.local";
 
@@ -46,7 +45,6 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("ConnectionStrings:Default", _db.GetConnectionString());
-        builder.UseSetting("Api:Key", ApiKey);
         builder.UseSetting("Admin:Email", AdminEmail);
         builder.UseSetting("Admin:Password", AdminPassword);
         builder.UseSetting("Hh:Enabled", "false");
@@ -77,13 +75,10 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public HttpClient CreateLoggedInClient(string email, string password) =>
         CreateDefaultClient(new Uri("http://localhost"), new LoginHandler(email, password), new CookieContainerHandler());
 
-    // Клиент по общему ключу API (X-Api-Key): действует от имени администратора из Admin:Email, но с ролью User
-    public HttpClient CreateKeyClient()
-    {
-        var client = CreateClient();
-        client.DefaultRequestHeaders.Add("X-Api-Key", ApiKey);
-        return client;
-    }
+    // Клиент как у расширения: персональный токен администратора в X-Api-Key (роль User). Токен выпускается при первом
+    // запросе — уже после ResetAsync, когда учётка пересоздана
+    public HttpClient CreateTokenClient() =>
+        CreateDefaultClient(new Uri("http://localhost"), new TokenHandler(CreateApiClient()));
 
     // Чистая база перед каждым тестом: начальные резюме — как после первого старта
     public async Task ResetAsync()
@@ -125,6 +120,27 @@ public sealed class LoginHandler(string email, string password) : DelegatingHand
             _loggedIn = true;
         }
 
+        return await base.SendAsync(request, ct);
+    }
+}
+
+// Перед первым запросом выпускает токен через клиент с входом по паролю и дальше шлёт его в X-Api-Key
+public sealed class TokenHandler(HttpClient issuer) : DelegatingHandler
+{
+    private string? _token;
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        if (_token is null)
+        {
+            var response = await issuer.PostAsJsonAsync("/api/tokens", new { name = "тест" }, ct);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException($"Токен не выпущен: {(int)response.StatusCode} {await response.Content.ReadAsStringAsync(ct)}");
+
+            _token = (await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct)).GetProperty("value").GetString();
+        }
+
+        request.Headers.Add("X-Api-Key", _token);
         return await base.SendAsync(request, ct);
     }
 }

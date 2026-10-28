@@ -71,14 +71,14 @@ interface VacancyDto {
 export class BackendClient {
   constructor(private send: ApiSender) {}
 
-  // /health открыт без ключа — проверяет адрес; /api/stats требует ключ — проверяет ключ
+  // /health открыт без токена — проверяет адрес; /api/stats требует токен — проверяет токен
   async check(): Promise<CheckResult> {
     const health = await this.call({ type: "hh-api", path: "/health" });
     if (health.status === 0) return { ok: false, message: `Сервер недоступен: ${health.error ?? "нет ответа"}` };
     if (health.status !== 200) return { ok: false, message: `Сервер ответил ${health.status} на /health — это точно backend?` };
 
     const stats = await this.call({ type: "hh-api", path: "/api/stats" });
-    if (stats.status === 401) return { ok: false, message: "Сервер доступен, но ключ API неверный" };
+    if (stats.status === 401) return { ok: false, message: "Сервер доступен, но токен неверный — выпустите новый (POST /api/tokens)" };
     if (stats.status !== 200) return { ok: false, message: `Сервер доступен, но /api/stats ответил ${stats.status}` };
 
     const counts = JSON.parse(stats.body) as Record<string, number>;
@@ -173,6 +173,6 @@ function answered(questions: VacancyDto["questions"]): QuestionAnswer[] | undefi
 
 function describe(res: ApiResponse): string {
   if (res.status === 0) return `сервер недоступен: ${res.error ?? "нет ответа"}`;
-  if (res.status === 401) return "неверный ключ API";
+  if (res.status === 401) return "неверный токен";
   return `сервер ответил ${res.status}: ${res.body.slice(0, 200)}`;
 }

@@ -131,28 +131,25 @@ public class SecurityTests(ApiFactory factory) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ApiKey_SharedKeyWithTokenPrefix_Works()
+    public async Task SharedKeyWithTokenPrefix_NotAToken_401()
     {
+        // Старый общий ключ, похожий на токен, — не токен из базы (#42)
         await using var app = factory.WithWebHostBuilder(b => b.UseSetting("Api:Key", "hh_shared-key"));
         var key = app.CreateClient();
         key.DefaultRequestHeaders.Add("X-Api-Key", "hh_shared-key");
-        Assert.Equal(HttpStatusCode.OK, (await key.GetAsync("/api/stats")).StatusCode);
-
-        var wrong = app.CreateClient();
-        wrong.DefaultRequestHeaders.Add("X-Api-Key", "hh_other");
-        Assert.Equal(HttpStatusCode.Unauthorized, (await wrong.GetAsync("/api/stats")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await key.GetAsync("/api/stats")).StatusCode);
     }
 
     [Fact]
-    public async Task ApiKey_OwnerBlocked_401_EvenWithAnotherActiveAdmin()
+    public async Task Token_OwnerBlocked_401_EvenWithAnotherActiveAdmin()
     {
         var users = await Json(await _admin.GetAsync("/api/users"));
         var adminId = users.EnumerateArray().Single().GetProperty("id").GetString();
         var (_, second) = await CreateUser("second@test.local", "Admin");
-        var key = factory.CreateKeyClient();
+        var key = factory.CreateTokenClient();
         Assert.Equal(HttpStatusCode.OK, (await key.GetAsync("/api/stats")).StatusCode);
 
-        // Владелец ключа — Admin:Email; после его блокировки ключ не переходит ко второму администратору
+        // Токен — администратора; после его блокировки токен не действует и не переходит ко второму администратору
         await Json(await second.PutAsJsonAsync($"/api/users/{adminId}/blocked", new { blocked = true }));
         Assert.Equal(HttpStatusCode.Unauthorized, (await key.GetAsync("/api/stats")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await key.GetAsync("/api/searches")).StatusCode);

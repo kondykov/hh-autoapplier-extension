@@ -9,7 +9,7 @@ public class ChangePasswordCommandHandler(IUserService users, ICurrentUser curre
     public async Task<ChangePasswordResult> Handle(ChangePasswordCommand command, CancellationToken ct = default)
     {
         if (current.ViaApiKey || current.Id is not { } id)
-            return new ConflictError("Вход по ключу API: пароль меняется после входа по паролю");
+            return new ConflictError("Вход по токену: пароль меняется после входа по паролю");
 
         var changed = await users.ChangePasswordAsync(id, command.CurrentPassword, command.NewPassword, ct);
         return changed.Match<ChangePasswordResult>(success => success, error => error);

@@ -89,8 +89,8 @@ public class TelegramTests(ApiFactory factory) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Conflict, (await _admin.PostAsync("/api/telegram/link", null)).StatusCode);
         factory.Telegram.Configured = true;
 
-        // Ключом или токеном код не получить: чат получает право решать за пользователя
-        Assert.Equal(HttpStatusCode.Conflict, (await factory.CreateKeyClient().PostAsync("/api/telegram/link", null)).StatusCode);
+        // Токеном код не получить: чат получает право решать за пользователя
+        Assert.Equal(HttpStatusCode.Conflict, (await factory.CreateTokenClient().PostAsync("/api/telegram/link", null)).StatusCode);
 
         var link = await Json(await _admin.PostAsync("/api/telegram/link", null));
         var code = link.GetProperty("code").GetString()!;
@@ -203,7 +203,7 @@ public class TelegramTests(ApiFactory factory) : IAsyncLifetime
     [Fact]
     public async Task ExtensionEvents_ToOwner_Deduplicated()
     {
-        var key = factory.CreateKeyClient();
+        var key = factory.CreateTokenClient();
         var captcha = new { kind = "Captcha", message = "vacancy 1" };
 
         // Чат не привязан — доставить некому

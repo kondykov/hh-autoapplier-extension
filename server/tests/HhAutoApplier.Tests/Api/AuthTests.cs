@@ -78,13 +78,13 @@ public class AuthTests(ApiFactory factory) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ApiKey_ActsAsAdminEmailUserWithUserRole_WrongKeyRejected()
+    public async Task Token_ActsAsOwnerWithUserRole_SharedKeyRejected()
     {
         var admins = await Json(await _api.GetAsync("/api/users"));
         var adminId = admins.EnumerateArray().Single().GetProperty("id").GetString();
-        var key = factory.CreateKeyClient();
+        var key = factory.CreateTokenClient();
 
-        // Ключ действует от имени администратора из Admin:Email, но с ролью User: пользователями не управлять
+        // Токен администратора действует от его имени, но с ролью User: пользователями не управлять
         var me = await Json(await key.GetAsync("/api/auth/me"));
         Assert.Equal(ApiFactory.AdminEmail, me.GetProperty("name").GetString());
         Assert.Equal("User", me.GetProperty("role").GetString());
@@ -94,8 +94,14 @@ public class AuthTests(ApiFactory factory) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Conflict, (await key.PostAsJsonAsync("/api/auth/password", new { currentPassword = "x", newPassword = "y" })).StatusCode);
 
         var wrong = factory.CreateClient();
-        wrong.DefaultRequestHeaders.Add("X-Api-Key", "not-the-key");
+        wrong.DefaultRequestHeaders.Add("X-Api-Key", "hh_not-a-token");
         Assert.Equal(HttpStatusCode.Unauthorized, (await wrong.GetAsync("/api/stats")).StatusCode);
+
+        // Общего ключа больше нет (#42): старый API_KEY из .env не пускает, даже если остался в конфиге
+        await using var legacy = factory.WithWebHostBuilder(b => b.UseSetting("Api:Key", "legacy-shared-key"));
+        var shared = legacy.CreateClient();
+        shared.DefaultRequestHeaders.Add("X-Api-Key", "legacy-shared-key");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await shared.GetAsync("/api/stats")).StatusCode);
     }
 
     [Fact]

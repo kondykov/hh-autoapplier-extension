@@ -31,7 +31,7 @@ export interface PanelHandlers {
   onLetterChange(text: string): void;
   onLimitChange(limit: number): void;
   onQueueRunLimitChange(limit: number): void;
-  // apiKey: null — не менять сохранённый ключ
+  // apiKey: null — не менять сохранённый токен
   onServerChange(url: string, apiKey: string | null): void;
   onImportSearchChange(name: string): void;
   onServerCheck(): void;
@@ -115,7 +115,7 @@ export class Panel implements LogSink {
         </div>
         <details class="hh-input-group"><summary>Сервер (backend)</summary>
           <label for="hh-input-server-url">Адрес</label><input id="hh-input-server-url" class="hh-input" placeholder="http://127.0.0.1:8080" />
-          <label for="hh-input-server-key">Ключ API (X-Api-Key)</label><input id="hh-input-server-key" type="password" class="hh-input" autocomplete="off" />
+          <label for="hh-input-server-key">Токен (hh_…, POST /api/tokens)</label><input id="hh-input-server-key" type="password" class="hh-input" autocomplete="off" />
           <label for="hh-input-import-search">Поиск на сервере для выдачи</label><input id="hh-input-import-search" class="hh-input" placeholder="имя поиска, например dotnet" />
           <button class="hh-btn" id="hh-btn-server-check">Проверить связь</button>
           <div class="hh-step-label" id="hh-server-status"></div>
@@ -169,8 +169,8 @@ export class Panel implements LogSink {
     const serverUrl = this.el<HTMLInputElement>("hh-input-server-url");
     const serverKey = this.el<HTMLInputElement>("hh-input-server-key");
     serverUrl.value = this.initial.server.url;
-    // Панель живёт в DOM страницы hh.ru: сохранённый ключ в поле не подставляем, чтобы его не прочитали скрипты страницы
-    const keyHint = (saved: boolean) => (serverKey.placeholder = saved ? "ключ сохранён — введите новый, чтобы заменить" : "не задан");
+    // Панель живёт в DOM страницы hh.ru: сохранённый токен в поле не подставляем, чтобы его не прочитали скрипты страницы
+    const keyHint = (saved: boolean) => (serverKey.placeholder = saved ? "токен сохранён — введите новый, чтобы заменить" : "не задан");
     keyHint(this.initial.server.apiKey !== "");
     const saveServer = () => {
       const key = serverKey.value.trim();

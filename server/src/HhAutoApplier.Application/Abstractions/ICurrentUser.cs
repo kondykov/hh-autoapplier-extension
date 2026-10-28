@@ -12,7 +12,7 @@ public interface ICurrentUser
 
     string Role { get; }
 
-    // Вход по общему ключу API (X-Api-Key): от имени пользователя, но всегда с ролью User
+    // Вход по персональному токену (X-Api-Key): от имени владельца, но всегда с ролью User
     bool ViaApiKey { get; }
 
     bool IsAdmin => Role == Roles.Admin;

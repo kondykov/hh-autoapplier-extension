@@ -13,18 +13,14 @@ public static class AuthSetup
 
     // Два способа войти: cookie после входа по паролю (страницы backend) и заголовок X-Api-Key (расширение).
     // Без атрибутов эндпоинт доступен любому вошедшему: данные у каждого свои (#9). Общее — пользователи, сбор, LLM — только Admin
-    public static IServiceCollection AddAuth(this IServiceCollection services, IConfiguration config)
+    public static IServiceCollection AddAuth(this IServiceCollection services)
     {
         services.AddAuthentication(Selector)
             .AddPolicyScheme(Selector, null, o => o.ForwardDefaultSelector = context =>
                 context.Request.Headers.ContainsKey(ApiKeyAuthenticationHandler.Header)
                     ? ApiKeyAuthenticationHandler.SchemeName
                     : IdentityConstants.ApplicationScheme)
-            .AddScheme<ApiKeyAuthenticationOptions, ApiKeyAuthenticationHandler>(ApiKeyAuthenticationHandler.SchemeName, o =>
-            {
-                o.Key = config["Api:Key"];
-                o.User = string.IsNullOrWhiteSpace(config["Api:KeyUser"]) ? config["Admin:Email"] : config["Api:KeyUser"];
-            })
+            .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(ApiKeyAuthenticationHandler.SchemeName, null)
             .AddIdentityCookies();
 
         services.ConfigureApplicationCookie(o =>

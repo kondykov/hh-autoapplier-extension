@@ -75,7 +75,7 @@ describe("BackendClient.check", () => {
       "/health": { status: 200, body: "{}" },
       "/api/stats": { status: 401, body: "" },
     }));
-    expect(await badKey.check()).toEqual({ ok: false, message: "Сервер доступен, но ключ API неверный" });
+    expect(await badKey.check()).toEqual({ ok: false, message: "Сервер доступен, но токен неверный — выпустите новый (POST /api/tokens)" });
   });
 
   it("переживает падение канала к фону", async () => {

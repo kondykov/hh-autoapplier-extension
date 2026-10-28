@@ -41,8 +41,7 @@ public class AuthController : ApiController
     }
 
     /// <summary>
-    /// Кто выполняет запрос: пользователь после входа, персональный токен или общий ключ API (viaApiKey = true, всегда роль User;
-    /// id = null, пока пользователей нет).
+    /// Кто выполняет запрос: пользователь после входа или персональный токен (viaApiKey = true, всегда роль User).
     /// </summary>
     [HttpGet("me")]
     [ProducesResponseType(typeof(CurrentUserDto), StatusCodes.Status200OK)]
@@ -55,7 +54,7 @@ public class AuthController : ApiController
     /// Сменить свой пароль. Остальные сессии пользователя обрываются, текущая остаётся.
     /// </summary>
     /// <response code="400">Неверный текущий пароль или новый не проходит политику (не короче 10 символов).</response>
-    /// <response code="409">Вход по ключу API — пароля нет.</response>
+    /// <response code="409">Вход по токену — пароля нет.</response>
     [HttpPost("password")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ValidationError), StatusCodes.Status400BadRequest)]

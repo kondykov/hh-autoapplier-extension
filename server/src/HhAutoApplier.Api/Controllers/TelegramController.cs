@@ -23,7 +23,7 @@ public class TelegramController : ApiController
     /// <summary>
     /// Код привязки чата (действует 15 минут): откройте ссылку или отправьте боту /start &lt;код&gt;. Прежний чат отвяжется, когда привяжется новый.
     /// </summary>
-    /// <response code="409">Вход по токену или ключу — код только после входа по паролю; или бот не настроен.</response>
+    /// <response code="409">Вход по токену — код только после входа по паролю; или бот не настроен.</response>
     [HttpPost("link")]
     [ProducesResponseType(typeof(TelegramLinkDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ConflictError), StatusCodes.Status409Conflict)]
