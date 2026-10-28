@@ -16,6 +16,11 @@
 - Урок: внешний скрипт, нажимающий «Стоп», ненадёжен (кнопка пропадает при переходе) — ограничивать боевые прогоны полем лимита за запуск
 - В логе api `libgssapi_krb5.so.2: cannot open shared object file` — Npgsql без Kerberos, безвредно
 
+## Сделано 2026-10-27
+- `dffdb5f` (refs #26): время сообщения работодателя → UTC (hh.ru отдаёт +03:00, Npgsql пишет в `timestamptz` только UTC). Первый живой сбор: 50 чатов, 24 сообщения (17 отказов, 2 приглашения), уведомления с черновиками пришли в Telegram
+- `652bef1` (refs #15): отклик, ушедший на hh.ru, сообщается серверу всегда
+- Не делать: `chrome.runtime.reload()` из service worker — в dev-браузере выгружает расширение, нужен перезапуск браузера
+
 ## Расположение
 - Репозиторий — `kondykov/hh-autoapplier-extension` (позже переименуется в `kondykov/hh-autoapplier`); форк [pant42/js_script](https://github.com/pant42/js_script), истории разошлись (#30 переписал историю 2026-10-25; старые клоны — `git fetch` + `git reset --hard origin/develop`)
 - Ветки: `master` (релиз, merge по просьбе) и рабочая `develop`. Коммит и push в `develop` — без вопроса, после typecheck/test/build или `dotnet test`
