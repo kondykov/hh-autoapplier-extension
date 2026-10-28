@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>hh-autoapplier</title>
+  <style>
+    :root {
+      --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #667085; --border: #dfe3ea;
+      --accent: #2f6fde; --ok: #1f8a4c; --bad: #c4372f; --warn-bg: #fff6e0; --warn: #8a5a00;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #14171d; --card: #1d2129; --text: #e6e9ef; --muted: #98a2b3; --border: #2e3440;
+        --accent: #6b9cf0; --ok: #4cc283; --bad: #f0746c; --warn-bg: #3a2f14; --warn: #f2c66d;
+      }
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    header { background: var(--card); border-bottom: 1px solid var(--border); }
+    .top { max-width: 1040px; margin: 0 auto; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+    .brand { font-weight: 700; margin-right: auto; }
+    nav { max-width: 1040px; margin: 0 auto; padding: 0 16px; display: flex; flex-wrap: wrap; gap: 4px; }
+    nav a { color: var(--muted); text-decoration: none; padding: 8px 10px; border-bottom: 2px solid transparent; }
+    nav a.active { color: var(--text); border-bottom-color: var(--accent); }
+    main { max-width: 1040px; margin: 0 auto; padding: 20px 16px 64px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    h2 { font-size: 17px; margin: 0 0 8px; }
+    .sub, .muted { color: var(--muted); }
+    .sub { margin: 0 0 16px; }
+    .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+    input, textarea, select, button { font: inherit; color: inherit; }
+    input, textarea, select { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }
+    input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    input[type=checkbox] { width: auto; }
+    button { border: 1px solid var(--border); background: var(--card); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .danger { color: var(--bad); border-color: var(--bad); }
+    #status { color: var(--muted); min-height: 1.5em; }
+    #status.error { color: var(--bad); }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .tile { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+    .tile b { display: block; font-size: 24px; }
+    .tile span { color: var(--muted); font-size: 13px; }
+    a { color: var(--accent); }
+    .meta { color: var(--muted); font-size: 14px; }
+    .reason { font-size: 14px; margin-top: 4px; }
+    .pill { display: inline-block; border-radius: 999px; padding: 0 8px; font-size: 13px; background: var(--bg); border: 1px solid var(--border); }
+    details { margin-top: 6px; }
+    summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+    .pre { white-space: pre-wrap; font-size: 14px; }
+    .form { display: grid; grid-template-columns: 180px 1fr; gap: 8px 12px; align-items: center; }
+    .form label { color: var(--muted); font-size: 14px; }
+    .form textarea { min-height: 120px; resize: vertical; }
+    .form input[type=checkbox] { justify-self: start; }
+    .form .wide { grid-column: 1 / -1; }
+    @media (max-width: 640px) { .form { grid-template-columns: 1fr; } }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; }
+    .secret { font-family: ui-monospace, Consolas, monospace; background: var(--warn-bg); color: var(--warn); padding: 8px 10px; border-radius: 8px; word-break: break-all; }
+    .empty { color: var(--muted); text-align: center; padding: 32px 0; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <span class="brand">hh-autoapplier</span>
+    <span id="viewing" hidden><label class="muted" for="view-as">Данные:</label> <select id="view-as"></select></span>
+    <span id="who" class="muted"></span>
+    <button id="logout" hidden>Выйти</button>
+  </div>
+  <nav id="nav" hidden>
+    <a href="#overview">Обзор</a>
+    <a href="#vacancies">Вакансии</a>
+    <a href="review.html">Проверка ↗</a>
+    <a href="dialogs.html">Ответы работодателей ↗</a>
+    <a href="#searches">Поиски</a>
+    <a href="#resumes">Резюме</a>
+    <a href="#account">Профиль</a>
+    <a href="#admin" data-admin hidden>Администрирование</a>
+  </nav>
+</header>
+
+<main>
+  <form id="login" class="card" hidden>
+    <h1>Вход</h1>
+    <p class="sub">Email и пароль учётной записи backend.</p>
+    <div class="bar">
+      <input id="email" type="email" placeholder="Email" autocomplete="username" aria-label="Email" required>
+      <input id="password" type="password" placeholder="Пароль" autocomplete="current-password" aria-label="Пароль" required>
+      <button class="primary">Войти</button>
+    </div>
+  </form>
+
+  <div class="bar"><span id="status" role="status"></span></div>
+  <section id="view"></section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

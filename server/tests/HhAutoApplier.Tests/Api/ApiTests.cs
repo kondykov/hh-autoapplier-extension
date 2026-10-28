@@ -336,6 +336,16 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task WebInterface_AtRoot_WithoutKey()
+    {
+        var client = factory.CreateClient();
+        var page = await client.GetAsync("/");
+        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+        Assert.Contains("app.js", await page.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/app.js")).StatusCode);
+    }
+
+    [Fact]
     public async Task Report_JsonAndCsv()
     {
         await SaveSearch();

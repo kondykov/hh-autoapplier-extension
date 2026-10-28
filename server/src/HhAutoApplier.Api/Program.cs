@@ -23,7 +23,8 @@ var app = builder.Build();
 await app.Services.InitializeDatabaseAsync();
 
 app.UseCors();
-// Страница ручной проверки (wwwroot) — без входа: данных в ней нет, вход она спрашивает сама
+// Страницы (wwwroot) — без входа: данных в них нет, вход они спрашивают сами. «/» — веб-интерфейс index.html (#46)
+app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
