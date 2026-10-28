@@ -84,3 +84,10 @@ describe("Panel: пробный режим очереди", () => {
     expect($("hh-confirm").hidden).toBe(true);
   });
 });
+
+describe("Panel: версия", () => {
+  it("в заголовке — версия сборки (в тестах — dev)", async () => {
+    await mount();
+    expect($("hh-version").textContent).toBe("vdev");
+  });
+});

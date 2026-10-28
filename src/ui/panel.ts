@@ -3,6 +3,10 @@ import type { KeyValueStorage } from "../infra/storage";
 import type { LogLevel, LogSink } from "../infra/logger";
 import { PANEL_CSS } from "./styles";
 
+declare const __VERSION__: string | undefined;
+// Версия сборки (scripts/build.mjs берёт её из manifest.json); в тестах сборки нет
+export const VERSION = typeof __VERSION__ === "string" ? __VERSION__ : "dev";
+
 export interface PanelStats {
   applied: number;
   outline: number;
@@ -71,7 +75,7 @@ export class Panel implements LogSink {
     const stat = (id: string, label: string) =>
       `<div class="hh-stat"><div class="hh-stat-val" id="hh-stat-${id}">0</div><div class="hh-stat-label">${label}</div></div>`;
     return `
-      <div id="hh-autoapply-header"><span>HH AutoApply</span><button id="hh-btn-minimize" title="Свернуть">_</button></div>
+      <div id="hh-autoapply-header"><span>HH AutoApply <span id="hh-version" title="Версия расширения">v${VERSION}</span></span><button id="hh-btn-minimize" title="Свернуть">_</button></div>
       <div id="hh-autoapply-body">
         <div id="hh-captcha-banner" hidden>⚠ Капча! Очередь на паузе. Введите текст с картинки</div>
         <div class="hh-stats">

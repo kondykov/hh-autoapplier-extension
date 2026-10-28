@@ -9,7 +9,7 @@ import { PreparedLetterProvider, StaticTemplateProvider } from "../letters/lette
 import { QuestionStore } from "../questions/store";
 import { ApplicationStore } from "../report/applications";
 import { ResumeSelector } from "../resume/selector";
-import { Panel } from "../ui/panel";
+import { Panel, VERSION } from "../ui/panel";
 
 // Composition root: единственное место, где собираются зависимости
 async function bootstrap() {
@@ -67,7 +67,7 @@ async function bootstrap() {
   const backend = new BackendClient(runtimeSender);
   controller = new Controller({ storage, config, state, repo, limit, logger, panel, letters, questions, applications, resumes, backend });
   await controller.init();
-  logger.log("Панель загружена");
+  logger.log(`Панель загружена (v${VERSION})`);
 }
 
 void bootstrap();

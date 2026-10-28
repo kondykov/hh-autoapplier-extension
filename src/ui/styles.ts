@@ -2,6 +2,7 @@ export const PANEL_CSS = `
 #hh-autoapply-panel{position:fixed;bottom:20px;right:20px;width:400px;max-height:520px;background:#1a1a2e;border:2px solid #e94560;border-radius:12px;z-index:2147483647;font:13px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#eee;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.4);display:flex;flex-direction:column}
 #hh-autoapply-panel.minimized{max-height:46px}
 #hh-autoapply-header{background:#e94560;padding:12px 16px;cursor:move;display:flex;justify-content:space-between;align-items:center;font-weight:bold;font-size:14px;user-select:none}
+#hh-version{font-weight:normal;font-size:11px;opacity:.8;margin-left:4px}
 #hh-autoapply-header button{background:none;border:none;color:#fff;font-size:18px;cursor:pointer;padding:0 4px}
 #hh-autoapply-body{padding:12px 16px;overflow-y:auto;flex:1}
 .hh-step-info{background:#16213e;border-radius:8px;padding:10px 12px;margin:8px 0;border-left:3px solid #e94560}
