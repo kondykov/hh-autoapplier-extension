@@ -15,19 +15,29 @@
       "mcp__postgres__get_object_details",
       "mcp__postgres__execute_sql",
       "mcp__postgres__explain_query",
+      "mcp__postgres__analyze_workload_indexes",
+      "mcp__postgres__analyze_query_indexes",
+      "mcp__postgres__analyze_db_health",
+      "mcp__postgres__get_top_queries",
       "mcp__chrome-devtools__list_pages",
       "mcp__chrome-devtools__take_snapshot",
       "mcp__chrome-devtools__take_screenshot",
       "mcp__chrome-devtools__list_console_messages",
       "mcp__chrome-devtools__get_console_message",
       "mcp__chrome-devtools__list_network_requests",
-      "mcp__chrome-devtools__get_network_request"
+      "mcp__chrome-devtools__get_network_request",
+      "mcp__chrome-devtools__get_css_styles",
+      "mcp__chrome-devtools__wait_for"
     ],
     "ask": [
       "mcp__chrome-devtools__evaluate_script",
       "mcp__chrome-devtools__navigate_page",
       "mcp__chrome-devtools__new_page",
-      "mcp__chrome-devtools__select_page"
+      "mcp__chrome-devtools__select_page",
+      "mcp__chrome-devtools__emulate",
+      "mcp__chrome-devtools__resize_page",
+      "mcp__chrome-devtools__lighthouse_audit",
+      "mcp__chrome-devtools__performance_start_trace"
     ],
     "deny": [
       "Bash(git push * master*)",
@@ -40,6 +50,7 @@
       "mcp__chrome-devtools__drag",
       "mcp__chrome-devtools__hover",
       "mcp__chrome-devtools__press_key",
+      "mcp__chrome-devtools__type_text",
       "mcp__chrome-devtools__upload_file",
       "mcp__chrome-devtools__handle_dialog",
       "mcp__chrome-devtools__close_page"
