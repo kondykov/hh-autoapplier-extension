@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "-f", "server/docker-compose.yml", "up", "--build"],
+      "port": 8080
+    }
+  ]
+}

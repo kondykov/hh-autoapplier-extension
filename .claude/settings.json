@@ -1,0 +1,64 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run typecheck)",
+      "Bash(npm test)",
+      "Bash(npm run build)",
+      "Bash(node scripts/db-query.mjs *)",
+      "Bash(node scripts/cdp-inspect.mjs)",
+      "Bash(node scripts/cdp-inspect.mjs --form)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "mcp__postgres__list_schemas",
+      "mcp__postgres__list_objects",
+      "mcp__postgres__get_object_details",
+      "mcp__postgres__execute_sql",
+      "mcp__postgres__explain_query",
+      "mcp__chrome-devtools__list_pages",
+      "mcp__chrome-devtools__take_snapshot",
+      "mcp__chrome-devtools__take_screenshot",
+      "mcp__chrome-devtools__list_console_messages",
+      "mcp__chrome-devtools__get_console_message",
+      "mcp__chrome-devtools__list_network_requests",
+      "mcp__chrome-devtools__get_network_request"
+    ],
+    "ask": [
+      "mcp__chrome-devtools__evaluate_script",
+      "mcp__chrome-devtools__navigate_page",
+      "mcp__chrome-devtools__new_page",
+      "mcp__chrome-devtools__select_page"
+    ],
+    "deny": [
+      "Bash(git push * master*)",
+      "Bash(git push * main*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "mcp__chrome-devtools__click",
+      "mcp__chrome-devtools__fill",
+      "mcp__chrome-devtools__fill_form",
+      "mcp__chrome-devtools__drag",
+      "mcp__chrome-devtools__hover",
+      "mcp__chrome-devtools__press_key",
+      "mcp__chrome-devtools__upload_file",
+      "mcp__chrome-devtools__handle_dialog",
+      "mcp__chrome-devtools__close_page"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit*)",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-commit.mjs\"",
+            "timeout": 300,
+            "statusMessage": "typecheck и тесты перед коммитом"
+          }
+        ]
+      }
+    ]
+  }
+}
