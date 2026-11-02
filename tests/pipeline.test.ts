@@ -163,6 +163,43 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
     expect(deps.onApplied).not.toHaveBeenCalled();
   });
 
+  // #50: без поля письма «форма закрыта» было истинно с самого начала — success через 600 мс при любом исходе клика
+  it("форма без поля письма: после клика ничего не изменилось — «Непонятное», а не отклик", async () => {
+    renderResponsePage({ noLetter: true, afterSubmit: "nothing" });
+    const { deps, pipeline } = setup();
+
+    expect(await run(pipeline.applyOnPage(vacancy()))).toBe("unclear");
+    expect(submits).toBe(1);
+    expect(deps.onApplied).not.toHaveBeenCalled();
+  });
+
+  it("форма без поля письма: «Вы откликнулись» — отклик", async () => {
+    renderResponsePage({ noLetter: true });
+    const { deps, pipeline } = setup();
+
+    expect(await run(pipeline.applyOnPage(vacancy()))).toBe("success");
+    expect(deps.onApplied).toHaveBeenCalled();
+  });
+
+  // #50: смена страницы после клика запускала конвейер заново — до двух лишних нажатий
+  it("после клика hh.ru сменил страницу, форма осталась — второго нажатия нет, «Непонятное»", async () => {
+    renderResponsePage({ afterSubmit: "navigate" });
+    const { deps, pipeline } = setup();
+
+    expect(await run(pipeline.applyOnPage(vacancy()))).toBe("unclear");
+    expect(submits).toBe(1);
+    expect(deps.onApplied).not.toHaveBeenCalled();
+  });
+
+  it("после клика hh.ru сменил страницу на «Вы откликнулись» — отклик засчитан", async () => {
+    renderResponsePage({ afterSubmit: "navigate-responded" });
+    const { deps, pipeline } = setup();
+
+    expect(await run(pipeline.applyOnPage(vacancy()))).toBe("success");
+    expect(submits).toBe(1);
+    expect(deps.onApplied).toHaveBeenCalled();
+  });
+
   // #49: «Стоп очередь» посреди вакансии снимал пробный режим и «Отправить» нажималась по-настоящему
   describe("остановка очереди посреди вакансии", () => {
     // Те же формулы, что в Controller: состояние очереди перечитывается на каждом шаге

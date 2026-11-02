@@ -48,10 +48,12 @@ async function findSubmitButton(timeoutMs = 4000): Promise<HTMLElement | null> {
   } while (true);
 }
 
+// success — только по положительному признаку: «Вы откликнулись» или закрылась форма, открытая при клике.
+// Без окна и без поля письма «формы нет» с самого начала — это не признак отправки (#50)
 async function waitForSubmitResult(
   vacancy: Vacancy | null,
   startPage: string,
-  hadModal: boolean,
+  hadForm: boolean,
   timeoutMs: number,
   questionnaire: boolean,
 ): Promise<SubmitResult> {
@@ -62,7 +64,7 @@ async function waitForSubmitResult(
     if (detectPageType() !== startPage) return "pending_response";
     if (isAlreadyRespondedOnPage()) return "success";
     const formOpen = qs(SELECTORS.responseModal) || getCoverLetterField();
-    if (!formOpen && (hadModal || startPage !== "search")) {
+    if (!formOpen && hadForm) {
       if (++closedStreak >= 2) return "success";
     } else {
       closedStreak = 0;
@@ -117,12 +119,12 @@ export async function attachLetterAndSubmit(
   }
 
   const startPage = detectPageType();
-  const hadModal = !!qs(SELECTORS.responseModal);
+  const hadForm = !!(qs(SELECTORS.responseModal) || getCoverLetterField());
   submit.scrollIntoView({ block: "center", inline: "center" });
   if (!(await humanClick(submit, () => !isDry()))) {
     logger.log('Пробный режим включён перед нажатием: "Отправить" не нажата', "warn");
     return "dry_run";
   }
   logger.log('Нажата кнопка "Отправить"', "step");
-  return waitForSubmitResult(vacancy, startPage, hadModal, 8000, questionnaire);
+  return waitForSubmitResult(vacancy, startPage, hadForm, 8000, questionnaire);
 }

@@ -1,4 +1,4 @@
-import { DELAYS, pause } from "../core/delays";
+import { DELAYS, pause, wait } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
 import type { AppState, Vacancy } from "../core/state";
 import { qs } from "../dom/query";
@@ -6,7 +6,7 @@ import type { Logger } from "../infra/logger";
 import type { ResumeSelector } from "../resume/selector";
 import type { LetterProvider } from "../letters/letter-provider";
 import { fillQuestionnaire } from "../questions/fill";
-import { waitForApplyOutcome, type ApplyOutcome } from "./outcome-detector";
+import { isAlreadyRespondedOnPage, isOutlineDetected, waitForApplyOutcome, type ApplyOutcome } from "./outcome-detector";
 import { attachLetterAndSubmit } from "./submit";
 import { humanClick } from "../dom/input";
 
@@ -32,10 +32,10 @@ export class ApplyPipeline {
 
   async applyOnPage(vacancy: Vacancy): Promise<ApplyResult> {
     const outcome = await waitForApplyOutcome(vacancy);
-    return this.resolve(vacancy, outcome, 0);
+    return this.resolve(vacancy, outcome);
   }
 
-  private async resolve(vacancy: Vacancy, outcome: ApplyOutcome, depth: number): Promise<ApplyResult> {
+  private async resolve(vacancy: Vacancy, outcome: ApplyOutcome): Promise<ApplyResult> {
     const { state, logger } = this.deps;
     logger.log(`Исход отклика: ${outcome}`);
 
@@ -88,8 +88,7 @@ export class ApplyPipeline {
       case "dry_run":
         return "dry_run";
       case "pending_response":
-        if (depth < 2) return this.resolve(vacancy, "response", depth + 1);
-        return "failed";
+        return this.afterPageChange(vacancy);
       case "unclear":
         logger.log('Отклик не подтверждён, добавляю в "Непонятное"', "warn");
         state.skipped++;
@@ -98,6 +97,24 @@ export class ApplyPipeline {
         state.skipped++;
         return "failed";
     }
+  }
+
+  // «Отправить» уже нажата, и hh.ru сменил страницу: второй отправки не бывает (#50) — только исход новой страницы.
+  // Анкета — вопросы на сервер; «Вы откликнулись» — отклик; иначе отклик мог уйти — «Непонятное»
+  private async afterPageChange(vacancy: Vacancy, timeoutMs = 8000): Promise<ApplyResult> {
+    this.deps.logger.log("После отправки страница сменилась — жду исход без повторного нажатия");
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (isOutlineDetected()) return this.saveOutline(vacancy);
+      if (isAlreadyRespondedOnPage()) {
+        await this.deps.onApplied(vacancy);
+        return "success";
+      }
+      await wait(300);
+    }
+    this.deps.logger.log('Отклик не подтверждён, добавляю в "Непонятное"', "warn");
+    this.deps.state.skipped++;
+    return "unclear";
   }
 
   private stopped(): ApplyResult {
