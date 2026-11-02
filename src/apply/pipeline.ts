@@ -10,7 +10,8 @@ import { waitForApplyOutcome, type ApplyOutcome } from "./outcome-detector";
 import { attachLetterAndSubmit } from "./submit";
 import { humanClick } from "../dom/input";
 
-export type ApplyResult = "success" | "outline" | "skipped" | "disabled" | "unclear" | "failed" | "dry_run";
+// stopped — очередь остановили (или перезапустили с другой вакансией), пока конвейер работал: ничего не отправлено
+export type ApplyResult = "success" | "outline" | "skipped" | "disabled" | "unclear" | "failed" | "dry_run" | "stopped";
 
 export interface PipelineDeps {
   state: AppState;
@@ -21,6 +22,8 @@ export interface PipelineDeps {
   onChange: () => Promise<void>;
   // Пробный режим: всё, кроме нажатия «Отправить»
   dryRun: () => boolean;
+  // Очередь всё ещё ведёт эту вакансию: проверяется перед каждым шагом и перед нажатием «Отправить»
+  active: (vacancy: Vacancy) => boolean;
 }
 
 // Отклик на странице /applicant/vacancy_response (режим «из очереди»): форма уже открыта
@@ -49,6 +52,7 @@ export class ApplyPipeline {
       return "skipped";
     }
 
+    if (!this.deps.active(vacancy)) return this.stopped();
     const chosen = await this.deps.resumes.choose(vacancy);
     if (chosen.failed) {
       const close = qs<HTMLElement>(SELECTORS.responseModalClose);
@@ -56,6 +60,7 @@ export class ApplyPipeline {
       state.skipped++;
       return "failed";
     }
+    if (!this.deps.active(vacancy)) return this.stopped();
     if (questionnaire) {
       const filled = await fillQuestionnaire(vacancy.answers ?? []);
       if (!filled.ok) {
@@ -67,7 +72,11 @@ export class ApplyPipeline {
       await pause(DELAYS.small);
     }
     const letter = await this.deps.letters.getLetter(vacancy);
-    const result = await attachLetterAndSubmit(vacancy, letter, logger, this.deps.dryRun(), questionnaire);
+    if (!this.deps.active(vacancy)) return this.stopped();
+    // Перечитывается перед самым кликом: остановка очереди за время паузы — не отправлять
+    const dryRun = () => this.deps.dryRun() || !this.deps.active(vacancy);
+    const result = await attachLetterAndSubmit(vacancy, letter, logger, dryRun, questionnaire);
+    if (result === "dry_run" && !this.deps.active(vacancy)) return this.stopped();
     switch (result) {
       case "outline":
         return this.saveOutline(vacancy);
@@ -89,6 +98,11 @@ export class ApplyPipeline {
         state.skipped++;
         return "failed";
     }
+  }
+
+  private stopped(): ApplyResult {
+    this.deps.logger.log("Очередь остановлена — отклик не отправлен", "warn");
+    return "stopped";
   }
 
   // Очередь сама решает, куда идти дальше: вопросы анкеты — на сервер, затем следующая вакансия

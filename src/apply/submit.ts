@@ -76,7 +76,8 @@ export async function attachLetterAndSubmit(
   vacancy: Vacancy | null,
   letter: string,
   logger: Logger,
-  dryRun = false,
+  // Пробный режим; функция — перечитывается перед самым кликом
+  dryRun: boolean | (() => boolean) = false,
   // Анкета уже заполнена ответами: её вопросы на странице — не повод останавливаться
   questionnaire = false,
 ): Promise<SubmitResult> {
@@ -109,7 +110,8 @@ export async function attachLetterAndSubmit(
     return "disabled";
   }
 
-  if (dryRun) {
+  const isDry = typeof dryRun === "function" ? dryRun : () => dryRun;
+  if (isDry()) {
     logger.log('Пробный режим: кнопка "Отправить" найдена и активна, не нажимаю', "warn");
     return "dry_run";
   }
@@ -117,7 +119,10 @@ export async function attachLetterAndSubmit(
   const startPage = detectPageType();
   const hadModal = !!qs(SELECTORS.responseModal);
   submit.scrollIntoView({ block: "center", inline: "center" });
-  await humanClick(submit);
+  if (!(await humanClick(submit, () => !isDry()))) {
+    logger.log('Пробный режим включён перед нажатием: "Отправить" не нажата', "warn");
+    return "dry_run";
+  }
   logger.log('Нажата кнопка "Отправить"', "step");
   return waitForSubmitResult(vacancy, startPage, hadModal, 8000, questionnaire);
 }

@@ -10,8 +10,11 @@ export function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, text:
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-// Клик как у человека: случайная пауза перед каждым нажатием (RANGES.click)
-export async function humanClick(el: HTMLElement): Promise<void> {
+// Клик как у человека: случайная пауза перед каждым нажатием (RANGES.click).
+// allowed — проверка после паузы: за неё могли остановить очередь или включить пробный режим
+export async function humanClick(el: HTMLElement, allowed: () => boolean = () => true): Promise<boolean> {
   await pauseBetween(RANGES.click);
+  if (!allowed()) return false;
   el.click();
+  return true;
 }

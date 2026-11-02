@@ -82,6 +82,7 @@ describe("ApplyPipeline: анкета с ответами backend", () => {
       onApplied: vi.fn(async () => {}),
       onChange: vi.fn(async () => {}),
       dryRun: () => dryRun,
+      active: () => true,
     });
     return { p };
   }

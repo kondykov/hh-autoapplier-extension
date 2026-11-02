@@ -169,6 +169,17 @@ describe("QueueStep", () => {
     expect(visited).toEqual([]);
   });
 
+  it("конвейер остановлен посреди вакансии: статус не уходит, очередь не трогается (#49)", async () => {
+    const { ctx, visited } = context({ url: RESPONSE("1"), queue: [item("1"), item("2")], result: "stopped", config: { queueDryRun: false } });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"] });
+
+    await run(new QueueStep(ctx).resume());
+
+    expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
+    expect(visited).toEqual([]);
+    expect(ctx.state.queueCurrent?.id).toBe("1");
+  });
+
   it("пробный режим: на сервер ничего не уходит, очередь идёт дальше", async () => {
     const { ctx, visited } = context({ url: RESPONSE("1"), queue: [item("1"), item("2")], result: "dry_run" });
     Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"] });

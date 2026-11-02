@@ -4,6 +4,7 @@ import { attachLetterAndSubmit } from "../src/apply/submit";
 import { AppState, type Vacancy } from "../src/core/state";
 import { Logger } from "../src/infra/logger";
 import { StaticTemplateProvider } from "../src/letters/letter-provider";
+import { isDryRun, isQueueOn, type QueueItem } from "../src/queue/queue-mode";
 import { ResumeSelector } from "../src/resume/selector";
 import {
   DOTNET,
@@ -29,6 +30,7 @@ function setup(overrides: Partial<PipelineDeps> = {}) {
     onApplied: vi.fn(async () => {}),
     onChange: vi.fn(async () => {}),
     dryRun: () => false,
+    active: () => true,
     ...overrides,
   };
   return { deps, pipeline: new ApplyPipeline(deps) };
@@ -159,6 +161,59 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
     expect(await run(pipeline.applyOnPage(vacancy()))).toBe("unclear");
     expect(submits).toBe(1);
     expect(deps.onApplied).not.toHaveBeenCalled();
+  });
+
+  // #49: «Стоп очередь» посреди вакансии снимал пробный режим и «Отправить» нажималась по-настоящему
+  describe("остановка очереди посреди вакансии", () => {
+    // Те же формулы, что в Controller: состояние очереди перечитывается на каждом шаге
+    function queueDeps(dryRunConfig: boolean) {
+      const queue = { running: true, current: { id: "1", title: "", company: "", resume: null } as QueueItem | null };
+      const deps: Partial<PipelineDeps> = {
+        dryRun: () => isDryRun(queue.running, dryRunConfig),
+        active: (v) => isQueueOn(queue.running, queue.current, v.link),
+      };
+      return { queue, deps };
+    }
+
+    for (const dryRunConfig of [true, false]) {
+      it(`во время выбора резюме — «Отправить» не нажата (пробный режим: ${dryRunConfig})`, async () => {
+        renderResponsePage({ current: PHP });
+        const { queue, deps } = queueDeps(dryRunConfig);
+        const { deps: all, pipeline } = setup(deps);
+        const choose = all.resumes.choose.bind(all.resumes);
+        all.resumes.choose = async (v) => {
+          queue.running = false;
+          return choose(v);
+        };
+
+        expect(await run(pipeline.applyOnPage(vacancy()))).toBe("stopped");
+        expect(submits).toBe(0);
+        expect(all.onApplied).not.toHaveBeenCalled();
+      });
+    }
+
+    it("в паузе перед кликом «Отправить» — клика нет", async () => {
+      renderResponsePage();
+      const { queue, deps } = queueDeps(false);
+      const { pipeline } = setup(deps);
+      // scrollIntoView — сразу перед паузой humanClick
+      vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {
+        queue.running = false;
+      });
+
+      expect(await run(pipeline.applyOnPage(vacancy()))).toBe("stopped");
+      expect(submits).toBe(0);
+    });
+
+    it("очередь перезапущена с другой вакансией — эту не отправляет", async () => {
+      renderResponsePage();
+      const { queue, deps } = queueDeps(false);
+      const { pipeline } = setup(deps);
+      queue.current = { id: "2", title: "", company: "", resume: null };
+
+      expect(await run(pipeline.applyOnPage(vacancy()))).toBe("stopped");
+      expect(submits).toBe(0);
+    });
   });
 
   it("страница отклика без формы (вакансия в архиве) — failed без кликов", async () => {

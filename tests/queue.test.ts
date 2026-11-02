@@ -4,7 +4,7 @@ import { attachLetterAndSubmit } from "../src/apply/submit";
 import type { Vacancy } from "../src/core/state";
 import { Logger } from "../src/infra/logger";
 import { PreparedLetterProvider, StaticTemplateProvider } from "../src/letters/letter-provider";
-import { isPageOf, pickNext, responseUrl, toStatusReport, type QueueItem } from "../src/queue/queue-mode";
+import { isDryRun, isPageOf, isQueueOn, pickNext, responseUrl, toStatusReport, type QueueItem } from "../src/queue/queue-mode";
 
 const item = (id: string): QueueItem => ({ id, title: `Вакансия ${id}`, company: "Acme", resume: ".NET" });
 
@@ -31,6 +31,24 @@ describe("queue-mode", () => {
     // Пробный прогон и неактивная кнопка — серверу не сообщаем
     expect(toStatusReport("dry_run")).toBeNull();
     expect(toStatusReport("disabled")).toBeNull();
+    expect(toStatusReport("stopped")).toBeNull();
+  });
+
+  // #49: остановленная очередь не отправляет, даже если пробный режим снят
+  it("пробный режим — fail-closed", () => {
+    expect(isDryRun(true, true)).toBe(true);
+    expect(isDryRun(true, false)).toBe(false);
+    expect(isDryRun(false, true)).toBe(true);
+    expect(isDryRun(false, false)).toBe(true);
+  });
+
+  it("очередь ведёт вакансию страницы, пока не остановлена и не сменила вакансию", () => {
+    const url = responseUrl("1");
+    expect(isQueueOn(true, item("1"), url)).toBe(true);
+    expect(isQueueOn(false, item("1"), url)).toBe(false);
+    expect(isQueueOn(true, null, url)).toBe(false);
+    expect(isQueueOn(true, item("2"), url)).toBe(false);
+    expect(isQueueOn(true, item("1"), "")).toBe(false);
   });
 });
 

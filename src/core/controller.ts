@@ -9,6 +9,7 @@ import { QueueStep } from "../pages/queue-step";
 import { RejectStep } from "../pages/reject-step";
 import { SearchStep } from "../pages/search-step";
 import { browserNavigator, pageOf, pickStep, type Navigator, type StepContext } from "../pages/step-context";
+import { isDryRun, isQueueOn } from "../queue/queue-mode";
 import type { ResumeSelector } from "../resume/selector";
 import type { Panel } from "../ui/panel";
 import type { AppConfig } from "./config";
@@ -106,7 +107,8 @@ export class Controller {
         d.logger.log(`Отклик зарегистрирован: "${vacancy.title}"`, "success");
       },
       onChange: () => this.persist(),
-      dryRun: () => d.state.queueRunning && d.config.queueDryRun,
+      dryRun: () => isDryRun(d.state.queueRunning, d.config.queueDryRun),
+      active: (vacancy) => isQueueOn(d.state.queueRunning, d.state.queueCurrent, vacancy.link),
     });
   }
 

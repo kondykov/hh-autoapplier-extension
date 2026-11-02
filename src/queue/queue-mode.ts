@@ -31,6 +31,19 @@ export function isPageOf(url: string, id: string): boolean {
   return vacancyId === id;
 }
 
+// Пробный режим очереди — fail-closed: остановленная очередь не отправляет никогда (#49)
+export const isDryRun = (queueRunning: boolean, queueDryRun: boolean): boolean => !queueRunning || queueDryRun;
+
+// Очередь всё ещё ведёт вакансию этой страницы: её не остановили и не перезапустили с другой вакансией
+export function isQueueOn(queueRunning: boolean, current: QueueItem | null, link: string): boolean {
+  if (!queueRunning || !current) return false;
+  try {
+    return isPageOf(link, current.id);
+  } catch {
+    return false;
+  }
+}
+
 // Первая вакансия очереди, которую ещё не пробовали в этом запуске
 export const pickNext = (queue: QueueItem[], tried: string[]): QueueItem | null =>
   queue.find((v) => !tried.includes(v.id)) ?? null;
@@ -50,6 +63,7 @@ export function toStatusReport(result: ApplyResult): StatusReport | null {
       return { status: "Failed", reason: "отклик не подтверждён — проверить вручную" };
     case "disabled":
     case "dry_run":
+    case "stopped":
       return null;
   }
 }

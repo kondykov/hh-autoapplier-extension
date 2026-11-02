@@ -83,6 +83,8 @@ export class QueueStep implements PageStep {
       return;
     }
 
+    // Остановку уже записал stopQueue; при перезапуске в работе другая вакансия — её не трогаем
+    if (result === "stopped") return;
     if (result === "disabled") {
       stopQueue(this.ctx, 'Кнопка "Отправить" неактивна — проверьте форму вручную');
       await this.ctx.persist();
