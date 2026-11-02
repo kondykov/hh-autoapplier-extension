@@ -16,7 +16,23 @@ export class QueueStep implements PageStep {
 
   // Очередь сама решает, что делать на любой странице: открыть текущую вакансию или перейти к следующей
   accepts(_page: PageType, state: AppState): boolean {
-    return state.queueRunning;
+    return state.queueRunning && this.owns(state);
+  }
+
+  // Очередь ведёт эта вкладка (#51). Вкладка неизвестна (нет фона) или очередь старая, без вкладки, — как раньше
+  owns(state: AppState): boolean {
+    const self = this.ctx.tab.self;
+    return self === null || state.queueTab === null || state.queueTab === self;
+  }
+
+  // Вкладку-владельца закрыли (или браузер перезапущен — id вкладок новые): очередь продолжает эта вкладка
+  async adoptOrphan(): Promise<void> {
+    const { state, tab, logger } = this.ctx;
+    if (!state.queueRunning || this.owns(state) || tab.self === null) return;
+    if (await tab.isOpen(state.queueTab!)) return;
+    state.queueTab = tab.self;
+    await this.ctx.persist();
+    logger.log("Вкладки, которая вела очередь, больше нет — очередь продолжает эта вкладка", "warn");
   }
 
   // Необработанная ошибка шага (#52) — очередь на паузу с сообщением, а не «Стоп очередь» без движения
@@ -40,12 +56,14 @@ export class QueueStep implements PageStep {
   private async doToggle(): Promise<void> {
     const { state, panel, logger, config } = this.ctx;
     if (state.queueRunning) {
-      stopQueue(this.ctx, "Режим «из очереди» остановлен");
+      stopQueue(this.ctx, this.owns(state) ? "Режим «из очереди» остановлен" : "Очередь в другой вкладке остановлена");
       await this.ctx.persist();
       return;
     }
 
     state.queueRunning = true;
+    state.queueTab = this.ctx.tab.self;
+    state.queueRunId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     state.queueCurrent = null;
     state.queueSubmitted = null;
     state.queueTried = [];

@@ -2,17 +2,18 @@ import type { BackendClient } from "../api/client";
 import { ApplyPipeline } from "../apply/pipeline";
 import { CaptchaGuard } from "../captcha/guard";
 import type { KeyValueStorage } from "../infra/storage";
+import type { TabInfo } from "../infra/tab";
 import type { Logger } from "../infra/logger";
 import type { LetterProvider } from "../letters/letter-provider";
 import { DialogStep } from "../pages/dialog-step";
 import { QueueStep } from "../pages/queue-step";
 import { RejectStep } from "../pages/reject-step";
 import { SearchStep } from "../pages/search-step";
-import { browserNavigator, pageOf, pickStep, type Navigator, type StepContext } from "../pages/step-context";
+import { browserNavigator, pageOf, pickStep, stopQueue, type Navigator, type StepContext } from "../pages/step-context";
 import { isDryRun, isQueueOn } from "../queue/queue-mode";
 import type { ResumeSelector } from "../resume/selector";
 import type { Panel } from "../ui/panel";
-import type { AppConfig } from "./config";
+import { watchConfig, type AppConfig } from "./config";
 import type { DailyLimit } from "./daily-limit";
 import { Settings } from "./settings";
 import type { AppState, StateRepository } from "./state";
@@ -29,7 +30,11 @@ interface ControllerDeps {
   resumes: ResumeSelector;
   backend: BackendClient;
   nav?: Navigator;
+  tab?: TabInfo;
 }
+
+// Без service worker (тесты, старый фон): очередь не привязана к вкладке
+const ANY_TAB: TabInfo = { self: null, isOpen: async () => true };
 
 // Сборка: общий контекст, шаги страниц, настройки и отчёты. После загрузки страницы управление получает подходящий шаг
 export class Controller {
@@ -68,6 +73,7 @@ export class Controller {
       backend: d.backend,
       captcha: this.captcha,
       nav: d.nav ?? browserNavigator,
+      tab: d.tab ?? ANY_TAB,
       pipeline: this.createPipeline(),
       persist: () => this.persist(),
     };
@@ -82,7 +88,14 @@ export class Controller {
     const { state, panel } = this.d;
     await this.refresh();
     this.captcha.start();
+    this.d.repo.watch((saved) => this.onExternalState(saved));
+    watchConfig(this.d.storage, (config) => this.onExternalConfig(config));
+    await this.queue.adoptOrphan();
     panel.setQueueActive(state.queueRunning);
+    if (state.queueRunning && !this.queue.owns(state)) {
+      panel.setStep("Очередь идёт в другой вкладке — «Стоп очередь» остановит её");
+      return;
+    }
 
     const page = pageOf(this.ctx);
     const step = pickStep([this.queue, this.dialogs], page, state);
@@ -118,6 +131,42 @@ export class Controller {
       dryRun: () => isDryRun(d.state.queueRunning, d.config.queueDryRun),
       active: (vacancy) => isQueueOn(d.state.queueRunning, d.state.queueCurrent, vacancy.link),
     });
+  }
+
+  // Состояние записала другая вкладка (#51)
+  private onExternalState(saved: AppState): void {
+    const { state, panel } = this.d;
+    if (state.queueRunning && this.queue.owns(state)) {
+      // Своя очередь: из другой вкладки принимается только остановка этого же запуска
+      if (!saved.queueRunning && saved.queueRunId === state.queueRunId)
+        stopQueue(this.ctx, "Очередь остановлена в другой вкладке");
+      return;
+    }
+    // Свой остановленный запуск не воскрешать: другая вкладка могла записать его до того, как узнала об остановке
+    if (saved.queueRunning && saved.queueRunId === state.queueRunId && state.queueTab === this.ctx.tab.self) return;
+    // Чужая очередь (или её нет): поля очереди — как в хранилище, чтобы своя запись их не затёрла
+    state.queueRunning = saved.queueRunning;
+    state.queueCurrent = saved.queueCurrent;
+    state.queueTried = saved.queueTried;
+    state.queueRunApplied = saved.queueRunApplied;
+    state.queueOpened = saved.queueOpened;
+    state.queueSubmitted = saved.queueSubmitted;
+    state.queueTab = saved.queueTab;
+    state.queueRunId = saved.queueRunId;
+    panel.setQueueActive(state.queueRunning);
+    if (state.queueRunning) panel.setStep("Очередь идёт в другой вкладке — «Стоп очередь» остановит её");
+  }
+
+  // Настройки сохранила другая вкладка (#51): пробный режим и лимиты — сразу, в том числе для вакансии в работе
+  private onExternalConfig(config: AppConfig): void {
+    const { logger, panel, limit } = this.d;
+    const dryRunChanged = config.queueDryRun !== this.d.config.queueDryRun;
+    Object.assign(this.d.config, config);
+    limit.limit = config.dailyLimit;
+    panel.setSettings(config);
+    if (dryRunChanged)
+      logger.log(config.queueDryRun ? "Пробный режим включён в другой вкладке" : "Пробный режим выключен в другой вкладке", "warn");
+    void this.refresh();
   }
 
   private async persist() {

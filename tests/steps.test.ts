@@ -19,7 +19,7 @@ const item = (id: string): QueueItem => ({ id, title: `Вакансия ${id}`, 
 const RESPONSE = (id: string) => `https://hh.ru/applicant/vacancy_response?vacancyId=${id}`;
 
 // Контекст шага без браузера: навигация, панель, backend и конвейер — подменные
-function context(opts: { url?: string; queue?: QueueItem[]; result?: ApplyResult; config?: Partial<AppConfig>; dailyLimit?: number; autoReplies?: AutoReply[] } = {}) {
+function context(opts: { url?: string; queue?: QueueItem[]; result?: ApplyResult; config?: Partial<AppConfig>; dailyLimit?: number; autoReplies?: AutoReply[]; tab?: number; tabOpen?: boolean } = {}) {
   let url = opts.url ?? "https://hh.ru/";
   const visited: string[] = [];
   const messages: string[] = [];
@@ -62,6 +62,7 @@ function context(opts: { url?: string; queue?: QueueItem[]; result?: ApplyResult
       }),
       reload: vi.fn(),
     },
+    tab: { self: opts.tab ?? null, isOpen: vi.fn(async () => opts.tabOpen ?? true) },
     persist: vi.fn(async () => {}),
   } satisfies StepContext;
   return { ctx, visited, messages, setUrl: (u: string) => (url = u) };

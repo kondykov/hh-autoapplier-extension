@@ -7,6 +7,7 @@ import type { AppState } from "../core/state";
 import { detectPageType, type PageType } from "../dom/page-type";
 import type { KeyValueStorage } from "../infra/storage";
 import type { Logger } from "../infra/logger";
+import type { TabInfo } from "../infra/tab";
 import type { Panel } from "../ui/panel";
 
 // Переходы между страницами hh.ru; в тестах подменяется, чтобы шаги не трогали window.location
@@ -39,6 +40,8 @@ export interface StepContext {
   pipeline: Pick<ApplyPipeline, "applyOnPage">;
   captcha: Pick<CaptchaGuard, "waitUntilClear" | "consumeHit">;
   nav: Navigator;
+  // Своя вкладка: очередь ведёт только вкладка-владелец (#51)
+  tab: TabInfo;
   // Сохранить состояние и обновить счётчики панели
   persist(): Promise<void>;
 }

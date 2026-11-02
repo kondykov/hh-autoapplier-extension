@@ -31,6 +31,8 @@ interface PersistedState {
   queueRunApplied: number;
   queueOpened: boolean;
   queueSubmitted: string | null;
+  queueTab: number | null;
+  queueRunId: string | null;
   autoReplies: AutoReply[];
 }
 
@@ -50,6 +52,10 @@ export class AppState {
   // «Отправить» по этой вакансии уже нажата (#52): hh.ru мог загрузить новую страницу раньше, чем пришёл исход, —
   // такая загрузка — не «форма не открылась», а отклик, который, скорее всего, ушёл
   queueSubmitted: string | null = null;
+  // Вкладка, которая ведёт очередь (#51); остальные вкладки hh.ru её только показывают
+  queueTab: number | null = null;
+  // Запуск очереди: остановка из другой вкладки относится только к своему запуску, не к следующему
+  queueRunId: string | null = null;
   // Автоответы на отказы, где можно писать: переживают переход между чатами
   autoReplies: AutoReply[] = [];
 
@@ -63,6 +69,8 @@ export class AppState {
       queueRunApplied: this.queueRunApplied,
       queueOpened: this.queueOpened,
       queueSubmitted: this.queueSubmitted,
+      queueTab: this.queueTab,
+      queueRunId: this.queueRunId,
       autoReplies: this.autoReplies,
     };
   }
@@ -75,21 +83,31 @@ export class StateRepository {
 
   // Только известные поля: флаги прежнего авто-режима из старого состояния не подхватываются
   async load(): Promise<AppState> {
-    const saved = await this.storage.get<Partial<PersistedState>>(KEY, {});
-    const state = new AppState();
-    state.applied = saved.applied ?? 0;
-    state.skipped = saved.skipped ?? 0;
-    state.queueRunning = saved.queueRunning ?? false;
-    state.queueCurrent = saved.queueCurrent ?? null;
-    state.queueTried = saved.queueTried ?? [];
-    state.queueRunApplied = saved.queueRunApplied ?? 0;
-    state.queueOpened = saved.queueOpened ?? false;
-    state.queueSubmitted = saved.queueSubmitted ?? null;
-    state.autoReplies = saved.autoReplies ?? [];
-    return state;
+    return fromSaved(await this.storage.get<Partial<PersistedState>>(KEY, {}));
   }
 
   save(state: AppState): Promise<void> {
     return this.storage.set(KEY, state.toJSON());
   }
+
+  // Состояние, записанное другой вкладкой (#51)
+  watch(onChange: (saved: AppState) => void): void {
+    this.storage.watch(KEY, (value) => onChange(fromSaved((value ?? {}) as Partial<PersistedState>)));
+  }
+}
+
+function fromSaved(saved: Partial<PersistedState>): AppState {
+  const state = new AppState();
+  state.applied = saved.applied ?? 0;
+  state.skipped = saved.skipped ?? 0;
+  state.queueRunning = saved.queueRunning ?? false;
+  state.queueCurrent = saved.queueCurrent ?? null;
+  state.queueTried = saved.queueTried ?? [];
+  state.queueRunApplied = saved.queueRunApplied ?? 0;
+  state.queueOpened = saved.queueOpened ?? false;
+  state.queueSubmitted = saved.queueSubmitted ?? null;
+  state.queueTab = saved.queueTab ?? null;
+  state.queueRunId = saved.queueRunId ?? null;
+  state.autoReplies = saved.autoReplies ?? [];
+  return state;
 }

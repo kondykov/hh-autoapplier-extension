@@ -42,7 +42,15 @@ const KEY = "hh_autoapply_config";
 
 // Только известные поля: настройки прежнего локального отбора (presets, rules, resumes, searchRedirectUrl) отбрасываются
 export async function loadConfig(storage: KeyValueStorage): Promise<AppConfig> {
-  const saved = await storage.get<Partial<AppConfig>>(KEY, {});
+  return fromSaved(await storage.get<Partial<AppConfig>>(KEY, {}));
+}
+
+// Настройки, сохранённые другой вкладкой (#51): пробный режим и лимиты действуют сразу, а не со следующей страницы
+export function watchConfig(storage: KeyValueStorage, onChange: (config: AppConfig) => void): void {
+  storage.watch(KEY, (value) => onChange(fromSaved((value ?? {}) as Partial<AppConfig>)));
+}
+
+function fromSaved(saved: Partial<AppConfig>): AppConfig {
   return {
     coverLetterTemplate: saved.coverLetterTemplate ?? DEFAULT_CONFIG.coverLetterTemplate,
     dailyLimit: saved.dailyLimit ?? DEFAULT_CONFIG.dailyLimit,

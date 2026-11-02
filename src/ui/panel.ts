@@ -259,6 +259,13 @@ export class Panel implements LogSink {
     status.style.color = ok ? "#4CAF50" : "#F44336";
   }
 
+  // Настройки, изменённые в другой вкладке (#51)
+  setSettings(s: { queueDryRun: boolean; dailyLimit: number; queueRunLimit: number }): void {
+    this.el<HTMLInputElement>("hh-input-dryrun").checked = s.queueDryRun;
+    this.el<HTMLInputElement>("hh-input-limit").value = String(s.dailyLimit);
+    this.el<HTMLInputElement>("hh-input-run-limit").value = String(s.queueRunLimit);
+  }
+
   setQueueActive(active: boolean): void {
     const btn = this.el("hh-btn-queue");
     btn.textContent = active ? "Стоп очередь" : "Из очереди";

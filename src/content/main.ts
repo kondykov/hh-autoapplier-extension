@@ -5,6 +5,7 @@ import { DailyLimit } from "../core/daily-limit";
 import { StateRepository } from "../core/state";
 import { ConsoleSink, Logger } from "../infra/logger";
 import { ChromeStorage } from "../infra/storage";
+import { chromeTab } from "../infra/tab";
 import { PreparedLetterProvider, StaticTemplateProvider } from "../letters/letter-provider";
 import { ResumeSelector } from "../resume/selector";
 import { Panel, VERSION } from "../ui/panel";
@@ -56,7 +57,8 @@ async function bootstrap() {
   await panel.mount();
 
   const backend = new BackendClient(runtimeSender);
-  controller = new Controller({ storage, config, state, repo, limit, logger, panel, letters, resumes, backend });
+  const tab = await chromeTab();
+  controller = new Controller({ storage, config, state, repo, limit, logger, panel, letters, resumes, backend, tab });
   await controller.init();
   logger.log(`Панель загружена (v${VERSION})`);
 }
