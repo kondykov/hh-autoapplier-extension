@@ -8,17 +8,16 @@ import { isTabRequest, type TabResponse } from "../infra/tab";
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse: (response: ApiResponse | TabResponse) => void) => {
   if (sender.id !== chrome.runtime.id) return false;
 
-  // id вкладки и проверка вкладки-владельца очереди (#51); chrome.tabs.get без разрешения tabs — только id и статус
+  // id вкладки и проверка вкладки-владельца очереди (#51); chrome.tabs.get без разрешения tabs — только id и статус.
+  // Ответ асинхронный (return true), как у запросов к backend
   if (isTabRequest(message)) {
     const self = sender.tab?.id ?? null;
-    if (message.check === undefined) {
-      sendResponse({ self });
-      return false;
-    }
-    chrome.tabs.get(message.check).then(
-      () => sendResponse({ self, open: true }),
-      () => sendResponse({ self, open: false }),
-    );
+    const check = message.check;
+    void (async () => {
+      if (check === undefined) return sendResponse({ self });
+      const open = await chrome.tabs.get(check).then(() => true, () => false);
+      sendResponse({ self, open });
+    })();
     return true;
   }
 
