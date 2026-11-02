@@ -260,6 +260,9 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.Property<string>("Response")
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("VacancyId")
                         .HasColumnType("text");
 
@@ -268,6 +271,8 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.HasIndex("CreatedAt");
 
                     b.HasIndex("VacancyId");
+
+                    b.HasIndex("UserId", "VacancyId");
 
                     b.ToTable("LlmCalls", (string)null);
                 });
@@ -879,6 +884,14 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("HhAutoApplier.Domain.Llm.LlmCall", b =>
+                {
+                    b.HasOne("HhAutoApplier.Infrastructure.Identity.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("HhAutoApplier.Domain.Notifications.Notification", b =>

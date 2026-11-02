@@ -54,14 +54,14 @@ public class AnswerQuestionnairesCommandHandler(
             catch (LlmUnavailableException e)
             {
                 // Лимит или провайдер недоступен: остальные ждут следующего запуска
-                db.LlmCalls.Add(LlmCall.Failed(QuestionnaireAnswering.Purpose, application.VacancyId, "", prompt, e.Message, clock.GetUtcNow()));
+                db.LlmCalls.Add(LlmCall.Failed(QuestionnaireAnswering.Purpose, application.VacancyId, "", prompt, e.Message, clock.GetUtcNow()).For(application.UserId));
                 await db.SaveChangesAsync(ct);
                 stoppedBy = e.Message;
                 break;
             }
 
             db.LlmCalls.Add(LlmCall.Succeeded(QuestionnaireAnswering.Purpose, application.VacancyId, result.Model, prompt, result.Content,
-                result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()));
+                result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(application.UserId));
 
             // Неполный ответ или вариант не из анкеты — догадки работодателю не отправляем: пропуск с причиной,
             // чтобы не спрашивать LLM каждый запуск. Вернуть в очередь — вручную, расширение пришлёт анкету заново

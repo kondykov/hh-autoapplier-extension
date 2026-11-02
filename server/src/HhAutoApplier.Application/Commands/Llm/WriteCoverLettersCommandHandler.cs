@@ -30,13 +30,13 @@ public class WriteCoverLettersCommandHandler(
         using var pass = await gate.EnterAsync(ct);
 
         // Письма, которые дважды подряд вышли с цифрами не из фактов, сутки не переписываются: конвейер идёт раз в минуту,
-        // без паузы это цикл запросов к LLM. Без письма расширение возьмёт свой шаблон
+        // без паузы это цикл запросов к LLM. Без письма расширение возьмёт свой шаблон. Считается по отклику — вакансия
+        // и её владелец (#57): неудачи с профилем одного пользователя не лишают писем другого
         var since = clock.GetUtcNow().AddDays(-1);
-        var givenUp = await db.LlmCalls.Where(c => c.Purpose == CoverLetterWriting.Purpose && c.Error != null
-                                                   && c.Error.StartsWith(CoverLetterWriting.FiguresError) && c.CreatedAt > since)
-            .GroupBy(c => c.VacancyId).Where(g => g.Count() >= MaxAttempts).Select(g => g.Key).ToListAsync(ct);
         var queued = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct))
-            .Where(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter == null && !givenUp.Contains(a.VacancyId))
+            .Where(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter == null)
+            .Where(a => db.LlmCalls.Count(c => c.Purpose == CoverLetterWriting.Purpose && c.Error != null && c.Error.StartsWith(CoverLetterWriting.FiguresError)
+                                               && c.CreatedAt > since && c.VacancyId == a.VacancyId && c.UserId == a.UserId) < MaxAttempts)
             .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
         if (queued.Count == 0)
             return new CoverLettersResultDto(0, 0, 0, null);
@@ -65,7 +65,7 @@ public class WriteCoverLettersCommandHandler(
                 catch (LlmUnavailableException e)
                 {
                     // Лимит или провайдер недоступен: остальные остаются без письма до следующего запуска
-                    db.LlmCalls.Add(LlmCall.Failed(CoverLetterWriting.Purpose, application.VacancyId, "", prompt, e.Message, clock.GetUtcNow()));
+                    db.LlmCalls.Add(LlmCall.Failed(CoverLetterWriting.Purpose, application.VacancyId, "", prompt, e.Message, clock.GetUtcNow()).For(application.UserId));
                     await db.SaveChangesAsync(ct);
                     stoppedBy = e.Message;
                     break;
@@ -75,7 +75,7 @@ public class WriteCoverLettersCommandHandler(
                 if (CoverLetterWriting.Parse(result.Content) is not { } letter)
                 {
                     db.LlmCalls.Add(LlmCall.Succeeded(CoverLetterWriting.Purpose, application.VacancyId, result.Model, prompt, result.Content,
-                        result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()));
+                        result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(application.UserId));
                     break;
                 }
 
@@ -84,13 +84,13 @@ public class WriteCoverLettersCommandHandler(
                 if (figures.Count > 0)
                 {
                     db.LlmCalls.Add(LlmCall.Rejected(CoverLetterWriting.Purpose, application.VacancyId, result.Model, prompt, result.Content,
-                        $"{CoverLetterWriting.FiguresError}: {string.Join(", ", figures)}", result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()));
+                        $"{CoverLetterWriting.FiguresError}: {string.Join(", ", figures)}", result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(application.UserId));
                     request = CoverLetterWriting.Retry(first, letter, figures);
                     continue;
                 }
 
                 db.LlmCalls.Add(LlmCall.Succeeded(CoverLetterWriting.Purpose, application.VacancyId, result.Model, prompt, result.Content,
-                    result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()));
+                    result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(application.UserId));
                 application.SetCoverLetter(letter, result.Model, clock.GetUtcNow());
                 done = true;
             }

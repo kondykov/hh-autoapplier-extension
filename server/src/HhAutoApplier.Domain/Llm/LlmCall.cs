@@ -15,6 +15,9 @@ public class LlmCall
 
     public string? VacancyId { get; private set; }
 
+    // Владелец отклика или сообщения (#57): неудачи одного пользователя не касаются другого. null — проверка ключа и записи до #57
+    public Guid? UserId { get; private set; }
+
     public string Model { get; private set; } = "";
 
     public string Prompt { get; private set; } = "";
@@ -49,6 +52,12 @@ public class LlmCall
         var call = Succeeded(purpose, vacancyId, model, prompt, response, promptTokens, completionTokens, at);
         call.Error = error;
         return call;
+    }
+
+    public LlmCall For(Guid? userId)
+    {
+        UserId = userId;
+        return this;
     }
 
     public static LlmCall Failed(string purpose, string? vacancyId, string model, string prompt, string error, DateTimeOffset at) =>

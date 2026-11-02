@@ -64,14 +64,14 @@ public class AnalyzeDialogsCommandHandler(
             catch (LlmUnavailableException e)
             {
                 // Лимит или провайдер недоступен: остальные ждут следующего прохода
-                db.LlmCalls.Add(LlmCall.Failed(DialogAnalysis.Purpose, subject, "", prompt, e.Message, clock.GetUtcNow()));
+                db.LlmCalls.Add(LlmCall.Failed(DialogAnalysis.Purpose, subject, "", prompt, e.Message, clock.GetUtcNow()).For(message.UserId));
                 await db.SaveChangesAsync(ct);
                 stoppedBy = e.Message;
                 break;
             }
 
             db.LlmCalls.Add(LlmCall.Succeeded(DialogAnalysis.Purpose, subject, result.Model, prompt, result.Content,
-                result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()));
+                result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(message.UserId));
 
             // Не разобрано — «прочее» без черновика: иначе сообщение разбиралось бы каждый проход и тратило лимит
             if (DialogAnalysis.Parse(result.Content) is { } analysis)

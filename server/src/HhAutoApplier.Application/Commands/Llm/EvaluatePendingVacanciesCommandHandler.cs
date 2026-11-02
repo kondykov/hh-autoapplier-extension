@@ -50,14 +50,14 @@ public class EvaluatePendingVacanciesCommandHandler(
             catch (LlmUnavailableException e)
             {
                 // Лимит или провайдер недоступен: остальные остаются Pending до следующего запуска
-                db.LlmCalls.Add(LlmCall.Failed(VacancyAssessment.Purpose, application.VacancyId, "", prompt, e.Message, clock.GetUtcNow()));
+                db.LlmCalls.Add(LlmCall.Failed(VacancyAssessment.Purpose, application.VacancyId, "", prompt, e.Message, clock.GetUtcNow()).For(application.UserId));
                 await db.SaveChangesAsync(ct);
                 stoppedBy = e.Message;
                 break;
             }
 
             db.LlmCalls.Add(LlmCall.Succeeded(VacancyAssessment.Purpose, application.VacancyId, result.Model, prompt, result.Content,
-                result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()));
+                result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(application.UserId));
 
             // Неразобранный ответ — на ручную проверку, чтобы вакансия не застряла в Pending
             var assessment = VacancyAssessment.Parse(result.Content, resumes)
