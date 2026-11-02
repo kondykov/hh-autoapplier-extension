@@ -10,8 +10,11 @@ import { isAlreadyRespondedOnPage, isOutlineDetected, waitForApplyOutcome, type 
 import { attachLetterAndSubmit } from "./submit";
 import { humanClick } from "../dom/input";
 
-// stopped — очередь остановили (или перезапустили с другой вакансией), пока конвейер работал: ничего не отправлено
-export type ApplyResult = "success" | "outline" | "skipped" | "disabled" | "unclear" | "failed" | "dry_run" | "stopped";
+// stopped — очередь остановили (или перезапустили с другой вакансией), пока конвейер работал: ничего не отправлено.
+// captcha — посреди отклика появилась капча: дальше без человека не идём, «Отправить» не нажата
+export type ApplyResult = "success" | "outline" | "skipped" | "disabled" | "unclear" | "failed" | "dry_run" | "stopped" | "captcha";
+
+type Halt = "stopped" | "captcha";
 
 export interface PipelineDeps {
   state: AppState;
@@ -24,6 +27,10 @@ export interface PipelineDeps {
   dryRun: () => boolean;
   // Очередь всё ещё ведёт эту вакансию: проверяется перед каждым шагом и перед нажатием «Отправить»
   active: (vacancy: Vacancy) => boolean;
+  // Капча появлялась с прошлой проверки (CaptchaGuard.consumeHit): проверяется там же, где active
+  captchaHit: () => boolean;
+  // Сразу перед нажатием «Отправить»: отметка «отправлено» и лимиты — до клика, страница может смениться сразу после
+  onSubmit: (vacancy: Vacancy) => Promise<void>;
 }
 
 // Отклик на странице /applicant/vacancy_response (режим «из очереди»): форма уже открыта
@@ -52,7 +59,8 @@ export class ApplyPipeline {
       return "skipped";
     }
 
-    if (!this.deps.active(vacancy)) return this.stopped();
+    let halt = this.halt(vacancy);
+    if (halt) return this.halted(halt);
     const chosen = await this.deps.resumes.choose(vacancy);
     if (chosen.failed) {
       const close = qs<HTMLElement>(SELECTORS.responseModalClose);
@@ -60,7 +68,8 @@ export class ApplyPipeline {
       state.skipped++;
       return "failed";
     }
-    if (!this.deps.active(vacancy)) return this.stopped();
+    halt = this.halt(vacancy);
+    if (halt) return this.halted(halt);
     if (questionnaire) {
       const filled = await fillQuestionnaire(vacancy.answers ?? []);
       if (!filled.ok) {
@@ -72,11 +81,15 @@ export class ApplyPipeline {
       await pause(DELAYS.small);
     }
     const letter = await this.deps.letters.getLetter(vacancy);
-    if (!this.deps.active(vacancy)) return this.stopped();
-    // Перечитывается перед самым кликом: остановка очереди за время паузы — не отправлять
-    const dryRun = () => this.deps.dryRun() || !this.deps.active(vacancy);
-    const result = await attachLetterAndSubmit(vacancy, letter, logger, dryRun, questionnaire);
-    if (result === "dry_run" && !this.deps.active(vacancy)) return this.stopped();
+    halt = this.halt(vacancy);
+    if (halt) return this.halted(halt);
+    // Перечитывается перед самым кликом: остановка очереди или капча за время паузы — не отправлять
+    const dryRun = () => {
+      halt = this.halt(vacancy);
+      return this.deps.dryRun() || halt !== null;
+    };
+    const result = await attachLetterAndSubmit(vacancy, letter, logger, dryRun, questionnaire, () => this.deps.onSubmit(vacancy));
+    if (result === "dry_run" && halt) return this.halted(halt);
     switch (result) {
       case "outline":
         return this.saveOutline(vacancy);
@@ -117,9 +130,15 @@ export class ApplyPipeline {
     return "unclear";
   }
 
-  private stopped(): ApplyResult {
-    this.deps.logger.log("Очередь остановлена — отклик не отправлен", "warn");
-    return "stopped";
+  private halt(vacancy: Vacancy): Halt | null {
+    if (!this.deps.active(vacancy)) return "stopped";
+    if (this.deps.captchaHit()) return "captcha";
+    return null;
+  }
+
+  private halted(halt: Halt): ApplyResult {
+    this.deps.logger.log(halt === "captcha" ? "Капча посреди отклика — «Отправить» не нажата" : "Очередь остановлена — отклик не отправлен", "warn");
+    return halt;
   }
 
   // Очередь сама решает, куда идти дальше: вопросы анкеты — на сервер, затем следующая вакансия

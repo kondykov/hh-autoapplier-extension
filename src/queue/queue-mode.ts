@@ -64,6 +64,7 @@ export function toStatusReport(result: ApplyResult): StatusReport | null {
     case "disabled":
     case "dry_run":
     case "stopped":
+    case "captcha":
       return null;
   }
 }

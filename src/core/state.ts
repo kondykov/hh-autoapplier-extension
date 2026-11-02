@@ -30,6 +30,7 @@ interface PersistedState {
   queueTried: string[];
   queueRunApplied: number;
   queueOpened: boolean;
+  queueSubmitted: string | null;
   autoReplies: AutoReply[];
 }
 
@@ -46,6 +47,9 @@ export class AppState {
   // Переход к форме queueCurrent уже начат. hh.ru после «Отправить» сам загружает новую страницу — она может прийти
   // раньше нашего перехода и не должна считать, что форма следующей вакансии не открылась
   queueOpened = false;
+  // «Отправить» по этой вакансии уже нажата (#52): hh.ru мог загрузить новую страницу раньше, чем пришёл исход, —
+  // такая загрузка — не «форма не открылась», а отклик, который, скорее всего, ушёл
+  queueSubmitted: string | null = null;
   // Автоответы на отказы, где можно писать: переживают переход между чатами
   autoReplies: AutoReply[] = [];
 
@@ -58,6 +62,7 @@ export class AppState {
       queueTried: this.queueTried,
       queueRunApplied: this.queueRunApplied,
       queueOpened: this.queueOpened,
+      queueSubmitted: this.queueSubmitted,
       autoReplies: this.autoReplies,
     };
   }
@@ -79,6 +84,7 @@ export class StateRepository {
     state.queueTried = saved.queueTried ?? [];
     state.queueRunApplied = saved.queueRunApplied ?? 0;
     state.queueOpened = saved.queueOpened ?? false;
+    state.queueSubmitted = saved.queueSubmitted ?? null;
     state.autoReplies = saved.autoReplies ?? [];
     return state;
   }

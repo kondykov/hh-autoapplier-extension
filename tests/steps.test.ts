@@ -11,7 +11,7 @@ import { DialogStep } from "../src/pages/dialog-step";
 import { QueueStep } from "../src/pages/queue-step";
 import { SearchStep } from "../src/pages/search-step";
 import { pickStep, type StepContext } from "../src/pages/step-context";
-import type { QueueItem } from "../src/queue/queue-mode";
+import { toStatusReport, type QueueItem } from "../src/queue/queue-mode";
 import type { ImportCard } from "../src/search/vacancy-collector";
 import { renderResponsePage } from "./fixtures/response-form";
 
@@ -144,6 +144,11 @@ describe("QueueStep", () => {
     expect(ctx.state.queueRunApplied).toBe(0);
     expect(visited).toEqual([RESPONSE("1")]);
 
+    // Лимит запуска учитывает onSubmit конвейера в момент нажатия «Отправить» (#52)
+    ctx.pipeline.applyOnPage.mockImplementation(async () => {
+      ctx.state.queueRunApplied++;
+      return "success";
+    });
     await run(new QueueStep(ctx).resume());
 
     expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", { status: "Applied", reason: null }, ".NET");
@@ -167,6 +172,53 @@ describe("QueueStep", () => {
 
     expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", { status: "Applied", reason: null }, ".NET");
     expect(visited).toEqual([]);
+  });
+
+  // #52: после «Отправить» hh.ru загрузил новую страницу раньше исхода — раньше это было Failed «форма не открылась»
+  it("«Отправить» нажата, загрузилась другая страница без подтверждения — «не подтверждён», а не «форма не открылась»", async () => {
+    document.body.innerHTML = "<main>Вакансия</main>";
+    const { ctx, visited } = context({ url: "https://hh.ru/vacancy/1", queue: [item("1"), item("2")], config: { queueDryRun: false } });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"], queueOpened: true, queueSubmitted: "1" });
+
+    await run(new QueueStep(ctx).resume());
+
+    expect(ctx.pipeline.applyOnPage).not.toHaveBeenCalled();
+    expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", toStatusReport("unclear"), ".NET");
+    expect(ctx.state.queueSubmitted).toBeNull();
+    expect(visited).toEqual([RESPONSE("2")]);
+  });
+
+  it("«Отправить» нажата, новая страница — «Вы откликнулись»: Applied", async () => {
+    document.body.innerHTML = "<main><div>Вы откликнулись</div></main>";
+    const { ctx } = context({ url: "https://hh.ru/vacancy/1", queue: [item("1")], config: { queueDryRun: false } });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"], queueOpened: true, queueSubmitted: "1" });
+
+    await run(new QueueStep(ctx).resume());
+
+    expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", { status: "Applied", reason: null }, ".NET");
+  });
+
+  it("капча посреди вакансии: очередь на паузе, статус не уходит (#52)", async () => {
+    const { ctx, visited, messages } = context({ url: RESPONSE("1"), queue: [item("1"), item("2")], result: "captcha", config: { queueDryRun: false } });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"] });
+
+    await run(new QueueStep(ctx).resume());
+
+    expect(ctx.state.queueRunning).toBe(false);
+    expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
+    expect(visited).toEqual([]);
+    expect(messages.at(-1)).toContain("Капча посреди отклика");
+  });
+
+  it("исключение внутри шага — очередь на паузу с сообщением, а не зависшая (#52)", async () => {
+    const { ctx, messages } = context();
+    ctx.backend.getQueue.mockRejectedValue(new Error("сбой"));
+
+    await run(new QueueStep(ctx).toggle());
+
+    expect(ctx.state.queueRunning).toBe(false);
+    expect(ctx.panel.setQueueActive).toHaveBeenLastCalledWith(false);
+    expect(messages.at(-1)).toContain("Ошибка очереди: сбой");
   });
 
   it("конвейер остановлен посреди вакансии: статус не уходит, очередь не трогается (#49)", async () => {

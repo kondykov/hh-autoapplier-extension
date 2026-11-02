@@ -11,10 +11,16 @@ export function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, text:
 }
 
 // Клик как у человека: случайная пауза перед каждым нажатием (RANGES.click).
-// allowed — проверка после паузы: за неё могли остановить очередь или включить пробный режим
-export async function humanClick(el: HTMLElement, allowed: () => boolean = () => true): Promise<boolean> {
+// allowed — проверка после паузы: за неё могли остановить очередь или включить пробный режим;
+// before — успеть записать, что нажатие сейчас будет (страница может смениться сразу после клика)
+export async function humanClick(
+  el: HTMLElement,
+  allowed: () => boolean = () => true,
+  before?: () => Promise<void>,
+): Promise<boolean> {
   await pauseBetween(RANGES.click);
   if (!allowed()) return false;
+  await before?.();
   el.click();
   return true;
 }

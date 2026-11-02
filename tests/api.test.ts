@@ -15,6 +15,20 @@ describe("server config", () => {
   });
 });
 
+// #52: 200 с не-JSON бросал исключение вне try — очередь «включена», но стоит
+describe("BackendClient: ответ 200 не JSON", () => {
+  const html: ApiSender = async () => ({ status: 200, body: "<html>proxy</html>" });
+
+  it("каждый разбор — ошибка запроса, а не исключение", async () => {
+    const client = new BackendClient(html);
+    expect(await client.getQueue()).toMatchObject({ ok: false, error: expect.stringContaining("не JSON") });
+    expect(await client.getResumes()).toMatchObject({ ok: false });
+    expect(await client.importVacancies("s", [])).toMatchObject({ ok: false });
+    expect(await client.importDialogs([])).toMatchObject({ ok: false });
+    expect(await client.check()).toMatchObject({ ok: false });
+  });
+});
+
 describe("executeApiRequest", () => {
   const ok = (body = "{}") => vi.fn(async () => new Response(body, { status: 200 }));
 

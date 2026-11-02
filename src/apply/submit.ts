@@ -82,6 +82,8 @@ export async function attachLetterAndSubmit(
   dryRun: boolean | (() => boolean) = false,
   // Анкета уже заполнена ответами: её вопросы на странице — не повод останавливаться
   questionnaire = false,
+  // Сразу перед нажатием «Отправить»: записать, что отклик уходит, и учесть его в лимитах
+  beforeClick?: () => Promise<void>,
 ): Promise<SubmitResult> {
   if (!questionnaire && isOutlineDetected()) return "outline";
 
@@ -121,7 +123,7 @@ export async function attachLetterAndSubmit(
   const startPage = detectPageType();
   const hadForm = !!(qs(SELECTORS.responseModal) || getCoverLetterField());
   submit.scrollIntoView({ block: "center", inline: "center" });
-  if (!(await humanClick(submit, () => !isDry()))) {
+  if (!(await humanClick(submit, () => !isDry(), beforeClick))) {
     logger.log('Пробный режим включён перед нажатием: "Отправить" не нажата', "warn");
     return "dry_run";
   }

@@ -31,6 +31,8 @@ function setup(overrides: Partial<PipelineDeps> = {}) {
     onChange: vi.fn(async () => {}),
     dryRun: () => false,
     active: () => true,
+    captchaHit: () => false,
+    onSubmit: vi.fn(async () => {}),
     ...overrides,
   };
   return { deps, pipeline: new ApplyPipeline(deps) };
@@ -198,6 +200,60 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
     expect(await run(pipeline.applyOnPage(vacancy()))).toBe("success");
     expect(submits).toBe(1);
     expect(deps.onApplied).toHaveBeenCalled();
+  });
+
+  // #52: отметка «отправлено» и лимиты — до клика, в том числе для «Непонятного»
+  it("onSubmit — один раз и до нажатия «Отправить»", async () => {
+    renderResponsePage({ afterSubmit: "nothing" });
+    let submitsAtMark = -1;
+    const onSubmit = vi.fn(async () => {
+      submitsAtMark = submits;
+    });
+    const { pipeline } = setup({ onSubmit });
+
+    expect(await run(pipeline.applyOnPage(vacancy()))).toBe("unclear");
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(submitsAtMark).toBe(0);
+    expect(submits).toBe(1);
+  });
+
+  it("пробный режим — onSubmit не вызывается", async () => {
+    renderResponsePage();
+    const { deps, pipeline } = setup({ dryRun: () => true });
+
+    expect(await run(pipeline.applyOnPage(vacancy()))).toBe("dry_run");
+    expect(deps.onSubmit).not.toHaveBeenCalled();
+  });
+
+  // #52: капча проверялась только в начале resume — посреди вакансии конвейер кликал дальше
+  describe("капча посреди вакансии", () => {
+    it("во время выбора резюме — «Отправить» не нажата", async () => {
+      renderResponsePage({ current: PHP });
+      let captcha = false;
+      const { deps, pipeline } = setup({ captchaHit: () => captcha });
+      const choose = deps.resumes.choose.bind(deps.resumes);
+      deps.resumes.choose = async (v) => {
+        captcha = true;
+        return choose(v);
+      };
+
+      expect(await run(pipeline.applyOnPage(vacancy()))).toBe("captcha");
+      expect(submits).toBe(0);
+      expect(deps.onSubmit).not.toHaveBeenCalled();
+    });
+
+    it("в паузе перед кликом «Отправить» — клика нет", async () => {
+      renderResponsePage();
+      let captcha = false;
+      const { deps, pipeline } = setup({ captchaHit: () => captcha });
+      vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {
+        captcha = true;
+      });
+
+      expect(await run(pipeline.applyOnPage(vacancy()))).toBe("captcha");
+      expect(submits).toBe(0);
+      expect(deps.onSubmit).not.toHaveBeenCalled();
+    });
   });
 
   // #49: «Стоп очередь» посреди вакансии снимал пробный режим и «Отправить» нажималась по-настоящему

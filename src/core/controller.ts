@@ -101,11 +101,19 @@ export class Controller {
       logger: d.logger,
       letters: d.letters,
       resumes: d.resumes,
+      // Лимиты уже учтены в onSubmit — в момент нажатия
       onApplied: async (vacancy) => {
-        await d.limit.increment();
         d.state.applied++;
         d.logger.log(`Отклик зарегистрирован: "${vacancy.title}"`, "success");
       },
+      // Отметка и лимиты — до клика (#52): после него hh.ru может сразу загрузить новую страницу, а «Непонятное» тоже ушло
+      onSubmit: async () => {
+        d.state.queueSubmitted = d.state.queueCurrent?.id ?? null;
+        d.state.queueRunApplied++;
+        await d.limit.increment();
+        await this.persist();
+      },
+      captchaHit: () => this.captcha.consumeHit(),
       onChange: () => this.persist(),
       dryRun: () => isDryRun(d.state.queueRunning, d.config.queueDryRun),
       active: (vacancy) => isQueueOn(d.state.queueRunning, d.state.queueCurrent, vacancy.link),

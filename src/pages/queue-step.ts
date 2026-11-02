@@ -1,5 +1,6 @@
 import type { ApplyResult } from "../apply/pipeline";
-import { pauseBetween, RANGES } from "../core/delays";
+import { isAlreadyRespondedOnPage } from "../apply/outcome-detector";
+import { pauseBetween, RANGES, wait } from "../core/delays";
 import type { AppState, Vacancy } from "../core/state";
 import type { PageType } from "../dom/page-type";
 import { toServerQuestions } from "../questions/fill";
@@ -18,7 +19,25 @@ export class QueueStep implements PageStep {
     return state.queueRunning;
   }
 
-  async toggle(): Promise<void> {
+  // Необработанная ошибка шага (#52) — очередь на паузу с сообщением, а не «Стоп очередь» без движения
+  toggle(): Promise<void> {
+    return this.guarded(() => this.doToggle());
+  }
+
+  resume(): Promise<void> {
+    return this.guarded(() => this.doResume());
+  }
+
+  private async guarded(action: () => Promise<void>): Promise<void> {
+    try {
+      await action();
+    } catch (e) {
+      stopQueue(this.ctx, `Ошибка очереди: ${(e as Error).message}`);
+      await this.ctx.persist().catch(() => {});
+    }
+  }
+
+  private async doToggle(): Promise<void> {
     const { state, panel, logger, config } = this.ctx;
     if (state.queueRunning) {
       stopQueue(this.ctx, "Режим «из очереди» остановлен");
@@ -28,6 +47,7 @@ export class QueueStep implements PageStep {
 
     state.queueRunning = true;
     state.queueCurrent = null;
+    state.queueSubmitted = null;
     state.queueTried = [];
     state.queueRunApplied = 0;
     panel.setQueueActive(true);
@@ -39,12 +59,21 @@ export class QueueStep implements PageStep {
     await this.openNext();
   }
 
-  async resume(): Promise<void> {
+  private async doResume(): Promise<void> {
     const { state, logger, panel, captcha, pipeline, nav } = this.ctx;
     await captcha.waitUntilClear();
+    // Капча до начала отклика уже дождалась человека — конвейер следит только за новой
+    captcha.consumeHit();
     const current = state.queueCurrent;
     if (!current) {
       await this.openNext();
+      return;
+    }
+    if (state.queueSubmitted === current.id) {
+      // «Отправить» уже нажата, и hh.ru загрузил новую страницу раньше, чем пришёл исход (#52): отклик, скорее всего, ушёл
+      const result = (await waitResponded()) ? "success" : "unclear";
+      logger.log(`После «Отправить» загрузилась новая страница: "${current.title}" — ${result === "success" ? "отклик подтверждён" : "не подтверждён, проверить вручную"}`, "warn");
+      await this.finish(current, result);
       return;
     }
     if (!isPageOf(nav.url(), current.id) && !state.queueOpened) {
@@ -85,6 +114,11 @@ export class QueueStep implements PageStep {
 
     // Остановку уже записал stopQueue; при перезапуске в работе другая вакансия — её не трогаем
     if (result === "stopped") return;
+    if (result === "captcha") {
+      stopQueue(this.ctx, "Капча посреди отклика: «Отправить» не нажата — решите капчу и запустите очередь снова");
+      await this.ctx.persist();
+      return;
+    }
     if (result === "disabled") {
       stopQueue(this.ctx, 'Кнопка "Отправить" неактивна — проверьте форму вручную');
       await this.ctx.persist();
@@ -180,8 +214,8 @@ export class QueueStep implements PageStep {
   // Отклик, ушедший на hh.ru, сообщается всегда: очередь могли остановить или включить пробный режим, пока ждали подтверждения
   private async finish(item: QueueItem, result: ApplyResult, resume?: string): Promise<void> {
     const { state, logger, backend, config } = this.ctx;
+    // Лимит запуска учтён в момент нажатия (onSubmit)
     const sentToHh = result === "success" || result === "unclear";
-    if (sentToHh) state.queueRunApplied++;
     const report = sentToHh || (state.queueRunning && !config.queueDryRun) ? toStatusReport(result) : null;
     if (report) {
       const sent = await backend.reportStatus(item.id, report, resume ?? item.resume);
@@ -198,8 +232,19 @@ export class QueueStep implements PageStep {
   private async advance(): Promise<void> {
     const { state } = this.ctx;
     state.queueCurrent = null;
+    state.queueSubmitted = null;
     await this.ctx.persist();
     if (state.queueRunning)
       await this.openNext();
   }
+}
+
+// «Вы откликнулись» на только что загруженной странице: hh.ru дорисовывает её не сразу
+async function waitResponded(timeoutMs = 3000): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (isAlreadyRespondedOnPage()) return true;
+    await wait(300);
+  }
+  return isAlreadyRespondedOnPage();
 }

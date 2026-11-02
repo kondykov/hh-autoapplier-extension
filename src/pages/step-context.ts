@@ -53,6 +53,7 @@ export function reportDailyLimit(ctx: StepContext): void {
 export function stopQueue(ctx: StepContext, message: string): void {
   ctx.state.queueRunning = false;
   ctx.state.queueCurrent = null;
+  ctx.state.queueSubmitted = null;
   ctx.panel.setQueueActive(false);
   ctx.panel.setStep(message);
   ctx.logger.log(message, "warn");

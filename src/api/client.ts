@@ -81,7 +81,8 @@ export class BackendClient {
     if (stats.status === 401) return { ok: false, message: "Сервер доступен, но токен неверный — выпустите новый (POST /api/tokens)" };
     if (stats.status !== 200) return { ok: false, message: `Сервер доступен, но /api/stats ответил ${stats.status}` };
 
-    const counts = JSON.parse(stats.body) as Record<string, number>;
+    const counts = parse<Record<string, number>>(stats);
+    if (!counts) return { ok: false, message: notJson(stats) };
     const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
     return { ok: true, message: `Связь есть: вакансий на сервере ${total}, в очереди ${counts.Queued ?? 0}` };
   }
@@ -91,7 +92,9 @@ export class BackendClient {
     const res = await this.call({ type: "hh-api", path: `/api/queue?limit=${limit}` });
     if (res.status !== 200) return { ok: false, error: describe(res) };
 
-    const items = (JSON.parse(res.body) as VacancyDto[]).map((v) => ({
+    const dtos = parse<VacancyDto[]>(res);
+    if (!Array.isArray(dtos)) return { ok: false, error: notJson(res) };
+    const items = dtos.map((v) => ({
       id: v.id,
       title: v.title,
       company: v.company,
@@ -127,21 +130,25 @@ export class BackendClient {
   async importVacancies(search: string, vacancies: ImportCard[]): Promise<ImportResult> {
     const res = await this.call({ type: "hh-api", path: "/api/import", method: "POST", body: { search, vacancies } });
     if (res.status !== 200) return { ok: false, error: describe(res) };
-    return { ok: true, result: JSON.parse(res.body) as ImportCounts };
+    const result = parse<ImportCounts>(res);
+    return result ? { ok: true, result } : { ok: false, error: notJson(res) };
   }
 
   // Профили резюме с сервера: по match резюме находится в списке на hh.ru
   async getResumes(): Promise<ResumesResult> {
     const res = await this.call({ type: "hh-api", path: "/api/resumes" });
     if (res.status !== 200) return { ok: false, error: describe(res) };
-    return { ok: true, resumes: (JSON.parse(res.body) as ResumeMatch[]).map(({ name, match }) => ({ name, match })) };
+    const resumes = parse<ResumeMatch[]>(res);
+    if (!Array.isArray(resumes)) return { ok: false, error: notJson(res) };
+    return { ok: true, resumes: resumes.map(({ name, match }) => ({ name, match })) };
   }
 
   // Чаты откликов (#26): статусы и сообщения работодателей; разбор LLM — на сервере, в ответе — чаты для автоответа на отказ
   async importDialogs(chats: DialogChat[]): Promise<DialogsResult> {
     const res = await this.call({ type: "hh-api", path: "/api/dialogs", method: "POST", body: { chats } });
     if (res.status !== 200) return { ok: false, error: describe(res) };
-    return { ok: true, result: JSON.parse(res.body) as DialogsCounts };
+    const result = parse<DialogsCounts>(res);
+    return result ? { ok: true, result } : { ok: false, error: notJson(res) };
   }
 
   async reportAutoReply(chatId: number, sent: boolean, error?: string): Promise<ReportResult> {
@@ -170,6 +177,17 @@ function answered(questions: VacancyDto["questions"]): QuestionAnswer[] | undefi
   if (!questions?.length || questions.some((q) => q.answer.length === 0)) return undefined;
   return questions.map((q) => ({ question: q.question, answer: q.answer }));
 }
+
+// Ответ 200 не JSON (прокси, страница ошибки) — ошибка запроса, а не исключение посреди очереди (#52)
+function parse<T>(res: ApiResponse): T | undefined {
+  try {
+    return JSON.parse(res.body) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+const notJson = (res: ApiResponse) => `ответ сервера — не JSON: ${res.body.slice(0, 100)}`;
 
 function describe(res: ApiResponse): string {
   if (res.status === 0) return `сервер недоступен: ${res.error ?? "нет ответа"}`;
