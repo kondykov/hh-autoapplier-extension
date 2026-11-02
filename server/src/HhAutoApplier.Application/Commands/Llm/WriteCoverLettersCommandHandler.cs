@@ -15,6 +15,7 @@ public class WriteCoverLettersCommandHandler(
     ILlmClient llm,
     TimeProvider clock,
     IUserService users,
+    LlmPipelineGate gate,
     ILogger<WriteCoverLettersCommandHandler> logger
 ) : ICommandHandler<WriteCoverLettersCommand, WriteCoverLettersResult>
 {
@@ -25,6 +26,8 @@ public class WriteCoverLettersCommandHandler(
     {
         if (!llm.IsConfigured)
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
+
+        using var pass = await gate.EnterAsync(ct);
 
         // Письма, которые дважды подряд вышли с цифрами не из фактов, сутки не переписываются: конвейер идёт раз в минуту,
         // без паузы это цикл запросов к LLM. Без письма расширение возьмёт свой шаблон
@@ -92,7 +95,12 @@ public class WriteCoverLettersCommandHandler(
                 done = true;
             }
 
-            await db.SaveChangesAsync(ct);
+            // Пока LLM писала, отклик одобрили со своим письмом или отправили — письмо LLM не записывается поверх
+            if (!await db.SaveOrDiscardAsync(application, ct))
+            {
+                logger.LogInformation("Письмо LLM {Vacancy}: отклик изменился, пока LLM писала, — письмо отброшено", application.VacancyId);
+                done = false;
+            }
             if (stoppedBy is not null)
                 break;
             if (done)

@@ -18,6 +18,7 @@ public class AnalyzeDialogsCommandHandler(
     TimeProvider clock,
     IUserService users,
     Notifier notifier,
+    LlmPipelineGate gate,
     ILogger<AnalyzeDialogsCommandHandler> logger
 ) : ICommandHandler<AnalyzeDialogsCommand, AnalyzeDialogsResult>
 {
@@ -26,6 +27,7 @@ public class AnalyzeDialogsCommandHandler(
         if (!llm.IsConfigured)
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
 
+        using var pass = await gate.EnterAsync(ct);
         var blocked = await users.GetBlockedIdsAsync(ct);
         var waiting = await db.EmployerMessages.Where(m => m.Kind == null && !blocked.Contains(m.UserId))
             .OrderBy(m => m.ReceivedAt).Take(command.Limit).ToListAsync(ct);

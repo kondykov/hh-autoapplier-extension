@@ -22,6 +22,7 @@ var app = builder.Build();
 
 await app.Services.InitializeDatabaseAsync();
 
+app.UseMiddleware<HhAutoApplier.Api.ConcurrencyConflictMiddleware>();
 app.UseCors();
 // Страницы (wwwroot) — без входа: данных в них нет, вход они спрашивают сами. «/» — веб-интерфейс index.html (#46)
 app.UseDefaultFiles();

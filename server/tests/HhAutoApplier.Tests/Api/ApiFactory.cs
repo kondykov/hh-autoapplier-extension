@@ -211,15 +211,19 @@ public sealed class FakeLlmClient : ILlmClient
 
     public bool IsConfigured => Configured;
 
+    // Пока «LLM думает»: действие пользователя или второй проход в это время (#54)
+    public Func<Task>? WhileThinking { get; set; }
+
     public void Reset()
     {
         Answers.Clear();
+        WhileThinking = null;
         Configured = false;
         Calls = 0;
         Requests.Clear();
     }
 
-    public Task<LlmResult> CompleteAsync(LlmRequest request, CancellationToken ct = default)
+    public async Task<LlmResult> CompleteAsync(LlmRequest request, CancellationToken ct = default)
     {
         if (!Configured)
             throw new LlmUnavailableException("LLM не настроена: задайте LLM_API_KEY");
@@ -229,7 +233,9 @@ public sealed class FakeLlmClient : ILlmClient
         if (!Answers.TryDequeue(out var answer))
             throw new LlmUnavailableException("дневной лимит запросов исчерпан");
 
-        return Task.FromResult(new LlmResult(answer, "fake-model", 100, 20));
+        if (WhileThinking is { } action)
+            await action();
+        return new LlmResult(answer, "fake-model", 100, 20);
     }
 }
 

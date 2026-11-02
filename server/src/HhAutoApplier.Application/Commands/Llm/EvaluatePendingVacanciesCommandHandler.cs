@@ -15,6 +15,7 @@ public class EvaluatePendingVacanciesCommandHandler(
     ILlmClient llm,
     TimeProvider clock,
     IUserService users,
+    LlmPipelineGate gate,
     ILogger<EvaluatePendingVacanciesCommandHandler> logger
 ) : ICommandHandler<EvaluatePendingVacanciesCommand, EvaluatePendingResult>
 {
@@ -23,6 +24,7 @@ public class EvaluatePendingVacanciesCommandHandler(
         if (!llm.IsConfigured)
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
 
+        using var pass = await gate.EnterAsync(ct);
         var pending = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct)).Where(a => a.Status == VacancyStatus.Pending)
             .OrderBy(a => a.Vacancy.CollectedAt).Take(command.Limit).ToListAsync(ct);
         // Резюме — владельца отклика, правила — поиска, который нашёл вакансию
@@ -62,7 +64,11 @@ public class EvaluatePendingVacanciesCommandHandler(
                              ?? new LlmAssessment(LlmVerdict.Doubtful, application.Score, null, "ответ LLM не разобран — проверить вручную");
             application.ApplyLlmEvaluation(assessment.Verdict, assessment.Score, assessment.Reason, assessment.Resume, result.Model, clock.GetUtcNow(),
                 reviewDoubtful: !rules.SkipReview);
-            await db.SaveChangesAsync(ct);
+            if (!await db.SaveOrDiscardAsync(application, ct))
+            {
+                logger.LogInformation("LLM-оценка {Vacancy}: отклик изменился, пока LLM отвечала, — результат отброшен", application.VacancyId);
+                continue;
+            }
 
             switch (assessment.Verdict)
             {

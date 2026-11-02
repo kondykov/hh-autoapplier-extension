@@ -1,4 +1,5 @@
 using HhAutoApplier.Application.Cqrs;
+using HhAutoApplier.Application.Llm;
 using HhAutoApplier.Application.Notifications;
 using HhAutoApplier.Domain.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,6 +19,7 @@ public static class DependencyInjection
             .WithScopedLifetime());
 
         services.AddScoped<Notifier>();
+        services.AddSingleton<LlmPipelineGate>();
         services.AddSingleton(VacancyEvaluator.Default);
         services.AddSingleton(TimeProvider.System);
         return services;

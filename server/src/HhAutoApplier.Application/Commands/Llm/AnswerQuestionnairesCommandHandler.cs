@@ -19,6 +19,7 @@ public class AnswerQuestionnairesCommandHandler(
     TimeProvider clock,
     IUserService users,
     Notifier notifier,
+    LlmPipelineGate gate,
     ILogger<AnswerQuestionnairesCommandHandler> logger
 ) : ICommandHandler<AnswerQuestionnairesCommand, AnswerQuestionnairesResult>
 {
@@ -27,6 +28,7 @@ public class AnswerQuestionnairesCommandHandler(
         if (!llm.IsConfigured)
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
 
+        using var pass = await gate.EnterAsync(ct);
         var blocked = await users.GetBlockedIdsAsync(ct);
         var waiting = await db.ActiveApplications(blocked).Where(a => a.Status == VacancyStatus.Questionnaire)
             .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
@@ -63,18 +65,26 @@ public class AnswerQuestionnairesCommandHandler(
 
             // Неполный ответ или вариант не из анкеты — догадки работодателю не отправляем: пропуск с причиной,
             // чтобы не спрашивать LLM каждый запуск. Вернуть в очередь — вручную, расширение пришлёт анкету заново
+            var ok = true;
             try
             {
                 application.AnswerQuestions(QuestionnaireAnswering.Parse(result.Content) ?? throw new DomainException("ответ LLM не разобран"), clock.GetUtcNow());
-                answered++;
             }
             catch (DomainException e)
             {
                 application.Skip($"анкета без ответа LLM: {e.Message}", clock.GetUtcNow());
-                failed++;
+                ok = false;
             }
 
-            await db.SaveChangesAsync(ct);
+            if (!await db.SaveOrDiscardAsync(application, ct))
+            {
+                logger.LogInformation("Анкета LLM {Vacancy}: отклик изменился, пока LLM отвечала, — ответы отброшены", application.VacancyId);
+                continue;
+            }
+            if (ok)
+                answered++;
+            else
+                failed++;
 
             if (application.Status == VacancyStatus.Skipped)
                 await notifier.NotifyAsync(application.UserId, NotificationKind.Questionnaire, $"questionnaire:{application.Id}",

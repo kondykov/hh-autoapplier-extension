@@ -13,7 +13,7 @@ node scripts/dev-browser.mjs      # Chromium с расширением, проф
 node scripts/cdp-queue-dry-run.mjs # пробный проход очереди в запущенном dev-браузере: журнал и снимок формы, без отправки
 node scripts/cdp-inspect.mjs [--form] # read-only: вкладки dev-браузера, флаги очереди/пробного режима, снимок формы
 node scripts/db-query.mjs "select ..." # read-only запрос к базе docker compose
-cd server; dotnet test            # xunit (145 тестов; нужен запущенный Docker — Postgres для тестов API в Testcontainers)
+cd server; dotnet test            # xunit (148 тестов; нужен запущенный Docker — Postgres для тестов API в Testcontainers)
 cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:8080
 ```
 Расширение читается только при старте браузера: после `build` браузер перезапускать (спросить, если у владельца открыта страница).
