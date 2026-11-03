@@ -12,6 +12,7 @@ namespace HhAutoApplier.Application.Commands.Llm;
 
 public class WriteCoverLettersCommandHandler(
     IAppDbContext db,
+    LlmWorkScheduler scheduler,
     ILlmClient llm,
     TimeProvider clock,
     IUserService users,
@@ -23,8 +24,14 @@ public class WriteCoverLettersCommandHandler(
         if (!llm.IsConfigured)
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
 
-        var queued = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct)).Where(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter == null)
-            .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
+        var candidates = await LlmWorkQueries.TakePerUserAsync(
+            db.ActiveApplications(await users.GetBlockedIdsAsync(ct))
+                .Where(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter == null),
+            command.Limit,
+            owner => owner.OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt),
+            ct);
+        using var batch = scheduler.ReserveFair(candidates, command.Limit);
+        var queued = batch.Applications;
         // Резюме ищется у владельца отклика: имена у разных пользователей совпадают
         var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => (r.UserId, r.Name), ct);
 

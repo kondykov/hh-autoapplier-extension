@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using HhAutoApplier.Application.Commands.Llm;
 using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Vacancies;
@@ -136,6 +137,77 @@ public class OwnershipTests(ApiFactory factory) : IAsyncLifetime
         // Повторный сбор ничего не добавляет и не загружает
         Assert.Equal(0, (await Json(await _admin.PostAsync("/api/collect", null))).GetProperty("added").GetInt32());
         Assert.Equal(1, factory.Source.DetailsLoaded);
+    }
+
+    [Fact]
+    public async Task LlmWorkers_DistributeBatchesAcrossUsers()
+    {
+        var (idA, a) = await CreateUser("fair-a@test.local");
+        var (idB, b) = await CreateUser("fair-b@test.local");
+        var userA = Guid.Parse(idA);
+        var userB = Guid.Parse(idB);
+        await SaveSearch(a, "a-search");
+        await SaveSearch(b, "b-search");
+
+        factory.Llm.Configured = true;
+        await Import(a, "a-search", "fair-a-1", "fair-a-2");
+        await Import(b, "b-search", "fair-b-1", "fair-b-2");
+
+        const string evaluation = """{"verdict":"fit","score":80,"resume":null,"reason":"подходит"}""";
+        factory.Llm.Answers.Enqueue(evaluation);
+        factory.Llm.Answers.Enqueue(evaluation);
+        await Json(await _admin.PostAsJsonAsync("/api/llm/evaluate", new { limit = 2 }));
+
+        var afterFirstBatch = await factory.WithDbAsync(db => db.JobApplications
+            .Where(application => application.UserId == userA || application.UserId == userB)
+            .Select(application => new { application.UserId, application.Status })
+            .ToListAsync());
+        Assert.Single(afterFirstBatch, application => application.UserId == userA && application.Status == VacancyStatus.Queued);
+        Assert.Single(afterFirstBatch, application => application.UserId == userA && application.Status == VacancyStatus.Pending);
+        Assert.Single(afterFirstBatch, application => application.UserId == userB && application.Status == VacancyStatus.Queued);
+        Assert.Single(afterFirstBatch, application => application.UserId == userB && application.Status == VacancyStatus.Pending);
+
+        factory.Llm.Answers.Enqueue(evaluation);
+        factory.Llm.Answers.Enqueue(evaluation);
+        await Json(await _admin.PostAsJsonAsync("/api/llm/evaluate", new { limit = 2 }));
+
+        const string letter = "Здравствуйте! Я заинтересован в вакансии и буду рад обсудить задачи на собеседовании.";
+        factory.Llm.Answers.Enqueue(letter);
+        factory.Llm.Answers.Enqueue(letter);
+        await Json(await _admin.PostAsJsonAsync("/api/llm/letters", new { limit = 2 }));
+
+        var questionnaireVacancies = await factory.WithDbAsync(db => db.JobApplications
+            .Where(application => (application.UserId == userA || application.UserId == userB)
+                                  && application.Status == VacancyStatus.Queued
+                                  && application.CoverLetter == null)
+            .Select(application => new { application.UserId, application.VacancyId })
+            .ToListAsync());
+        var vacancyA = Assert.Single(questionnaireVacancies, application => application.UserId == userA).VacancyId;
+        var vacancyB = Assert.Single(questionnaireVacancies, application => application.UserId == userB).VacancyId;
+        object questionnaire = new { questions = new[] { new { question = "Опыт?", type = "Text" } } };
+        await Json(await a.PostAsJsonAsync($"/api/vacancies/{vacancyA}/questionnaire", questionnaire));
+        await Json(await b.PostAsJsonAsync($"/api/vacancies/{vacancyB}/questionnaire", questionnaire));
+
+        factory.Llm.Answers.Enqueue("""{"answers":["Расскажу на собеседовании"]}""");
+        factory.Llm.Answers.Enqueue("""{"answers":["Расскажу на собеседовании"]}""");
+        await Json(await _admin.PostAsJsonAsync("/api/llm/answers", new { limit = 2 }));
+
+        var completedQuestionnaires = await factory.WithDbAsync(db => db.JobApplications
+            .Where(application => application.VacancyId == vacancyA || application.VacancyId == vacancyB)
+            .ToListAsync());
+        Assert.Equal(2, completedQuestionnaires.Count);
+        Assert.All(completedQuestionnaires, application => Assert.Equal(VacancyStatus.Queued, application.Status));
+        Assert.All(completedQuestionnaires, application => Assert.Equal(["Расскажу на собеседовании"], application.Questions.Single().Answer));
+
+        var scheduler = factory.Services.GetRequiredService<LlmWorkScheduler>();
+        using var inFlight = scheduler.ReserveFair(completedQuestionnaires, 1);
+        using var nextBatch = scheduler.ReserveFair(completedQuestionnaires, 1);
+        var first = Assert.Single(inFlight.Applications);
+        var second = Assert.Single(nextBatch.Applications);
+        Assert.NotEqual(first.Id, second.Id);
+        Assert.NotEqual(first.UserId, second.UserId);
+
+        Assert.Equal(8, await factory.WithDbAsync(db => db.LlmCalls.CountAsync()));
     }
 
     [Fact]

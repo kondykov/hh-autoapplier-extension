@@ -12,6 +12,7 @@ namespace HhAutoApplier.Application.Commands.Llm;
 
 public class EvaluatePendingVacanciesCommandHandler(
     IAppDbContext db,
+    LlmWorkScheduler scheduler,
     ILlmClient llm,
     TimeProvider clock,
     IUserService users,
@@ -23,8 +24,13 @@ public class EvaluatePendingVacanciesCommandHandler(
         if (!llm.IsConfigured)
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
 
-        var pending = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct)).Where(a => a.Status == VacancyStatus.Pending)
-            .OrderBy(a => a.Vacancy.CollectedAt).Take(command.Limit).ToListAsync(ct);
+        var candidates = await LlmWorkQueries.TakePerUserAsync(
+            db.ActiveApplications(await users.GetBlockedIdsAsync(ct)).Where(a => a.Status == VacancyStatus.Pending),
+            command.Limit,
+            owner => owner.OrderBy(a => a.Vacancy.CollectedAt),
+            ct);
+        using var batch = scheduler.ReserveFair(candidates, command.Limit);
+        var pending = batch.Applications;
         // Резюме — владельца отклика, правила — поиска, который нашёл вакансию
         var resumesByOwner = (await db.Resumes.AsNoTracking().ToListAsync(ct)).ToLookup(r => r.UserId);
 

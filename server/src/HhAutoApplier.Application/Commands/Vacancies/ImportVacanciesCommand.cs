@@ -11,7 +11,7 @@ public record ImportVacanciesCommand
     [Required]
     public required string Search { get; init; }
 
-    [Required]
+    [Required, MaxLength(100)]
     public required List<ImportedVacancy> Vacancies { get; init; }
 }
 

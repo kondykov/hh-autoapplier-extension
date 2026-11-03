@@ -13,6 +13,7 @@ namespace HhAutoApplier.Application.Commands.Llm;
 
 public class AnswerQuestionnairesCommandHandler(
     IAppDbContext db,
+    LlmWorkScheduler scheduler,
     ILlmClient llm,
     TimeProvider clock,
     IUserService users,
@@ -25,8 +26,13 @@ public class AnswerQuestionnairesCommandHandler(
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
 
         var blocked = await users.GetBlockedIdsAsync(ct);
-        var waiting = await db.ActiveApplications(blocked).Where(a => a.Status == VacancyStatus.Questionnaire)
-            .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
+        var candidates = await LlmWorkQueries.TakePerUserAsync(
+            db.ActiveApplications(blocked).Where(a => a.Status == VacancyStatus.Questionnaire),
+            command.Limit,
+            owner => owner.OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt),
+            ct);
+        using var batch = scheduler.ReserveFair(candidates, command.Limit);
+        var waiting = batch.Applications;
         // Резюме ищется у владельца отклика: имена у разных пользователей совпадают
         var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => (r.UserId, r.Name), ct);
 

@@ -1,4 +1,5 @@
 using HhAutoApplier.Application.Cqrs;
+using HhAutoApplier.Application.Commands.Llm;
 using HhAutoApplier.Domain.Services;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -17,6 +18,7 @@ public static class DependencyInjection
             .WithScopedLifetime());
 
         services.AddSingleton(VacancyEvaluator.Default);
+        services.AddSingleton<LlmWorkScheduler>();
         services.AddSingleton(TimeProvider.System);
         return services;
     }

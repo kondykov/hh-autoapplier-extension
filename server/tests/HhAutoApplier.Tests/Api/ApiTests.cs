@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 
 namespace HhAutoApplier.Tests.Api;
 
@@ -34,6 +35,26 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
 
     private Task<HttpResponseMessage> SetStatus(string id, string status, string? reason = null) =>
         _api.PostAsJsonAsync($"/api/vacancies/{id}/status", new { status, reason });
+
+    [Fact]
+    public async Task Import_RejectsMoreThanOnePage()
+    {
+        await SaveSearch();
+        var vacancies = Enumerable.Range(1, 101).Select(i => Card(i.ToString(), "C# разработчик")).ToArray();
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await Import("dotnet", vacancies)).StatusCode);
+        Assert.Equal(0, await factory.WithDbAsync(db => db.Vacancies.CountAsync()));
+    }
+
+    [Fact]
+    public async Task Import_AcceptsMaximumPageSize()
+    {
+        await SaveSearch();
+        var vacancies = Enumerable.Range(1, 100).Select(i => Card(i.ToString(), "C# разработчик")).ToArray();
+
+        await Json(await Import("dotnet", vacancies));
+        Assert.Equal(100, await factory.WithDbAsync(db => db.Vacancies.CountAsync()));
+    }
 
     // CORS выключен по умолчанию (#20): чужой сайт не получает разрешения ни на preflight, ни на обычный запрос
     [Fact]

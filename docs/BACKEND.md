@@ -119,7 +119,7 @@ ASP.NET Core Identity (таблицы `AspNet*` в той же БД, мигра�
 | POST | `/api/vacancies/{id}/status` | `{status, reason?, resume?}`: Applied, Skipped, Failed... — меняет статус своего отклика |
 | GET/PUT/DELETE | `/api/searches` | свои поиски с правилами (`FilterRules`); GET — `?userId=` |
 | GET/PUT | `/api/resumes` | свои профили резюме (`match`, `keywords`; для LLM — `summary` и шаблон письма `letterTemplate`); GET — `?userId=` |
-| POST | `/api/import` | `{search, vacancies[]}` — в свой поиск |
+| POST | `/api/import` | `{search, vacancies[]}` — в свой поиск; не больше 100 вакансий за запрос, иначе 400 |
 | POST | `/api/collect` | запустить сбор сейчас по поискам всех пользователей (только `Admin`; 502, если источник заблокировал) |
 | POST | `/api/llm/check` | проверить ключ и модель LLM (только `Admin`; 503 — не настроена, лимит, провайдер не отвечает) |
 | POST | `/api/llm/evaluate` | `{limit}`: оценить LLM вакансии `Pending` всех пользователей (только `Admin`; 503 — LLM не настроена) |
