@@ -60,7 +60,9 @@ public class AnswerQuestionnairesCommandHandler(
             // чтобы не спрашивать LLM каждый запуск. Вернуть в очередь — вручную, расширение пришлёт анкету заново
             try
             {
-                application.AnswerQuestions(QuestionnaireAnswering.Parse(result.Content) ?? throw new DomainException("ответ LLM не разобран"), clock.GetUtcNow());
+                var answers = QuestionnaireAnswering.Parse(result.Content) ?? throw new DomainException("ответ LLM не разобран");
+                QuestionnaireAnswering.ValidateTextAnswers(application.Questions, answers, resume);
+                application.AnswerQuestions(answers, clock.GetUtcNow(), reviewTextAnswers: !rules.SkipReview);
                 answered++;
             }
             catch (DomainException e)
