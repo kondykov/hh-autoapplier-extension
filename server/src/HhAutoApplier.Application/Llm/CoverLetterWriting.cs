@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.RegularExpressions;
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Domain.Candidates;
 using HhAutoApplier.Domain.Resumes;
@@ -22,18 +21,6 @@ public static class CoverLetterWriting
 
     // Причина в журнале LlmCalls, когда цифры письма не из фактов: по ней письмо вакансии не переписывается сутки
     public const string FiguresError = "цифры не из фактов";
-
-    // Число или диапазон: «30–40», «8 000», «1.5», «300»; знак после (%, ×) не важен — сравниваются сами числа
-    private const string Number = @"(?<![\p{L}\d.,])\d+(?:[   ]\d{3})*(?:[.,]\d+)?(?:\s*[-‐-—]\s*\d+(?:[.,]\d+)?)?";
-
-    private static readonly Regex Figure = new(Number, RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200));
-
-    // Граница при числе: «до 30», «более 80» — смысл числа меняется вместе со словом
-    private static readonly Regex Bound = new($@"(?<![\p{{L}}])(до|более|свыше|больше|почти)\s+({Number})",
-        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(200));
-
-    // «3+», «8 000+» — в фактах разрешает «более 3», «более 8 000»
-    private static readonly Regex AtLeast = new($@"({Number})\s*\+", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200));
 
     private const string System = """
         Ты помогаешь соискателю писать сопроводительные письма к откликам на hh.ru.
@@ -92,14 +79,7 @@ public static class CoverLetterWriting
     public static IReadOnlyList<string> UnsupportedFigures(string letter, LlmRequest request)
     {
         var facts = string.Join("\n", request.Messages.Where(m => m.Role == "user").Select(m => m.Content));
-        var known = Figures(facts).ToHashSet();
-        var bounded = Bounds(facts).ToHashSet();
-        var unknown = Figures(letter).Where(f => !known.Contains(f));
-        // Число есть в фактах, но про другое: «до 40 %» при «на 30–40%» и «latency −40%». «Более N» — можно при «N+»
-        var atLeast = AtLeast.Matches(facts).Select(m => Normalize(m.Groups[1].Value)).ToHashSet();
-        var narrowed = Bounds(letter).Where(b => !bounded.Contains(b) && !(b.Word is "более" or "свыше" or "больше" && atLeast.Contains(b.Figure)))
-            .Select(b => $"{b.Word} {b.Figure}");
-        return unknown.Concat(narrowed).Distinct().ToList();
+        return FactFigures.Unsupported(letter, facts);
     }
 
     // Повторная попытка: тот же разговор, письмо модели и список неверных цифр
@@ -114,15 +94,6 @@ public static class CoverLetterWriting
                                 "Перепиши письмо: цифры — только дословно как в фактах (диапазон целиком, без «до», «более», «свыше»), иначе без цифр."),
             ],
         };
-
-    // Без пробелов (в том числе неразрывных), десятичная точка, дефисы и тире — «-»: «8 000» = «8000», «30 – 40» = «30-40»
-    private static IEnumerable<string> Figures(string text) => Figure.Matches(text).Select(m => Normalize(m.Value));
-
-    private static IEnumerable<(string Word, string Figure)> Bounds(string text) =>
-        Bound.Matches(text).Select(m => (m.Groups[1].Value.ToLowerInvariant(), Normalize(m.Groups[2].Value)));
-
-    private static string Normalize(string figure) =>
-        new(figure.Where(c => !char.IsWhiteSpace(c)).Select(c => c switch { ',' => '.', >= '‐' and <= '—' => '-', _ => c }).ToArray());
 
     // null — ответ не похож на письмо (пустой, слишком короткий, JSON)
     public static string? Parse(string content)

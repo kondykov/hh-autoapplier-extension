@@ -200,13 +200,14 @@ function vacancyCard(v) {
     vacancyActions(v, pill));
 }
 
-// Ручная проверка (#25): вакансии, в которых LLM сомневается. «Одобрить» — в очередь с письмом из поля, «Отклонить» — пропуск с причиной
+// Ручная проверка (#25, #58): вакансии, в которых LLM сомневается, и анкеты с текстовыми ответами LLM.
+// «Одобрить» — в очередь с письмом и ответами из полей, «Отклонить» — пропуск с причиной
 async function review() {
   const items = (await api(scoped("/api/vacancies?status=Review&take=200"))).sort((a, b) => b.score - a.score);
   const list = el("div", {}, items.length ? items.map(reviewCard) : el("p", { className: "empty", textContent: "На проверке ничего нет." }));
   return [
     el("h1", { textContent: "Проверка" }),
-    el("p", { className: "sub", textContent: `Вакансии, в которых LLM сомневается: ${items.length}. Письмо можно поправить перед одобрением.` }),
+    el("p", { className: "sub", textContent: `Вакансии, в которых LLM сомневается, и анкеты с ответами LLM: ${items.length}. Письмо и текстовые ответы можно поправить перед одобрением.` }),
     list,
   ];
 }
@@ -218,6 +219,13 @@ function reviewCard(v) {
   const approve = el("button", { className: "approve", textContent: "Одобрить" });
   const decline = el("button", { className: "danger", textContent: "Отклонить" });
   const result = el("span", { className: "result" });
+  // Текстовые ответы LLM на анкету (#58) — в полях: уходят работодателю от имени кандидата
+  const questions = v.questions ?? [];
+  const answered = questions.some((q) => q.answer.length);
+  const answerFields = questions.map((q, i) => answered && q.type === "Text"
+    ? el("textarea", { value: q.answer.join("\n"), id: `answer-${v.id}-${i}`, disabled: readOnly(), "aria-label": q.question })
+    : null);
+  const fields = () => [letter, ...answerFields.filter(Boolean)];
 
   const node = el("article", { className: "card" },
     el("h2", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title })),
@@ -225,15 +233,18 @@ function reviewCard(v) {
     el("div", { className: "verdict", textContent: v.statusReason ?? v.llmReason ?? "LLM сомневается" }),
     v.stack?.length ? el("div", { className: "meta", textContent: `Стек: ${v.stack.join(", ")}` }) : null,
     el("details", {}, el("summary", { textContent: "Описание вакансии" }), el("div", { className: "desc", textContent: v.description || "описания нет" })),
-    v.questions?.length ? el("details", {}, el("summary", { textContent: `Анкета (${v.questions.length})` }),
-      v.questions.map((q) => el("div", { className: "reason" }, el("b", { textContent: q.question }), el("br"), q.answer.length ? q.answer.join("; ") : "ответа нет"))) : null,
+    questions.length ? el("details", { open: answered }, el("summary", { textContent: `Анкета (${questions.length})` }),
+      questions.map((q, i) => answerFields[i]
+        ? el("div", { className: "reason" }, el("label", { className: "field", for: answerFields[i].id, textContent: q.question }), answerFields[i])
+        : el("div", { className: "reason" }, el("b", { textContent: q.question }), el("br"), q.answer.length ? q.answer.join("; ") : "ответа нет"))) : null,
     el("label", { className: "field", for: letter.id, textContent: v.coverLetterModel ? `Письмо (${v.coverLetterModel === "manual" ? "ваше" : v.coverLetterModel})` : "Письмо" }),
     letter,
     readOnly() ? null : el("div", { className: "actions" }, approve, reason, decline, result));
 
   // Карточка после решения остаётся на месте с итогом: если убрать её, следующая подъедет под курсор и лишний клик решит за неё
   async function act(body, done) {
-    approve.disabled = decline.disabled = reason.disabled = letter.disabled = true;
+    approve.disabled = decline.disabled = reason.disabled = true;
+    fields().forEach((f) => (f.disabled = true));
     try {
       await post(`/api/vacancies/${encodeURIComponent(v.id)}/review`, body);
       node.classList.add("decided");
@@ -242,14 +253,18 @@ function reviewCard(v) {
     } catch (e) {
       if (e instanceof Unauthorized) showLogin();
       setStatus(`«${v.title}»: ${e.message}`, true);
-      approve.disabled = decline.disabled = reason.disabled = letter.disabled = false;
+      approve.disabled = decline.disabled = reason.disabled = false;
+      fields().forEach((f) => (f.disabled = false));
     }
   }
 
-  // Письмо уходит, только если его поправили: иначе остаётся письмо LLM с её моделью
+  // Письмо уходит, только если его поправили: иначе остаётся письмо LLM с её моделью.
+  // Ответы анкеты — все по порядку вопросов, если поправлен хоть один текстовый: варианты остаются ответами LLM
   approve.onclick = () => {
     const text = letter.value.trim();
-    act({ approve: true, coverLetter: text && text !== (v.coverLetter ?? "").trim() ? text : null }, "одобрено, в очереди");
+    const edited = answerFields.some((f, i) => f && f.value.trim() !== questions[i].answer.join("\n").trim());
+    const answers = edited ? questions.map((q, i) => (answerFields[i] ? [answerFields[i].value.trim()] : q.answer)) : null;
+    act({ approve: true, coverLetter: text && text !== (v.coverLetter ?? "").trim() ? text : null, answers }, "одобрено, в очереди");
   };
   decline.onclick = () => act({ approve: false, reason: reason.value.trim() || null }, "отклонено");
   return node;

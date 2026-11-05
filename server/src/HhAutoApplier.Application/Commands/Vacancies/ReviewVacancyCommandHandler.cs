@@ -23,7 +23,7 @@ public class ReviewVacancyCommandHandler(
         try
         {
             if (command.Approve)
-                application.Approve(command.CoverLetter, clock.GetUtcNow());
+                application.Approve(command.CoverLetter, clock.GetUtcNow(), command.Answers);
             else
                 application.Decline(command.Reason, clock.GetUtcNow());
         }

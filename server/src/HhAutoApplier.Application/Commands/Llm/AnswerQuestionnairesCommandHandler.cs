@@ -23,6 +23,9 @@ public class AnswerQuestionnairesCommandHandler(
     ILogger<AnswerQuestionnairesCommandHandler> logger
 ) : ICommandHandler<AnswerQuestionnairesCommand, AnswerQuestionnairesResult>
 {
+    // Первый ответ и одна исправленная попытка
+    private const int MaxAttempts = 2;
+
     public async Task<AnswerQuestionnairesResult> Handle(AnswerQuestionnairesCommand command, CancellationToken ct = default)
     {
         if (!llm.IsConfigured)
@@ -43,32 +46,54 @@ public class AnswerQuestionnairesCommandHandler(
         {
             var resume = application.ResumeProfile is { } name ? resumes.GetValueOrDefault((application.UserId, name)) : null;
             var rules = application.Rules;
-            var request = QuestionnaireAnswering.BuildRequest(application, resume, rules, profiles.FirstOrDefault(p => p.UserId == application.UserId));
-            var prompt = VacancyAssessment.Serialize(request);
+            var profile = profiles.FirstOrDefault(p => p.UserId == application.UserId);
+            var first = QuestionnaireAnswering.BuildRequest(application, resume, rules, profile);
+            var facts = QuestionnaireAnswering.Facts(application, resume, profile);
 
-            LlmResult result;
-            try
+            // Цифры текстовых ответов не из фактов — одна повторная попытка с замечанием, потом на ручную проверку (#58)
+            var request = first;
+            IReadOnlyList<IReadOnlyCollection<string>>? answers = null;
+            IReadOnlyList<string> problems = [];
+            for (var attempt = 1; attempt <= MaxAttempts; attempt++)
             {
-                result = await llm.CompleteAsync(request, ct);
+                var prompt = VacancyAssessment.Serialize(request);
+                LlmResult result;
+                try
+                {
+                    result = await llm.CompleteAsync(request, ct);
+                }
+                catch (LlmUnavailableException e)
+                {
+                    // Лимит или провайдер недоступен: остальные ждут следующего запуска
+                    db.LlmCalls.Add(LlmCall.Failed(QuestionnaireAnswering.Purpose, application.VacancyId, "", prompt, e.Message, clock.GetUtcNow()).For(application.UserId));
+                    await db.SaveChangesAsync(ct);
+                    stoppedBy = e.Message;
+                    break;
+                }
+
+                answers = QuestionnaireAnswering.Parse(result.Content);
+                problems = answers is null ? [] : QuestionnaireAnswering.Problems(application.Questions, answers, facts, rules);
+                db.LlmCalls.Add((problems.Count > 0
+                    ? LlmCall.Rejected(QuestionnaireAnswering.Purpose, application.VacancyId, result.Model, prompt, result.Content,
+                        $"{QuestionnaireAnswering.FiguresError}: {string.Join("; ", problems)}", result.PromptTokens, result.CompletionTokens, clock.GetUtcNow())
+                    : LlmCall.Succeeded(QuestionnaireAnswering.Purpose, application.VacancyId, result.Model, prompt, result.Content,
+                        result.PromptTokens, result.CompletionTokens, clock.GetUtcNow())).For(application.UserId));
+                if (problems.Count == 0)
+                    break;
+
+                request = QuestionnaireAnswering.Retry(first, result.Content, problems);
             }
-            catch (LlmUnavailableException e)
-            {
-                // Лимит или провайдер недоступен: остальные ждут следующего запуска
-                db.LlmCalls.Add(LlmCall.Failed(QuestionnaireAnswering.Purpose, application.VacancyId, "", prompt, e.Message, clock.GetUtcNow()).For(application.UserId));
-                await db.SaveChangesAsync(ct);
-                stoppedBy = e.Message;
+            // Анкета остаётся ждать следующего запуска
+            if (stoppedBy is not null)
                 break;
-            }
-
-            db.LlmCalls.Add(LlmCall.Succeeded(QuestionnaireAnswering.Purpose, application.VacancyId, result.Model, prompt, result.Content,
-                result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(application.UserId));
 
             // Неполный ответ или вариант не из анкеты — догадки работодателю не отправляем: пропуск с причиной,
             // чтобы не спрашивать LLM каждый запуск. Вернуть в очередь — вручную, расширение пришлёт анкету заново
             var ok = true;
             try
             {
-                application.AnswerQuestions(QuestionnaireAnswering.Parse(result.Content) ?? throw new DomainException("ответ LLM не разобран"), clock.GetUtcNow());
+                application.AnswerQuestions(answers ?? throw new DomainException("ответ LLM не разобран"), clock.GetUtcNow(),
+                    reviewText: !rules.SkipReview, problems);
             }
             catch (DomainException e)
             {

@@ -68,7 +68,8 @@ public class VacanciesController : ApiController
     }
 
     /// <summary>
-    /// Ручная проверка вакансии в статусе Review: одобрить — в очередь (coverLetter — поправленное письмо, пусто — письмо LLM),
+    /// Ручная проверка вакансии в статусе Review: одобрить — в очередь (coverLetter — поправленное письмо, пусто — письмо LLM;
+    /// answers — поправленные ответы анкеты, все по порядку вопросов, пусто — ответы LLM),
     /// отклонить — Skipped с причиной. Список на проверке — GET /api/vacancies?status=Review, страница — веб-интерфейс, «Проверка» (/#review).
     /// </summary>
     /// <response code="404">Вакансия не найдена.</response>
@@ -84,7 +85,7 @@ public class VacanciesController : ApiController
         CancellationToken ct
     )
     {
-        var command = new ReviewVacancyCommand { VacancyId = id, Approve = request.Approve, CoverLetter = request.CoverLetter, Reason = request.Reason };
+        var command = new ReviewVacancyCommand { VacancyId = id, Approve = request.Approve, CoverLetter = request.CoverLetter, Answers = request.Answers, Reason = request.Reason };
         return FromResult((await handler.Handle(command, ct)).Value);
     }
 
@@ -146,4 +147,5 @@ public record SetVacancyStatusRequest(VacancyStatus Status, string? Reason, stri
 
 public record SubmitQuestionnaireRequest([Required, MinLength(1), MaxLength(50)] List<QuestionInput> Questions);
 
-public record ReviewVacancyRequest(bool Approve, [MaxLength(4000)] string? CoverLetter, [MaxLength(500)] string? Reason);
+public record ReviewVacancyRequest(bool Approve, [MaxLength(4000)] string? CoverLetter, [MaxLength(500)] string? Reason,
+    [MaxLength(50)] List<List<string>>? Answers = null);

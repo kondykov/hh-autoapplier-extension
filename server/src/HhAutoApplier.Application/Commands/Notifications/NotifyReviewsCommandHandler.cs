@@ -1,6 +1,7 @@
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Application.Cqrs;
 using HhAutoApplier.Application.Notifications;
+using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Notifications;
 using HhAutoApplier.Domain.Vacancies;
 using Microsoft.EntityFrameworkCore;
@@ -29,13 +30,13 @@ public class NotifyReviewsCommandHandler(IAppDbContext db, ITelegramBot bot, Not
         var written = 0;
         foreach (var user in waiting.GroupBy(a => a.UserId!.Value))
         {
-            var fresh = user.Where(a => !known.Contains(ReviewKey(a.Id))).ToList();
+            var fresh = user.Where(a => !known.Contains(ReviewKey(a))).ToList();
             if (fresh.Count < DigestFrom)
             {
                 foreach (var application in fresh)
                 {
                     var message = BotTexts.Review(application);
-                    if (await notifier.NotifyAsync(application.UserId, NotificationKind.Review, ReviewKey(application.Id), message.Text, application.VacancyId, ct))
+                    if (await notifier.NotifyAsync(application.UserId, NotificationKind.Review, ReviewKey(application), message.Text, application.VacancyId, ct))
                         written++;
                 }
 
@@ -49,7 +50,7 @@ public class NotifyReviewsCommandHandler(IAppDbContext db, ITelegramBot bot, Not
             written++;
             foreach (var application in fresh)
             {
-                var covered = Notification.Create(user.Key, NotificationKind.Review, ReviewKey(application.Id), "в сводке", clock.GetUtcNow(), application.VacancyId);
+                var covered = Notification.Create(user.Key, NotificationKind.Review, ReviewKey(application), "в сводке", clock.GetUtcNow(), application.VacancyId);
                 covered.Cancel("в сводке");
                 db.Notifications.Add(covered);
             }
@@ -60,5 +61,7 @@ public class NotifyReviewsCommandHandler(IAppDbContext db, ITelegramBot bot, Not
         return written;
     }
 
-    private static string ReviewKey(int applicationId) => $"review:{applicationId}";
+    // Анкета на проверке (#58) — свой ключ: отклик, одобренный раньше как сомнительный, приходит на проверку второй раз
+    private static string ReviewKey(JobApplication application) =>
+        application.Questions.Any(q => q.Answer.Count > 0) ? $"review-questionnaire:{application.Id}" : $"review:{application.Id}";
 }

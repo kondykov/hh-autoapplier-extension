@@ -69,16 +69,26 @@ public static class BotTexts
         _ => [],
     };
 
-    // Сомнительный отклик для решения в чате; Data кнопок — «действие:id вакансии» (лимит Telegram — 64 байта)
+    // Отклик на проверке (сомнительный или с ответами анкеты) для решения в чате; Data кнопок — «действие:id вакансии» (лимит Telegram — 64 байта)
     public static BotMessage Review(JobApplication application)
     {
         var v = application.Vacancy;
+        var answered = application.Questions.Where(q => q.Answer.Count > 0).ToList();
+        // У анкеты на проверке причина — в статусе («анкета: проверить …»), пояснение оценки LLM — о другом
+        var reason = answered.Count > 0 ? application.StatusReason : application.LlmReason ?? application.StatusReason;
         var text = new StringBuilder()
             .AppendLine($"На проверке: {v.Title}{(string.IsNullOrWhiteSpace(v.Company) ? "" : $" — {v.Company}")}")
             .AppendLine(v.Url)
-            .AppendLine($"LLM {application.LlmScore ?? application.Score}: {application.LlmReason ?? application.StatusReason ?? "без пояснения"}");
+            .AppendLine($"LLM {application.LlmScore ?? application.Score}: {reason ?? "без пояснения"}");
         if (!string.IsNullOrWhiteSpace(application.ResumeProfile))
             text.AppendLine($"Резюме: {application.ResumeProfile}");
+
+        if (answered.Count > 0)
+        {
+            text.AppendLine().AppendLine("Анкета (поправить ответы — в веб-интерфейсе, «Проверка»):");
+            foreach (var q in answered)
+                text.AppendLine($"— {q.Text}").AppendLine($"  {string.Join("; ", q.Answer)}");
+        }
 
         text.AppendLine().AppendLine(string.IsNullOrWhiteSpace(application.CoverLetter)
             ? "Письма пока нет — расширение возьмёт свой шаблон. Поправить письмо — в веб-интерфейсе, раздел «Проверка»."

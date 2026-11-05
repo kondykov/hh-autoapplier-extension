@@ -321,20 +321,67 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.BadRequest, (await _api.PostAsJsonAsync("/api/vacancies/1/questionnaire", new { questions = Array.Empty<object>() })).StatusCode);
         Assert.Equal(0, (await Json(await _api.GetAsync("/api/queue"))).GetArrayLength());
 
-        // Порядок — по баллу, у обеих он одинаковый: подходящий ответ годится для любой, неподходящий вариант — пропуск
+        // Порядок — по баллу, у обеих он одинаковый: подходящий ответ годится для любой, неподходящий вариант — пропуск.
+        // Текстовый ответ без цифр — на ручную проверку (#58)
         factory.Llm.Configured = true;
-        factory.Llm.Answers.Enqueue("""{"answers": ["dip", "от 250 000 ₽"]}""");
+        factory.Llm.Answers.Enqueue("""{"answers": ["dip", "готов обсудить"]}""");
         factory.Llm.Answers.Enqueue("""{"answers": ["LSP", "готов обсудить"]}""");
         var res = await Json(await _api.PostAsJsonAsync("/api/llm/answers", new { limit = 10 }));
         Assert.Equal((1, 1, 0), (res.GetProperty("answered").GetInt32(), res.GetProperty("failed").GetInt32(), res.GetProperty("remaining").GetInt32()));
 
-        var queued = Assert.Single((await Json(await _api.GetAsync("/api/queue"))).EnumerateArray());
-        var answers = queued.GetProperty("questions").EnumerateArray()
+        Assert.Equal(0, (await Json(await _api.GetAsync("/api/queue"))).GetArrayLength());
+        var review = Assert.Single((await Json(await _api.GetAsync("/api/vacancies?status=Review"))).EnumerateArray());
+        Assert.Equal("анкета: проверить ответы LLM", review.GetProperty("statusReason").GetString());
+        var answers = review.GetProperty("questions").EnumerateArray()
             .Select(q => (q.GetProperty("type").GetString(), q.GetProperty("answer")[0].GetString())).ToList();
-        Assert.Equal([("Radio", "DIP"), ("Text", "от 250 000 ₽")], answers);
+        Assert.Equal([("Radio", "DIP"), ("Text", "готов обсудить")], answers);
 
         var skipped = Assert.Single((await Json(await _api.GetAsync("/api/vacancies?status=Skipped"))).EnumerateArray());
         Assert.Contains("LSP", skipped.GetProperty("statusReason").GetString());
+
+        // Человек поправил текстовый ответ и одобрил — в очередь с его ответом; ответы не по числу вопросов — 409
+        var id = review.GetProperty("id").GetString();
+        Assert.Equal(HttpStatusCode.Conflict, (await _api.PostAsJsonAsync($"/api/vacancies/{id}/review",
+            new { approve = true, answers = new[] { new[] { "DIP" } } })).StatusCode);
+        var approved = await Json(await _api.PostAsJsonAsync($"/api/vacancies/{id}/review",
+            new { approve = true, answers = new[] { new[] { "DIP" }, new[] { "от 250 000 ₽" } } }));
+        Assert.Equal("Queued", approved.GetProperty("status").GetString());
+        var queued = Assert.Single((await Json(await _api.GetAsync("/api/queue"))).EnumerateArray());
+        Assert.Equal("от 250 000 ₽", queued.GetProperty("questions")[1].GetProperty("answer")[0].GetString());
+    }
+
+    // #58: цифры текстовых ответов — только из резюме и профиля, зарплата — только в ответе о ней и только из пожеланий;
+    // нарушение — одна исправленная попытка, потом на проверку даже у поиска «без проверки». Поиск «без проверки» — сразу в очередь
+    [Fact]
+    public async Task Questionnaire_FiguresNotFromFacts_RetryThenReview_TrustedSearchToQueue()
+    {
+        await Json(await _api.PutAsJsonAsync("/api/searches", new { name = "trusted", query = "C#", rules = new { skipReview = true, minSalaryRub = 250_000 } }));
+        await Json(await Import("trusted", Card("1", "C# разработчик"), Card("2", "C# разработчик")));
+        object Questions() => new { questions = new object[] { new { question = "Зарплатные ожидания?", type = "Text" }, new { question = "Сколько лет на C#?", type = "Text" } } };
+        factory.Llm.Configured = true;
+
+        await Json(await _api.PostAsJsonAsync("/api/vacancies/1/questionnaire", Questions()));
+        factory.Llm.Answers.Enqueue("""{"answers": ["от 250 000 ₽", "расскажу на собеседовании"]}""");
+        await Json(await _api.PostAsJsonAsync("/api/llm/answers", new { limit = 10 }));
+        // Вторая ещё в очереди без анкеты
+        Assert.Equal(["1", "2"], (await Json(await _api.GetAsync("/api/queue"))).EnumerateArray().Select(q => q.GetProperty("id").GetString()).Order());
+
+        await Json(await _api.PostAsJsonAsync("/api/vacancies/2/questionnaire", Questions()));
+        factory.Llm.Answers.Enqueue("""{"answers": ["от 300 000 ₽", "10 лет"]}""");
+        factory.Llm.Answers.Enqueue("""{"answers": ["от 250 000 ₽", "10 лет"]}""");
+        var res = await Json(await _api.PostAsJsonAsync("/api/llm/answers", new { limit = 10 }));
+        Assert.Equal((1, 0), (res.GetProperty("answered").GetInt32(), res.GetProperty("remaining").GetInt32()));
+
+        // Повтор — с ответом модели и списком неверных цифр
+        var retry = factory.Llm.Requests[^1].Messages;
+        Assert.Equal("assistant", retry[^2].Role);
+        Assert.Contains("ответ 1: 300000", retry[^1].Content);
+
+        var v = Assert.Single((await Json(await _api.GetAsync("/api/vacancies?status=Review"))).EnumerateArray());
+        Assert.Equal(("2", "анкета: проверить — ответ 2: 10"), (v.GetProperty("id").GetString(), v.GetProperty("statusReason").GetString()));
+        var errors = await factory.WithDbAsync(db => Task.FromResult(db.LlmCalls
+            .Where(c => c.Purpose == QuestionnaireAnswering.Purpose && c.Error != null).Select(c => c.Error!).ToList()));
+        Assert.Equal(["цифры не из фактов: ответ 1: 300000; ответ 2: 10", "цифры не из фактов: ответ 2: 10"], errors.Order());
     }
 
     [Fact]

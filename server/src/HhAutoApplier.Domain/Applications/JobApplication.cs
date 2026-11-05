@@ -109,14 +109,19 @@ public class JobApplication
         MoveTo(doubtful && reviewDoubtful ? VacancyStatus.Review : VacancyStatus.Queued, doubtful ? $"LLM сомневается: {reason}" : null, at);
     }
 
-    // Ручная проверка: одобрить — в очередь; coverLetter — письмо, поправленное человеком (null — оставить письмо LLM)
-    public void Approve(string? coverLetter, DateTimeOffset at)
+    // Ручная проверка: одобрить — в очередь; coverLetter — письмо, поправленное человеком (null — оставить письмо LLM);
+    // answers — ответы анкеты, поправленные человеком, все по порядку вопросов (null — оставить ответы LLM)
+    public void Approve(string? coverLetter, DateTimeOffset at, IReadOnlyList<IReadOnlyCollection<string>>? answers = null)
     {
         if (Status != VacancyStatus.Review)
             throw new DomainException($"Одобрить можно только отклик на проверке, сейчас {Status}");
 
+        // Ответы — до письма: при ошибке в ответах письмо не меняется
+        var answered = answers is null ? null : Answered(answers);
         if (!string.IsNullOrWhiteSpace(coverLetter))
             SetCoverLetter(coverLetter, ManualLetter, at);
+        if (answered is not null)
+            Questions = answered;
         MoveTo(VacancyStatus.Queued, "одобрено вручную", at);
     }
 
@@ -154,7 +159,7 @@ public class JobApplication
 
     // Расширение встретило анкету: вопросы ждут ответов LLM, отклик уходит из очереди.
     // Анкета могла поменяться — прежние ответы сбрасываются.
-    // Только из очереди (или повторно из анкеты): ответы LLM ведут сразу в очередь, и анкета не должна вернуть туда
+    // Только из очереди (или повторно из анкеты): ответы LLM могут вести сразу в очередь, и анкета не должна вернуть туда
     // отклонённое вручную, ждущее проверки или ещё не оценённое
     public void RequireAnswers(IReadOnlyCollection<VacancyQuestion> questions, DateTimeOffset at)
     {
@@ -168,23 +173,35 @@ public class JobApplication
         MoveTo(VacancyStatus.Questionnaire, "анкета: ждёт ответов LLM", at);
     }
 
-    // Ответы в порядке вопросов. Неполные или с несуществующим вариантом — DomainException, отклик остаётся ждать.
-    // Решение владельца: анкета видна только со входом, поэтому с ответами — сразу в очередь, без ручной проверки
-    public void AnswerQuestions(IReadOnlyList<IReadOnlyCollection<string>> answers, DateTimeOffset at)
+    // Ответы LLM в порядке вопросов. Неполные или с несуществующим вариантом — DomainException, отклик остаётся ждать.
+    // Решение владельца (#58, пересмотр решения 2026-10-25): текстовые ответы LLM пишет сама и они уходят работодателю
+    // от имени кандидата — на ручную проверку (Review), кроме поиска «без проверки» (reviewText = false); ответы только
+    // вариантами — сразу в очередь. problems — цифры не из фактов после повторной попытки: на проверку всегда
+    public void AnswerQuestions(IReadOnlyList<IReadOnlyCollection<string>> answers, DateTimeOffset at, bool reviewText,
+        IReadOnlyCollection<string>? problems = null)
     {
         if (Status != VacancyStatus.Questionnaire)
             throw new DomainException($"Ответы на анкету возможны только в статусе Questionnaire, сейчас {Status}");
 
+        Questions = Answered(answers);
+        if (problems is { Count: > 0 })
+            MoveTo(VacancyStatus.Review, $"анкета: проверить — {string.Join("; ", problems)}", at);
+        else if (reviewText && Questions.Any(q => q.Type == QuestionType.Text))
+            MoveTo(VacancyStatus.Review, "анкета: проверить ответы LLM", at);
+        else
+            MoveTo(VacancyStatus.Queued, "анкета: ответы LLM", at);
+    }
+
+    // Новый список вопросов с ответами; сначала проверяются все, чтобы при ошибке не остались ответы наполовину
+    private List<VacancyQuestion> Answered(IReadOnlyList<IReadOnlyCollection<string>> answers)
+    {
         if (answers.Count != Questions.Count)
             throw new DomainException($"Ответов {answers.Count}, а вопросов {Questions.Count}");
 
-        // Сначала проверить все, чтобы при ошибке не остались ответы наполовину
         var answered = Questions.Select(q => VacancyQuestion.Create(q.Text, q.Type, q.Options)).ToList();
         for (var i = 0; i < answered.Count; i++)
             answered[i].SetAnswer(answers[i]);
-
-        Questions = answered;
-        MoveTo(VacancyStatus.Queued, "анкета: ответы LLM", at);
+        return answered;
     }
 
     public void MarkApplied(string? resume, DateTimeOffset at)
