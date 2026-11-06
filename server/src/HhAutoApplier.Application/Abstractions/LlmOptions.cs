@@ -19,4 +19,7 @@ public class LlmOptions
 
     // Защита бесплатного тарифа и кошелька: запросов в сутки (UTC); 0 — без ограничения
     public int DailyRequestLimit { get; set; } = 300;
+
+    // Доля одного пользователя в дневном лимите (#56, решение владельца 2026-11-06); 0 — без доли
+    public int UserDailyRequestLimit { get; set; } = 150;
 }

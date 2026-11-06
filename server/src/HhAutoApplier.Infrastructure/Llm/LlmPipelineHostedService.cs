@@ -4,6 +4,7 @@ using HhAutoApplier.Application.Commands.Llm;
 using HhAutoApplier.Application.Commands.Notifications;
 using HhAutoApplier.Application.Dtos;
 using HhAutoApplier.Application.Errors;
+using HhAutoApplier.Application.Llm;
 using HhAutoApplier.Application.Notifications;
 using HhAutoApplier.Domain.Notifications;
 using HhAutoApplier.Domain.Vacancies;
@@ -71,6 +72,8 @@ public class LlmPipelineHostedService(
             if (results.Select(StoppedBy).FirstOrDefault(r => r is not null) is { } reason)
                 await services.GetRequiredService<Notifier>().NotifyAdminsAsync(NotificationKind.LlmUnavailable, $"llm:{clock.GetUtcNow():yyyy-MM-dd}",
                     $"{reason}. Оценка, анкеты, письма и разбор ответов продолжатся позже.", stop);
+
+            await services.GetRequiredService<LlmUserQuota>().NotifyExhaustedAsync(stop);
         }
 
         // После писем: в сообщении о проверке уже есть письмо

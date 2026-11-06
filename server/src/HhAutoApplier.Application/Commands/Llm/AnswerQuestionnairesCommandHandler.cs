@@ -20,6 +20,7 @@ public class AnswerQuestionnairesCommandHandler(
     IUserService users,
     Notifier notifier,
     LlmPipelineGate gate,
+    LlmUserQuota quota,
     ILogger<AnswerQuestionnairesCommandHandler> logger
 ) : ICommandHandler<AnswerQuestionnairesCommand, AnswerQuestionnairesResult>
 {
@@ -33,7 +34,9 @@ public class AnswerQuestionnairesCommandHandler(
 
         using var pass = await gate.EnterAsync(ct);
         var blocked = await users.GetBlockedIdsAsync(ct);
-        var waiting = await db.ActiveApplications(blocked).Where(a => a.Status == VacancyStatus.Questionnaire)
+        var usage = await quota.LoadAsync(ct);
+        var exhausted = usage.Exhausted;
+        var waiting = await db.ActiveApplications(blocked).Where(a => a.Status == VacancyStatus.Questionnaire && !exhausted.Contains(a.UserId))
             .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
         // Резюме ищется у владельца отклика: имена у разных пользователей совпадают
         var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => (r.UserId, r.Name), ct);
@@ -44,6 +47,10 @@ public class AnswerQuestionnairesCommandHandler(
         string? stoppedBy = null;
         foreach (var application in waiting)
         {
+            // Доля кончилась за этот проход: анкета ждёт следующих суток
+            if (usage.IsExhausted(application.UserId))
+                continue;
+
             var resume = application.ResumeProfile is { } name ? resumes.GetValueOrDefault((application.UserId, name)) : null;
             var rules = application.Rules;
             var profile = profiles.FirstOrDefault(p => p.UserId == application.UserId);
@@ -56,6 +63,10 @@ public class AnswerQuestionnairesCommandHandler(
             IReadOnlyList<string> problems = [];
             for (var attempt = 1; attempt <= MaxAttempts; attempt++)
             {
+                // На повтор доли не хватило — ответы первой попытки с замечаниями идут на ручную проверку
+                if (!usage.TryTake(application.UserId))
+                    break;
+
                 var prompt = VacancyAssessment.Serialize(request);
                 LlmResult result;
                 try

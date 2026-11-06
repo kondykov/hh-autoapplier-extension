@@ -19,6 +19,7 @@ public class AnalyzeDialogsCommandHandler(
     IUserService users,
     Notifier notifier,
     LlmPipelineGate gate,
+    LlmUserQuota quota,
     ILogger<AnalyzeDialogsCommandHandler> logger
 ) : ICommandHandler<AnalyzeDialogsCommand, AnalyzeDialogsResult>
 {
@@ -29,7 +30,9 @@ public class AnalyzeDialogsCommandHandler(
 
         using var pass = await gate.EnterAsync(ct);
         var blocked = await users.GetBlockedIdsAsync(ct);
-        var waiting = await db.EmployerMessages.Where(m => m.Kind == null && !blocked.Contains(m.UserId))
+        var usage = await quota.LoadAsync(ct);
+        var exhausted = usage.Exhausted;
+        var waiting = await db.EmployerMessages.Where(m => m.Kind == null && !blocked.Contains(m.UserId) && !exhausted.Contains(m.UserId))
             .OrderBy(m => m.ReceivedAt).Take(command.Limit).ToListAsync(ct);
         if (waiting.Count == 0)
             return new DialogsAnalysisResultDto(0, 0, 0, null);
@@ -49,6 +52,10 @@ public class AnalyzeDialogsCommandHandler(
         string? stoppedBy = null;
         foreach (var message in waiting)
         {
+            // Доля кончилась за этот проход: сообщение ждёт следующих суток
+            if (!usage.TryTake(message.UserId))
+                continue;
+
             var resume = message.VacancyId is { } v && applied.GetValueOrDefault((message.UserId, v)) is { } name
                 ? resumes.GetValueOrDefault((message.UserId, name))
                 : null;

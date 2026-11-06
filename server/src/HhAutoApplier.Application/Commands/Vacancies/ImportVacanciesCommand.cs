@@ -11,7 +11,9 @@ public record ImportVacanciesCommand
     [Required]
     public required string Search { get; init; }
 
+    // Одна страница выдачи hh.ru (#56): каждая карточка — запросы к LLM
     [Required]
+    [MaxLength(100)]
     public required List<ImportedVacancy> Vacancies { get; init; }
 }
 

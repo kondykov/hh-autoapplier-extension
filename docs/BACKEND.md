@@ -54,7 +54,7 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 
 ## LLM
 
-Порт `ILlmClient` (Application) и `OpenAiCompatibleClient` (Infrastructure/Llm) — chat/completions любого OpenAI-совместимого провайдера; по умолчанию Groq. Настройки `Llm:*` (в `.env`: `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_DAILY_LIMIT`); без ключа LLM выключена. Повторы при 429 и 5xx (пауза — `Retry-After` или 1, 2, 4 с), таймаут, дневной лимит запросов (`LlmBudget`: счёт за сутки UTC, после перезапуска продолжается по журналу). Ключ Groq: https://console.groq.com/keys.
+Порт `ILlmClient` (Application) и `OpenAiCompatibleClient` (Infrastructure/Llm) — chat/completions любого OpenAI-совместимого провайдера; по умолчанию Groq. Настройки `Llm:*` (в `.env`: `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_DAILY_LIMIT`, `LLM_USER_DAILY_LIMIT`); без ключа LLM выключена. Доля пользователя (#56, решение владельца 2026-11-06: 150 из 300 в сутки UTC, 0 — без доли): `LlmUserQuota` считает ответы LLM в журнале `LlmCalls` по `UserId` (записи без модели — сбой провайдера — не считаются); исчерпавший долю не попадает в выборки проходов (иначе его отклики заняли бы всю пачку), его отклики ждут следующих суток, ему — одно сообщение в Telegram в сутки (`llm-quota:<дата>`). Не хватило на повтор анкеты — ответы первой попытки идут в `Review`. Повторы при 429 и 5xx (пауза — `Retry-After` или 1, 2, 4 с), таймаут, дневной лимит запросов (`LlmBudget`: счёт за сутки UTC, после перезапуска продолжается по журналу). Ключ Groq: https://console.groq.com/keys.
 
 Каждый запрос пишется в журнал `LlmCalls`: назначение, вакансия, владелец отклика или сообщения (`UserId`, #57; у проверки ключа и записей до #57 — пусто), модель, промпт, ответ или ошибка, токены.
 
@@ -150,7 +150,7 @@ ASP.NET Core Identity (таблицы `AspNet*` в той же БД, мигра�
 | GET/PUT/DELETE | `/api/searches` | свои поиски с правилами (`FilterRules`); GET — `?userId=` |
 | GET/PUT | `/api/profile` | свой профиль кандидата для LLM `{general, skills: [{skill, facts}]}` (#35); PUT — целиком, пустые строки навыков пропускаются; GET — `?userId=` |
 | GET/PUT | `/api/resumes` | свои профили резюме (`match`, `keywords`; для LLM — `summary` и шаблон письма `letterTemplate`); GET — `?userId=` |
-| POST | `/api/import` | `{search, vacancies[]}` — в свой поиск |
+| POST | `/api/import` | `{search, vacancies[]}` — в свой поиск; не больше 100 карточек (одна страница выдачи, #56), иначе 400 |
 | POST | `/api/collect` | запустить сбор сейчас по поискам всех пользователей (только `Admin`; 502, если источник заблокировал) |
 | POST | `/api/llm/check` | проверить ключ и модель LLM (только `Admin`; 503 — не настроена, лимит, провайдер не отвечает) |
 | POST | `/api/llm/evaluate` | `{limit}`: оценить LLM вакансии `Pending` всех пользователей (только `Admin`; 503 — LLM не настроена) |

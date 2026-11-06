@@ -16,6 +16,7 @@ public class EvaluatePendingVacanciesCommandHandler(
     TimeProvider clock,
     IUserService users,
     LlmPipelineGate gate,
+    LlmUserQuota quota,
     ILogger<EvaluatePendingVacanciesCommandHandler> logger
 ) : ICommandHandler<EvaluatePendingVacanciesCommand, EvaluatePendingResult>
 {
@@ -25,7 +26,9 @@ public class EvaluatePendingVacanciesCommandHandler(
             return new LlmUnavailableError("LLM не настроена: задайте LLM_API_KEY");
 
         using var pass = await gate.EnterAsync(ct);
-        var pending = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct)).Where(a => a.Status == VacancyStatus.Pending)
+        var usage = await quota.LoadAsync(ct);
+        var exhausted = usage.Exhausted;
+        var pending = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct)).Where(a => a.Status == VacancyStatus.Pending && !exhausted.Contains(a.UserId))
             .OrderBy(a => a.Vacancy.CollectedAt).Take(command.Limit).ToListAsync(ct);
         // Резюме — владельца отклика, правила — поиска, который нашёл вакансию
         var resumesByOwner = (await db.Resumes.AsNoTracking().ToListAsync(ct)).ToLookup(r => r.UserId);
@@ -36,6 +39,10 @@ public class EvaluatePendingVacanciesCommandHandler(
         string? stoppedBy = null;
         foreach (var application in pending)
         {
+            // Доля кончилась за этот проход: отклик ждёт следующих суток
+            if (!usage.TryTake(application.UserId))
+                continue;
+
             var rules = application.Rules;
             var resumes = resumesByOwner[application.UserId].ToList();
             var request = VacancyAssessment.BuildRequest(application.Vacancy, resumes, rules,

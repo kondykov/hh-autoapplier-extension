@@ -4,7 +4,9 @@ using System.Text.Json;
 using HhAutoApplier.Application.Commands.Notifications;
 using HhAutoApplier.Application.Commands.Telegram;
 using HhAutoApplier.Application.Dtos;
+using HhAutoApplier.Application.Llm;
 using HhAutoApplier.Application.Notifications;
+using HhAutoApplier.Domain.Llm;
 using HhAutoApplier.Domain.Notifications;
 using HhAutoApplier.Domain.Vacancies;
 using Microsoft.EntityFrameworkCore;
@@ -282,5 +284,30 @@ public class TelegramTests(ApiFactory factory) : IAsyncLifetime
         var sent = Assert.Single(await Notifications());
         var adminId = await factory.WithDbAsync(db => db.Users.Where(u => u.Email == ApiFactory.AdminEmail).Select(u => u.Id).SingleAsync());
         Assert.Equal(adminId, sent.UserId);
+    }
+
+    // #56: исчерпавшему долю LLM — одно сообщение в сутки, сколько бы проходов ни было
+    [Fact]
+    public async Task LlmShareExhausted_OneNotificationPerDay()
+    {
+        var client = await CreateUser("quota@test.local");
+        await Link(client, UserChat);
+        var user = await factory.WithDbAsync(db => db.Users.Where(u => u.Email == "quota@test.local").Select(u => u.Id).SingleAsync());
+        await factory.WithDbAsync(async db =>
+        {
+            for (var i = 0; i < 150; i++)
+                db.LlmCalls.Add(LlmCall.Succeeded("test", null, "model", "p", "r", 1, 1, DateTimeOffset.UtcNow).For(user));
+            return await db.SaveChangesAsync();
+        });
+
+        for (var pass = 0; pass < 2; pass++)
+            await InScope(async sp =>
+            {
+                await sp.GetRequiredService<LlmUserQuota>().NotifyExhaustedAsync(default);
+                return true;
+            });
+
+        var sent = await factory.WithDbAsync(db => db.Notifications.Where(n => n.Key.StartsWith("llm-quota:")).ToListAsync());
+        Assert.Equal(user, Assert.Single(sent).UserId);
     }
 }

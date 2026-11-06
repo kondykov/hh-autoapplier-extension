@@ -16,6 +16,7 @@ public class WriteCoverLettersCommandHandler(
     TimeProvider clock,
     IUserService users,
     LlmPipelineGate gate,
+    LlmUserQuota quota,
     ILogger<WriteCoverLettersCommandHandler> logger
 ) : ICommandHandler<WriteCoverLettersCommand, WriteCoverLettersResult>
 {
@@ -33,8 +34,10 @@ public class WriteCoverLettersCommandHandler(
         // без паузы это цикл запросов к LLM. Без письма расширение возьмёт свой шаблон. Считается по отклику — вакансия
         // и её владелец (#57): неудачи с профилем одного пользователя не лишают писем другого
         var since = clock.GetUtcNow().AddDays(-1);
+        var usage = await quota.LoadAsync(ct);
+        var exhausted = usage.Exhausted;
         var queued = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct))
-            .Where(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter == null)
+            .Where(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter == null && !exhausted.Contains(a.UserId))
             .Where(a => db.LlmCalls.Count(c => c.Purpose == CoverLetterWriting.Purpose && c.Error != null && c.Error.StartsWith(CoverLetterWriting.FiguresError)
                                                && c.CreatedAt > since && c.VacancyId == a.VacancyId && c.UserId == a.UserId) < MaxAttempts)
             .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
@@ -50,12 +53,19 @@ public class WriteCoverLettersCommandHandler(
         string? stoppedBy = null;
         foreach (var application in queued)
         {
+            // Доля кончилась за этот проход: письмо будет в следующие сутки, расширение возьмёт шаблон, если откликнется раньше
+            if (usage.IsExhausted(application.UserId))
+                continue;
+
             var resume = application.ResumeProfile is { } name ? resumes.GetValueOrDefault((application.UserId, name)) : null;
             var first = CoverLetterWriting.BuildRequest(application.Vacancy, resume, profiles.FirstOrDefault(p => p.UserId == application.UserId));
             var request = first;
             var done = false;
             for (var attempt = 1; attempt <= MaxAttempts && !done; attempt++)
             {
+                if (!usage.TryTake(application.UserId))
+                    break;
+
                 var prompt = VacancyAssessment.Serialize(request);
                 LlmResult result;
                 try
