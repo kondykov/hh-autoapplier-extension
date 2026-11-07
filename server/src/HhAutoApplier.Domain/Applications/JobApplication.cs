@@ -154,8 +154,7 @@ public class JobApplication
 
     // Расширение встретило анкету: вопросы ждут ответов LLM, отклик уходит из очереди.
     // Анкета могла поменяться — прежние ответы сбрасываются.
-    // Только из очереди (или повторно из анкеты): ответы LLM ведут сразу в очередь, и анкета не должна вернуть туда
-    // отклонённое вручную, ждущее проверки или ещё не оценённое
+    // Анкета принимается из очереди или повторно из Questionnaire; прежние ответы сбрасываются.
     public void RequireAnswers(IReadOnlyCollection<VacancyQuestion> questions, DateTimeOffset at)
     {
         if (Status is not (VacancyStatus.Queued or VacancyStatus.Questionnaire))
@@ -168,9 +167,8 @@ public class JobApplication
         MoveTo(VacancyStatus.Questionnaire, "анкета: ждёт ответов LLM", at);
     }
 
-    // Ответы в порядке вопросов. Неполные или с несуществующим вариантом — DomainException, отклик остаётся ждать.
-    // Решение владельца: анкета видна только со входом, поэтому с ответами — сразу в очередь, без ручной проверки
-    public void AnswerQuestions(IReadOnlyList<IReadOnlyCollection<string>> answers, DateTimeOffset at)
+    // Ответы в порядке вопросов. Текстовые ответы можно задержать на ручную проверку; SkipReview поиска явно отключает её.
+    public void AnswerQuestions(IReadOnlyList<IReadOnlyCollection<string>> answers, DateTimeOffset at, bool reviewTextAnswers)
     {
         if (Status != VacancyStatus.Questionnaire)
             throw new DomainException($"Ответы на анкету возможны только в статусе Questionnaire, сейчас {Status}");
@@ -184,7 +182,9 @@ public class JobApplication
             answered[i].SetAnswer(answers[i]);
 
         Questions = answered;
-        MoveTo(VacancyStatus.Queued, "анкета: ответы LLM", at);
+        var needsReview = reviewTextAnswers && answered.Any(q => q.Type == QuestionType.Text);
+        MoveTo(needsReview ? VacancyStatus.Review : VacancyStatus.Queued,
+            needsReview ? "анкета: текстовые ответы требуют ручной проверки" : "анкета: ответы LLM", at);
     }
 
     public void MarkApplied(string? resume, DateTimeOffset at)

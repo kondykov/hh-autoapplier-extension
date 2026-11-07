@@ -263,7 +263,7 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Questionnaire_FromExtension_AnsweredByLlm_BackToQueue()
+    public async Task Questionnaire_FromExtension_TextAnswersRequireReviewBeforeQueue()
     {
         await SaveSearch();
         await Json(await Import("dotnet", Card("1", "C# разработчик"), Card("2", "C# разработчик")));
@@ -286,15 +286,22 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
 
         // Порядок — по баллу, у обеих он одинаковый: подходящий ответ годится для любой, неподходящий вариант — пропуск
         factory.Llm.Configured = true;
-        factory.Llm.Answers.Enqueue("""{"answers": ["dip", "от 250 000 ₽"]}""");
+        factory.Llm.Answers.Enqueue("""{"answers": ["dip", "готов обсудить на собеседовании"]}""");
         factory.Llm.Answers.Enqueue("""{"answers": ["LSP", "готов обсудить"]}""");
         var res = await Json(await _api.PostAsJsonAsync("/api/llm/answers", new { limit = 10 }));
         Assert.Equal((1, 1, 0), (res.GetProperty("answered").GetInt32(), res.GetProperty("failed").GetInt32(), res.GetProperty("remaining").GetInt32()));
 
-        var queued = Assert.Single((await Json(await _api.GetAsync("/api/queue"))).EnumerateArray());
-        var answers = queued.GetProperty("questions").EnumerateArray()
+        var review = Assert.Single((await Json(await _api.GetAsync("/api/vacancies?status=Review"))).EnumerateArray());
+        var reviewedId = review.GetProperty("id").GetString();
+        Assert.NotNull(reviewedId);
+        var answers = review.GetProperty("questions").EnumerateArray()
             .Select(q => (q.GetProperty("type").GetString(), q.GetProperty("answer")[0].GetString())).ToList();
-        Assert.Equal([("Radio", "DIP"), ("Text", "от 250 000 ₽")], answers);
+        Assert.Equal([("Radio", "DIP"), ("Text", "готов обсудить на собеседовании")], answers);
+
+        var approved = await Json(await _api.PostAsJsonAsync($"/api/vacancies/{reviewedId}/review", new { approve = true }));
+        Assert.Equal("Queued", approved.GetProperty("status").GetString());
+        var queued = Assert.Single((await Json(await _api.GetAsync("/api/queue"))).EnumerateArray());
+        Assert.Equal(reviewedId, queued.GetProperty("id").GetString());
 
         var skipped = Assert.Single((await Json(await _api.GetAsync("/api/vacancies?status=Skipped"))).EnumerateArray());
         Assert.Contains("LSP", skipped.GetProperty("statusReason").GetString());
