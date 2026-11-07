@@ -13,8 +13,8 @@ node scripts/dev-browser.mjs      # Chromium с расширением, проф
 node scripts/cdp-queue-dry-run.mjs # пробный проход очереди в запущенном dev-браузере: журнал и снимок формы, без отправки
 node scripts/cdp-inspect.mjs [--form] # read-only: вкладки dev-браузера, флаги очереди/пробного режима, снимок формы
 node scripts/db-query.mjs "select ..." # read-only запрос к базе docker compose
-node scripts/server.mjs inspect   # read-only снимок сервера backend по SSH (хост — псевдоним home-pc из ~/.ssh/config)
-node scripts/server.mjs ps "..."  # PowerShell на сервере по SSH (UTF-8); изменения на сервере — только по решению владельца
+node scripts/server.mjs inspect   # read-only снимок сервера backend по SSH (Debian 13; хост — псевдоним home-server-root из ~/.ssh/config)
+node scripts/server.mjs ps "..."  # pwsh на сервере по SSH (UTF-8); --windows — Windows PowerShell; изменения на сервере — только по решению владельца
 cd server; dotnet test            # xunit (161 тест; нужен запущенный Docker — Postgres для тестов API в Testcontainers)
 cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:8080
 ```
