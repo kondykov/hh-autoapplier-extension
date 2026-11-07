@@ -8,7 +8,8 @@ import { readFileSync } from "node:fs";
 //   node scripts/server.mjs ps -f script.ps1        выполнить файл
 //   --host <alias>  или  HH_SERVER=<alias>          другой хост;  --print — показать команду ssh, не выполняя
 //   --local                                         выполнить на этой машине, без SSH (отладка скриптов)
-// Команды идут через -EncodedCommand: без экранирования кавычек и с UTF-8 (кириллица) в выводе.
+// Скрипт идёт в stdin (base64), загрузчик — через -EncodedCommand: без экранирования кавычек, без предела длины,
+// с UTF-8 (кириллица) в выводе.
 // Скрипт ничего не ограничивает: изменяющие команды на сервере — только по решению владельца (AGENTS.md).
 
 const PRELUDE = [
@@ -45,7 +46,13 @@ Section 'Docker' {
   docker compose ls 2>&1
   docker ps --format '{{.Names}}  {{.Image}}  {{.Status}}  {{.Ports}}' 2>&1
 }
-Section 'WSL' { if (Get-Command wsl -ErrorAction SilentlyContinue) { $env:WSL_UTF8 = '1'; wsl --status 2>&1 | Where-Object { "$_".Trim() } } }
+Section 'WSL' {
+  # wsl.exe пишет в UTF-16 (и сообщение «не установлен» тоже) — читаем его вывод как Unicode.
+  $prev = [Console]::OutputEncoding; [Console]::OutputEncoding = [Text.Encoding]::Unicode
+  try { $o = wsl --status 2>&1 | ForEach-Object { "$_" }; $code = $LASTEXITCODE } finally { [Console]::OutputEncoding = $prev }
+  if ($code -ne 0) { 'WSL не установлен или не работает (wsl --status: код ' + $code + ')' }
+  $o | Where-Object { $_.Trim() -and $_ -ne 'System.Management.Automation.RemoteException' }
+}
 Section 'Слушающие порты TCP' {
   Get-NetTCPConnection -State Listen | Where-Object { $_.LocalAddress -notin '::1' -and $_.LocalPort -lt 49152 } |
     Sort-Object LocalPort -Unique | ForEach-Object { "{0,-16} {1,5}  {2}" -f $_.LocalAddress, $_.LocalPort, (Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).ProcessName }
@@ -92,26 +99,28 @@ else if (cmd === "ps" && cmdArgs[0] === "-f" && cmdArgs[1]) script = readFileSyn
 else if (cmd === "ps" && cmdArgs.length) script = cmdArgs.join(" ");
 else usage();
 
-const encoded = Buffer.from(`${PRELUDE}\n${script}`, "utf16le").toString("base64");
-// Командная строка Windows ограничена 32767 символами (cmd.exe — 8191, если он оболочка sshd).
-if (encoded.length > 30000) {
-  console.error(`Скрипт слишком длинный для -EncodedCommand (${encoded.length} символов): разбейте его.`);
-  process.exit(1);
-}
+// Оболочка sshd на сервере — cmd.exe с пределом командной строки 8191 символ, поэтому по командной строке
+// идёт только короткий загрузчик, а сам скрипт — в stdin, base64 от UTF-8 (без проблем с кодировкой консоли).
+const BOOTSTRAP = [
+  PRELUDE,
+  "$s = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::In.ReadToEnd().Trim()))",
+  "& ([scriptblock]::Create($s))",
+  "if (-not $?) { exit 1 }",
+].join("; ");
+const encodedBootstrap = Buffer.from(BOOTSTRAP, "utf16le").toString("base64");
+const payload = Buffer.from(script, "utf8").toString("base64");
+const psArgs = ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodedBootstrap];
 
-const sshArgs = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
-  `powershell -NoProfile -NonInteractive -EncodedCommand ${encoded}`];
+const sshArgs = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, `powershell ${psArgs.join(" ")}`];
 if (print) {
-  console.log(`ssh ${sshArgs.slice(0, -1).join(" ")} "powershell -NoProfile -NonInteractive -EncodedCommand <${encoded.length} символов>"`);
+  console.log(`ssh ${sshArgs.slice(0, -1).join(" ")} "powershell -NoProfile -NonInteractive -EncodedCommand <загрузчик>"  < скрипт в base64`);
   console.log("--- скрипт ---\n" + script.trim());
   process.exit(0);
 }
 
 // --local: тот же скрипт на этой машине, без SSH (отладка скриптов, когда сервер недоступен).
-const [exe, exeArgs] = local
-  ? ["powershell", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]]
-  : ["ssh", sshArgs];
-const res = spawnSync(exe, exeArgs, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+const [exe, exeArgs] = local ? ["powershell", psArgs] : ["ssh", sshArgs];
+const res = spawnSync(exe, exeArgs, { input: payload, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 if (res.error) {
   console.error(`ssh не запустился: ${res.error.message}`);
   process.exit(1);
