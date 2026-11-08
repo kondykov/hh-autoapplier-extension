@@ -52,7 +52,8 @@ public class HhWebSource : IVacancySource
         return state is not null && HhPageParser.ParseVacancy(state.RootElement, vacancy);
     }
 
-    // null — 404 или страница без данных; капча и отказы — SourceBlockedException
+    // null — 404. Капча, отказы и страница без данных (мягкий антибот, смена вёрстки) — SourceBlockedException:
+    // такой ответ ничего не говорит о вакансии, по нему нельзя закрывать отклики как «вакансия недоступна»
     private async Task<System.Text.Json.JsonDocument?> LoadStateAsync(string url, CancellationToken ct)
     {
         using var response = await _http.GetAsync(url, ct);
@@ -67,7 +68,7 @@ public class HhWebSource : IVacancySource
         if (response.RequestMessage?.RequestUri?.AbsolutePath.Contains("captcha", StringComparison.OrdinalIgnoreCase) == true)
             throw Blocked("капча");
         response.EnsureSuccessStatusCode();
-        return HhPageParser.ExtractState(await response.Content.ReadAsStringAsync(ct));
+        return HhPageParser.ExtractState(await response.Content.ReadAsStringAsync(ct)) ?? throw Blocked("на странице нет данных");
     }
 
     private SourceBlockedException Blocked(string reason) => new(Name, reason);
