@@ -10,3 +10,4 @@ server/**/obj/
 server/.env
 .tools/
 server/.idea/
+server/xray/outbound.json
