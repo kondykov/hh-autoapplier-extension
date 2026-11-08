@@ -1,5 +1,6 @@
 using System.Net;
 using HhAutoApplier.Application.Abstractions;
+using HhAutoApplier.Application.Commands.Collecting;
 using HhAutoApplier.Infrastructure.Collecting;
 using HhAutoApplier.Infrastructure.Identity;
 using HhAutoApplier.Infrastructure.Llm;
@@ -73,6 +74,8 @@ public static class DependencyInjection
         services.AddSingleton<ITelegramBot>(sp => sp.GetRequiredService<TelegramBot>());
         services.AddHostedService<TelegramHostedService>();
 
+        services.AddSingleton<CollectionProgress>();
+        services.AddSingleton<ICollectionBackground, CollectionBackground>();
         services.AddHostedService<CollectorHostedService>();
         services.AddHostedService<LlmPipelineHostedService>();
         return services;

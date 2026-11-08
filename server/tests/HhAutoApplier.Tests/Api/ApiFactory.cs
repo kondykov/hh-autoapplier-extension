@@ -155,6 +155,9 @@ public sealed class FakeVacancySource : IVacancySource
 
     public bool Blocked { get; set; }
 
+    // Задан — поиск ждёт, пока тест его не отпустит: проход сбора остаётся «идущим»
+    public TaskCompletionSource? Hold { get; set; }
+
     public int DetailsLoaded { get; private set; }
 
     public string Name => "fake";
@@ -169,17 +172,20 @@ public sealed class FakeVacancySource : IVacancySource
         _cards.Clear();
         NoDetails.Clear();
         Blocked = false;
+        Hold = null;
         DetailsLoaded = 0;
     }
 
-    public Task<IReadOnlyList<Vacancy>> SearchAsync(SearchProfile search, int page, CancellationToken ct)
+    public async Task<IReadOnlyList<Vacancy>> SearchAsync(SearchProfile search, int page, CancellationToken ct)
     {
+        if (Hold is { } hold)
+            await hold.Task.WaitAsync(ct);
+
         if (Blocked)
             throw new SourceBlockedException(Name, "капча");
 
-        IReadOnlyList<Vacancy> found = _cards.Where(c => c.Listed && c.Page == page)
+        return _cards.Where(c => c.Listed && c.Page == page)
             .Select(c => Vacancy.Create(c.Id, c.Title, $"https://hh.ru/vacancy/{c.Id}", search.Name, DateTimeOffset.UtcNow)).ToList();
-        return Task.FromResult(found);
     }
 
     // Как HhWebSource: страница вакансии даёт и название, и описание

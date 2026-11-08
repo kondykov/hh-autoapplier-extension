@@ -197,6 +197,46 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
         Assert.Equal(1, (await Json(await _api.PostAsync("/api/collect", null))).GetProperty("added").GetInt32());
     }
 
+    // Кнопка только запускает сбор, состояние читается отдельно (#74)
+    [Fact]
+    public async Task CollectStart_RunsInBackground_OneAtATime_AndReportsState()
+    {
+        await SaveSearch("dotnet", "junior");
+        factory.Source.Add("30", "C# разработчик", "ASP.NET Core");
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        factory.Source.Hold = hold;
+
+        var started = await Json(await _api.PostAsync("/api/collect/start", null));
+        Assert.Equal("по кнопке", started.GetProperty("current").GetProperty("trigger").GetString());
+
+        Assert.Equal(HttpStatusCode.Conflict, (await _api.PostAsync("/api/collect/start", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await _api.PostAsync("/api/collect", null)).StatusCode);
+
+        hold.SetResult();
+        var state = await CollectionFinished();
+        var last = state.GetProperty("last");
+        Assert.Equal(("по кнопке", 1, 1), (last.GetProperty("trigger").GetString(), last.GetProperty("seen").GetInt32(), last.GetProperty("added").GetInt32()));
+        Assert.True(last.TryGetProperty("finishedAt", out _));
+
+        // Запуск освободился
+        Assert.Equal(HttpStatusCode.OK, (await _api.PostAsync("/api/collect/start", null)).StatusCode);
+        await CollectionFinished();
+    }
+
+    private async Task<JsonElement> CollectionFinished()
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            var state = await Json(await _api.GetAsync("/api/collect/status"));
+            if (!state.TryGetProperty("current", out var current) || current.ValueKind == JsonValueKind.Null)
+                return state;
+
+            await Task.Delay(100);
+        }
+
+        throw new TimeoutException("Сбор не завершился");
+    }
+
     [Fact]
     public async Task LlmCheck_WithoutKey_Is503_AndDoesNotCallProvider()
     {

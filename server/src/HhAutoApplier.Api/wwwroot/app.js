@@ -561,6 +561,56 @@ async function account() {
   ];
 }
 
+const collectionCounts = (r) => `просмотрено ${r.seen}, новых ${r.added}, в очередь ${r.queued}, отсеяно ${r.skipped}`;
+
+function collectionText(state) {
+  const { current, last } = state;
+  if (current) {
+    const place = current.search ? `поиск «${current.search}», страница ${current.page}: ` : "";
+    return `Идёт сбор (${current.trigger}) с ${date(current.startedAt)}. ${place}${collectionCounts(current)}`;
+  }
+  if (!last) return "С момента запуска сервера сбор ещё не завершался.";
+  const result = last.error ? `Остановлен: ${last.error}. ` : "";
+  return `Последний сбор (${last.trigger}) закончился ${date(last.finishedAt)}. ${result}${last.searches ? `Поисков ${last.searches}, ` : ""}${collectionCounts(last)}`;
+}
+
+// Сбор идёт на сервере (#74): кнопка только запускает его, а страница читает состояние, поэтому обновление страницы ничего не прерывает
+function collectionCard() {
+  const page = renders;
+  const text = el("p", { textContent: "Загрузка состояния…" });
+  const button = el("button", { className: "primary", textContent: "Собрать вакансии", disabled: true });
+  let timer;
+
+  async function refresh() {
+    clearTimeout(timer);
+    let state;
+    try {
+      state = await api("/api/collect/status");
+    } catch (e) {
+      if (e instanceof Unauthorized) return showLogin();
+      if (page === renders) timer = setTimeout(refresh, 15000);
+      text.textContent = `Состояние сбора недоступно: ${e.message}`;
+      return;
+    }
+    // Ушли с раздела или он перерисован: опрашивает уже новая карточка
+    if (page !== renders) return;
+    text.textContent = collectionText(state);
+    button.disabled = Boolean(state.current);
+    // Пока сбор не идёт, реже: только заметить проход по расписанию
+    timer = setTimeout(refresh, state.current ? 2000 : 15000);
+  }
+
+  button.onclick = async () => {
+    await run(button, () => post("/api/collect/start"), "Сбор запущен");
+    refresh();
+  };
+  refresh();
+
+  return el("div", { className: "card" }, el("h2", { textContent: "Сбор вакансий" }),
+    el("p", { className: "muted", textContent: "Идёт сам раз в час. Запущенный сбор продолжается на сервере, страницу можно обновлять и закрывать." }),
+    text, el("div", { className: "bar", style: "margin:0" }, button));
+}
+
 async function admin() {
   if (me.role !== "Admin") return [el("p", { className: "empty", textContent: "Раздел только для администратора." })];
   const users = await api("/api/users");
@@ -594,7 +644,6 @@ async function admin() {
 
   // Ручной запуск фоновых проходов: обычно они идут сами (сбор — раз в час, LLM — раз в минуту при наличии работы)
   const jobs = [
-    ["Собрать вакансии", "/api/collect", undefined, (r) => `Сбор: поисков ${r.searches}, новых ${r.added}, в очередь ${r.queued}, пропущено ${r.skipped}`],
     ["Проверить LLM", "/api/llm/check", undefined, (r) => `LLM ${r.model}: ответ за ${r.latencyMs} мс`],
     ["Оценить ожидающие", "/api/llm/evaluate", { limit: 20 }, (r) => `Оценено ${r.evaluated}: подходят ${r.fit}, сомнительных ${r.doubtful}, отклонено ${r.rejected}; осталось ${r.remaining}`],
     ["Ответить на анкеты", "/api/llm/answers", { limit: 20 }, (r) => `Анкеты: отвечено ${r.answered}, не вышло ${r.failed}; осталось ${r.remaining}`],
@@ -610,8 +659,9 @@ async function admin() {
     el("div", { className: "card" }, el("h2", { textContent: "Пользователи" }),
       el("table", {}, el("tr", {}, el("th", { textContent: "Email" }), el("th", { textContent: "Роль" }), el("th", { textContent: "Создан" }), el("th")), rows),
       el("h2", { textContent: "Новый пользователь", style: "margin-top:16px" }), createForm),
+    collectionCard(),
     el("div", { className: "card" }, el("h2", { textContent: "Запустить сейчас" }),
-      el("p", { className: "muted", textContent: "Обычно не нужно: сбор идёт раз в час, LLM — раз в минуту, если есть работа. Тратит лимит LLM и запросы к hh.ru." }),
+      el("p", { className: "muted", textContent: "Обычно не нужно: LLM работает раз в минуту, если есть работа. Тратит лимит LLM." }),
       el("div", { className: "bar", style: "margin:0" }, jobs)),
   ];
 }

@@ -20,12 +20,45 @@ public class CollectVacanciesCommandHandler(
     IOptions<CollectorOptions> options,
     TimeProvider clock,
     IUserService users,
+    CollectionProgress progress,
     ILogger<CollectVacanciesCommandHandler> logger
 ) : ICommandHandler<CollectVacanciesCommand, CollectVacanciesResult>
 {
+    public const string FailedMessage = "сбор завершился ошибкой, подробности в журнале сервера";
+
+    // Сколько новых откликов может пропасть при сбое: загрузка страницы выдачи занимает минуты
+    private const int SaveEvery = 10;
+
     private readonly CollectorOptions _opt = options.Value;
 
     public async Task<CollectVacanciesResult> Handle(CollectVacanciesCommand command, CancellationToken ct = default)
+    {
+        if (!command.Reserved && !progress.TryBegin(command.Trigger))
+            return new ConflictError("Сбор уже идёт");
+
+        try
+        {
+            var result = await CollectAsync(ct);
+            if (result.Value is CollectResultDto done)
+                progress.Finish(done);
+            else if (result.Value is Error error)
+                progress.Fail(error.Message);
+
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            progress.Fail("сбор прерван");
+            throw;
+        }
+        catch (Exception)
+        {
+            progress.Fail(FailedMessage);
+            throw;
+        }
+    }
+
+    private async Task<CollectVacanciesResult> CollectAsync(CancellationToken ct)
     {
         // Поиски всех пользователей; отклик получает владелец поиска — с его правилами и резюме
         // Заблокированных пропускаем: ни запросов к источнику, ни LLM за их счёт
@@ -44,6 +77,8 @@ public class CollectVacanciesCommandHandler(
                 {
                     if (page > 0)
                         await PauseAsync(ct);
+
+                    progress.At(search.Name, page + 1, searches.Count);
 
                     // Листаем до конца выдачи (пустая страница): hh.ru показывает часть новых вакансий с задержкой,
                     // и они оказываются ниже уже известных — страница без новых не значит, что дальше их нет (#73)
@@ -69,8 +104,20 @@ public class CollectVacanciesCommandHandler(
                     var applied = (await db.JobApplications.Where(a => a.UserId == search.UserId && ids.Contains(a.VacancyId))
                         .Select(a => a.VacancyId).ToListAsync(ct)).ToHashSet();
                     var fresh = found.DistinctBy(v => v.Id).Where(v => !applied.Contains(v.Id)).ToList();
+                    var unsavedFrom = added;
+                    var saved = true;
                     foreach (var card in fresh)
                     {
+                        progress.Count(seen, added, queued, skipped);
+                        if (added - unsavedFrom >= SaveEvery)
+                        {
+                            saved = await TrySaveAsync(search.Id, page, ct);
+                            if (!saved)
+                                break;
+
+                            unsavedFrom = added;
+                        }
+
                         if (!known.TryGetValue(card.Id, out var vacancy))
                         {
                             await PauseAsync(ct);
@@ -99,16 +146,10 @@ public class CollectVacanciesCommandHandler(
 
                     // Импорт того же пользователя мог успеть создать тот же отклик (уникальный индекс): страницу пропускаем,
                     // остальные поиски идут дальше; пропущенное найдётся при следующем сборе
-                    try
-                    {
-                        await db.SaveChangesAsync(ct);
-                    }
-                    catch (DbUpdateException e)
-                    {
-                        db.ChangeTracker.Clear();
-                        logger.LogWarning(e, "Сбор: страница {Page} поиска {Search} не сохранена", page, search.Id);
+                    if (!saved || !await TrySaveAsync(search.Id, page, ct))
                         break;
-                    }
+
+                    progress.Count(seen, added, queued, skipped);
                 }
             }
 
@@ -160,6 +201,21 @@ public class CollectVacanciesCommandHandler(
         }
 
         await db.SaveChangesAsync(ct);
+    }
+
+    private async Task<bool> TrySaveAsync(int searchId, int page, CancellationToken ct)
+    {
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return true;
+        }
+        catch (DbUpdateException e)
+        {
+            db.ChangeTracker.Clear();
+            logger.LogWarning(e, "Сбор: страница {Page} поиска {Search} не сохранена", page, searchId);
+            return false;
+        }
     }
 
     private Task PauseAsync(CancellationToken ct) =>
