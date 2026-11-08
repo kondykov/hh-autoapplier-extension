@@ -50,6 +50,88 @@ public class DomainTests
         Assert.Throws<DomainException>(() => a.Evaluate(VacancyEvaluator.Default, new FilterRules(), [], Now));
     }
 
+    // Отклик в заданном статусе — настоящими переходами, а не подменой поля
+    private static JobApplication InStatus(VacancyStatus status)
+    {
+        var a = New();
+        if (status == VacancyStatus.New)
+            return a;
+
+        if (status is VacancyStatus.Pending or VacancyStatus.Review)
+        {
+            a.Evaluate(VacancyEvaluator.Default, new FilterRules(), Resumes, Now, awaitLlm: true);
+            if (status == VacancyStatus.Review)
+                a.ApplyLlmEvaluation(LlmVerdict.Doubtful, 55, "не уверена", null, "m", Now, reviewDoubtful: true);
+            return a;
+        }
+
+        a.Evaluate(VacancyEvaluator.Default, new FilterRules(), Resumes, Now);
+        if (status == VacancyStatus.Skipped)
+            a.Skip("не подходит", Now);
+        else if (status == VacancyStatus.Failed)
+            a.Fail("капча", Now);
+        else if (status == VacancyStatus.Questionnaire)
+            a.RequireAnswers([VacancyQuestion.Create("Зарплатные ожидания", QuestionType.Text, [])], Now);
+        return a;
+    }
+
+    [Theory]
+    [InlineData(VacancyStatus.New)]
+    [InlineData(VacancyStatus.Pending)]
+    [InlineData(VacancyStatus.Review)]
+    [InlineData(VacancyStatus.Skipped)]
+    [InlineData(VacancyStatus.Failed)]
+    public void MarkApplied_NotFromQueueOrQuestionnaire_Rejected(VacancyStatus status)
+    {
+        var a = InStatus(status);
+
+        Assert.Throws<DomainException>(() => a.MarkApplied("PHP", Now.AddMinutes(1)));
+
+        Assert.Equal(status, a.Status);
+        Assert.Null(a.AppliedAt);
+    }
+
+    [Theory]
+    [InlineData(VacancyStatus.Queued)]
+    [InlineData(VacancyStatus.Questionnaire)]
+    public void MarkApplied_FromQueueOrQuestionnaire_Applied(VacancyStatus status)
+    {
+        var a = InStatus(status);
+
+        a.MarkApplied("PHP", Now.AddMinutes(1));
+
+        Assert.Equal((VacancyStatus.Applied, "PHP", Now.AddMinutes(1)), (a.Status, a.ResumeProfile, a.AppliedAt!.Value));
+    }
+
+    // Чат на hh.ru есть — отклик у работодателя, в каком бы статусе он ни остался на сервере
+    [Theory]
+    [InlineData(VacancyStatus.New)]
+    [InlineData(VacancyStatus.Pending)]
+    [InlineData(VacancyStatus.Review)]
+    [InlineData(VacancyStatus.Queued)]
+    [InlineData(VacancyStatus.Questionnaire)]
+    [InlineData(VacancyStatus.Skipped)]
+    [InlineData(VacancyStatus.Failed)]
+    public void RecoverApplied_FromAnyStatusBeforeSending(VacancyStatus status)
+    {
+        var a = InStatus(status);
+
+        a.RecoverApplied(Now.AddMinutes(1));
+
+        Assert.Equal((VacancyStatus.Applied, Now.AddMinutes(1)), (a.Status, a.AppliedAt!.Value));
+        Assert.Equal((status, VacancyStatus.Applied), (a.History[^1].From, a.History[^1].To));
+    }
+
+    [Fact]
+    public void RecoverApplied_AlreadySent_Rejected()
+    {
+        var a = Queued();
+        a.MarkApplied(null, Now);
+
+        Assert.Throws<DomainException>(() => a.RecoverApplied(Now.AddMinutes(1)));
+        Assert.Equal(Now, a.AppliedAt);
+    }
+
     [Fact]
     public void Application_SkippedOrFailed_CanBeRequeued()
     {

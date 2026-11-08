@@ -49,7 +49,7 @@ docker compose up -d --build  # api: http://127.0.0.1:8080, postgres: 127.0.0.1:
 ## Вакансия и отклик (#8)
 
 - `Vacancy` (`Domain/Vacancies`) — общая карточка: название, компания, зарплата, описание, стек, даты. Статуса и владельца в ней нет; с #9 поиск, нашедший вакансию, хранится в отклике (`SearchId`)
-- `JobApplication` (`Domain/Applications`) — отклик пользователя на вакансию: статус, балл, причина статуса, резюме, вердикт, балл, причина и модель LLM, письмо, анкета с ответами, дата отклика. Все правила статусов — в его методах (`Evaluate`, `ApplyLlmEvaluation`, `Approve`/`Decline`, `SetCoverLetter`, `RequireAnswers`/`AnswerQuestions`, `MarkApplied`/`Skip`/`Fail`/`Reject`/`Invite`/`Requeue`), время передаётся аргументом. Имя не `Application` — чтобы не путать со слоем `HhAutoApplier.Application` (решение владельца 2026-10-25)
+- `JobApplication` (`Domain/Applications`) — отклик пользователя на вакансию: статус, балл, причина статуса, резюме, вердикт, балл, причина и модель LLM, письмо, анкета с ответами, дата отклика. Все правила статусов — в его методах (`Evaluate`, `ApplyLlmEvaluation`, `Approve`/`Decline`, `SetCoverLetter`, `RequireAnswers`/`AnswerQuestions`, `MarkApplied`/`RecoverApplied`/`Skip`/`Fail`/`Reject`/`Invite`/`Requeue`), время передаётся аргументом. `MarkApplied` — только из `Queued` и `Questionnaire` (#60); `RecoverApplied` — отклик с потерянным статусом, найденный по чату hh.ru, из любого статуса до отправки. Имя не `Application` — чтобы не путать со слоем `HhAutoApplier.Application` (решение владельца 2026-10-25)
 - История: каждая смена статуса добавляет в `History` событие `{at, from, to, reason}`
 - Таблица `JobApplications`: `VacancyId` → `Vacancies` и `UserId` → `AspNetUsers` (оба с каскадным удалением), анкета (`Questions`) и история (`History`) — колонки jsonb. Один отклик на пару (вакансия, пользователь), уникальный индекс `NULLS NOT DISTINCT`
 - `UserId = null` — владелец по умолчанию (пока нет пользователей); с #9 отклики у каждого пользователя свои — см. «Владельцы данных»
@@ -187,6 +187,13 @@ ASP.NET Core Identity (таблицы `AspNet*` в той же БД, мигра�
 | GET | `/api/report?format=csv&userId=` | отчёт по откликам |
 
 Пример поиска: `PUT /api/searches` с `{"name":"dotnet","query":"C# .NET","area":"113","extraParams":"work_format=REMOTE","rules":{"excludeKeywords":["junior"],"minSalaryRub":200000}}`.
+
+## Ограничения (#60)
+
+Расчёт на один экземпляр backend (локальное развёртывание): для него это не дефекты.
+
+- **Outbox Telegram:** `MarkSent` сохраняется после отправки. Если сообщение ушло, а сохранение упало, оно уйдёт повторно.
+- **Несколько экземпляров:** сбор вакансий, LLM-конвейер и доставка outbox работают без блокировок между процессами (`LlmPipelineGate` — только внутри процесса). Второй экземпляр на той же базе задвоит запросы к hh.ru и LLM и сообщения в Telegram; опрос бота с тем же токеном получит 409.
 
 ## Дальше
 

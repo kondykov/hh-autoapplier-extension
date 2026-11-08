@@ -508,4 +508,39 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
         Assert.Contains("\"от 250000 RUR\"", lines[1]);
         Assert.Equal(2, lines.Length);
     }
+
+    // Название и компания — от работодателя: формула в CSV не должна исполниться в Excel
+    [Theory]
+    [InlineData("=HYPERLINK(\"http://evil\")", "\"'=HYPERLINK(\"\"http://evil\"\")\"")]
+    [InlineData("+7 разработчик C#", "\"'+7 разработчик C#\"")]
+    [InlineData("-1 разработчик C#", "\"'-1 разработчик C#\"")]
+    [InlineData("@SUM разработчик C#", "\"'@SUM разработчик C#\"")]
+    [InlineData("C# = разработчик", "\"C# = разработчик\"")]
+    public async Task Report_Csv_NeutralizesFormulas(string title, string cell)
+    {
+        await SaveSearch();
+        var card = new { id = "1", title, company = "@Acme", description = "", salaryCurrency = "RUR", workFormat = "Удалённо" };
+        await Json(await Import("dotnet", card));
+        await Json(await SetStatus("1", "Applied"));
+
+        var bytes = await (await _api.GetAsync("/api/report?format=csv")).Content.ReadAsByteArrayAsync();
+        var cells = Encoding.UTF8.GetString(bytes[3..]).Split("\r\n")[1];
+
+        Assert.StartsWith(cell + ";", cells);
+        Assert.Contains(";\"'@Acme\";", cells);
+    }
+
+    // Не прошедший оценку отклик клиент не отметит отправленным
+    [Fact]
+    public async Task SetStatus_AppliedBeforeEvaluation_Conflict()
+    {
+        await SaveSearch();
+        factory.Llm.Configured = true;
+        await Json(await Import("dotnet", Card("1", "C# разработчик")));
+
+        Assert.Equal(HttpStatusCode.Conflict, (await SetStatus("1", "Applied")).StatusCode);
+
+        var vacancy = (await Json(await _api.GetAsync("/api/vacancies"))).EnumerateArray().Single();
+        Assert.Equal("Pending", vacancy.GetProperty("status").GetString());
+    }
 }

@@ -39,9 +39,9 @@ public class AnswerQuestionnairesCommandHandler(
         var waiting = await db.ActiveApplications(blocked).Where(a => a.Status == VacancyStatus.Questionnaire && !exhausted.Contains(a.UserId))
             .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
         // Резюме ищется у владельца отклика: имена у разных пользователей совпадают
-        var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => (r.UserId, r.Name), ct);
-        // Профиль кандидата (#35) — владельца отклика; пользователей немного, все профили — одним запросом
-        var profiles = await db.CandidateProfiles.AsNoTracking().ToListAsync(ct);
+        var resumes = await db.ResumesOf(waiting).ToDictionaryAsync(r => (r.UserId, r.Name), ct);
+        // Профиль кандидата (#35) — владельца отклика
+        var profiles = await db.ProfilesOf(waiting).ToListAsync(ct);
 
         int answered = 0, failed = 0;
         string? stoppedBy = null;

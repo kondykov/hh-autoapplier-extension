@@ -488,7 +488,7 @@ async function account() {
 
   // Пароль
   const current = el("input", { type: "password", autocomplete: "current-password", required: true });
-  const fresh = el("input", { type: "password", autocomplete: "new-password", required: true, minLength: 8 });
+  const fresh = el("input", { type: "password", autocomplete: "new-password", required: true, minLength: 10 });
   const change = el("button", { className: "primary", textContent: "Сменить пароль" });
   const passwordForm = el("form", { className: "card" }, el("h2", { textContent: "Пароль" }),
     el("div", { className: "form" }, field("Текущий", current), field("Новый", fresh)),
@@ -624,7 +624,7 @@ async function admin() {
     block.onclick = () => run(block, () => put(`/api/users/${u.id}/blocked`, { blocked: !u.blocked }), () => { render(); return `${u.email}: ${u.blocked ? "разблокирован" : "заблокирован"}`; });
     const reset = el("button", { textContent: "Задать пароль" });
     reset.onclick = () => {
-      const password = prompt(`Новый пароль для ${u.email} (не короче 8 символов)`);
+      const password = prompt(`Новый пароль для ${u.email} (не короче 10 символов)`);
       if (password) run(reset, () => put(`/api/users/${u.id}/password`, { password }), `${u.email}: пароль задан`);
     };
     return el("tr", {}, el("td", { textContent: u.email }), el("td", {}, role), el("td", { textContent: date(u.createdAt) }),
@@ -632,7 +632,7 @@ async function admin() {
   });
 
   const email = el("input", { type: "email", placeholder: "Email", "aria-label": "Email", required: true });
-  const password = el("input", { type: "password", placeholder: "Пароль", "aria-label": "Пароль", autocomplete: "new-password", required: true, minLength: 8 });
+  const password = el("input", { type: "password", placeholder: "Пароль", "aria-label": "Пароль", autocomplete: "new-password", required: true, minLength: 10 });
   const newRole = el("select", { "aria-label": "Роль" }, el("option", { value: "User", textContent: "User" }), el("option", { value: "Admin", textContent: "Admin" }));
   const create = el("button", { className: "primary", textContent: "Создать" });
   const createForm = el("form", { className: "bar" }, email, password, newRole, create);

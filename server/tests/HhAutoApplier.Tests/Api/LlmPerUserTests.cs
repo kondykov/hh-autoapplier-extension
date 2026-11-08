@@ -1,8 +1,11 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Application.Llm;
 using HhAutoApplier.Domain.Applications;
+using HhAutoApplier.Domain.Candidates;
 using HhAutoApplier.Domain.Llm;
+using HhAutoApplier.Domain.Resumes;
 using Microsoft.EntityFrameworkCore;
 
 namespace HhAutoApplier.Tests.Api;
@@ -42,6 +45,43 @@ public class LlmPerUserTests(ApiFactory factory) : IAsyncLifetime
         factory.WithDbAsync(async db => await db.JobApplications.ToDictionaryAsync(a => (a.VacancyId, a.UserId), a => a.CoverLetter));
 
     private Task<Guid> AdminId() => factory.WithDbAsync(async db => (await db.Users.SingleAsync(u => u.Email == ApiFactory.AdminEmail)).Id);
+
+    // #60: конвейер читает резюме и профили только владельцев откликов выборки; null — владелец по умолчанию
+    [Fact]
+    public async Task ResumesAndProfiles_OnlyOfSelectedOwners()
+    {
+        var b = await TwoOwnersOfVacancy("1");
+        var admin = await AdminId();
+        await factory.WithDbAsync(async db =>
+        {
+            db.Resumes.RemoveRange(db.Resumes);
+            db.CandidateProfiles.RemoveRange(db.CandidateProfiles);
+            foreach (var owner in new Guid?[] { admin, b, null })
+            {
+                db.Resumes.Add(ResumeProfile.Create("одно имя", "C#", ["c#"], userId: owner));
+                db.CandidateProfiles.Add(CandidateProfile.Create(owner));
+            }
+            return await db.SaveChangesAsync();
+        });
+
+        var (resumes, profiles) = await factory.WithDbAsync(async db =>
+        {
+            var selected = await db.JobApplications.Where(a => a.UserId == b).ToListAsync();
+            return (await db.ResumesOf(selected).Select(r => r.UserId).ToListAsync(), await db.ProfilesOf(selected).Select(p => p.UserId).ToListAsync());
+        });
+        Assert.Equal([b], resumes);
+        Assert.Equal([b], profiles);
+
+        var withDefaultOwner = await factory.WithDbAsync(async db =>
+        {
+            var vacancy = await db.Vacancies.SingleAsync();
+            return await db.ResumesOf([JobApplication.Create(vacancy, null, DateTimeOffset.UtcNow)]).Select(r => r.UserId).ToListAsync();
+        });
+        Assert.Equal([null], withDefaultOwner);
+
+        // Пустая выборка — ничего, а не «все»
+        Assert.Empty(await factory.WithDbAsync(db => db.ResumesOf([]).ToListAsync()));
+    }
 
     [Fact]
     public async Task GivenUpLetter_IsPerApplication_NotPerVacancy()

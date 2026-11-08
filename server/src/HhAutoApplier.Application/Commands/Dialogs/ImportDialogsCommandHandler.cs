@@ -41,7 +41,7 @@ public class ImportDialogsCommandHandler(IAppDbContext db, ICurrentUser current,
             {
                 if (!application.Sent)
                 {
-                    application.MarkApplied(null, now);
+                    application.RecoverApplied(now);
                     recovered++;
                 }
 
@@ -78,7 +78,15 @@ public class ImportDialogsCommandHandler(IAppDbContext db, ICurrentUser current,
             }
         }
 
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            // Те же чаты успел записать другой запрос, например из второй вкладки (уникальный индекс, xmin отклика)
+            return new ConflictError("Те же чаты одновременно записал другой запрос — повторите");
+        }
 
         var autoReplies = await db.EmployerMessages.AsNoTracking()
             .Where(m => m.UserId == userId && m.AutoReply == AutoReplyState.Pending)

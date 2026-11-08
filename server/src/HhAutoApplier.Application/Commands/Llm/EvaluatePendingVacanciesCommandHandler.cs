@@ -31,9 +31,9 @@ public class EvaluatePendingVacanciesCommandHandler(
         var pending = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct)).Where(a => a.Status == VacancyStatus.Pending && !exhausted.Contains(a.UserId))
             .OrderBy(a => a.Vacancy.CollectedAt).Take(command.Limit).ToListAsync(ct);
         // Резюме — владельца отклика, правила — поиска, который нашёл вакансию
-        var resumesByOwner = (await db.Resumes.AsNoTracking().ToListAsync(ct)).ToLookup(r => r.UserId);
-        // Профиль кандидата (#35) — владельца отклика; пользователей немного, все профили — одним запросом
-        var profiles = await db.CandidateProfiles.AsNoTracking().ToListAsync(ct);
+        var resumesByOwner = (await db.ResumesOf(pending).ToListAsync(ct)).ToLookup(r => r.UserId);
+        // Профиль кандидата (#35) — владельца отклика
+        var profiles = await db.ProfilesOf(pending).ToListAsync(ct);
 
         int fit = 0, doubtful = 0, rejected = 0;
         string? stoppedBy = null;

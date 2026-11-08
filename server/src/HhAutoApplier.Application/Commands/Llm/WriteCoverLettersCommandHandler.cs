@@ -46,9 +46,9 @@ public class WriteCoverLettersCommandHandler(
             return new CoverLettersResultDto(0, 0, 0, null);
 
         // Резюме ищется у владельца отклика: имена у разных пользователей совпадают
-        var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => (r.UserId, r.Name), ct);
-        // Профиль кандидата (#35) — владельца отклика; пользователей немного, все профили — одним запросом
-        var profiles = await db.CandidateProfiles.AsNoTracking().ToListAsync(ct);
+        var resumes = await db.ResumesOf(queued).ToDictionaryAsync(r => (r.UserId, r.Name), ct);
+        // Профиль кандидата (#35) — владельца отклика
+        var profiles = await db.ProfilesOf(queued).ToListAsync(ct);
 
         int written = 0, failed = 0;
         string? stoppedBy = null;

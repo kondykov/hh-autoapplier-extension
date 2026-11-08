@@ -101,8 +101,8 @@ public class OwnershipTests(ApiFactory factory) : IAsyncLifetime
 
         // Импорт известной вакансии в свой поиск даёт B свой отклик; статус A не меняется
         await Import(b, "b-search", "1");
-        var applied = await Json(await b.PostAsJsonAsync("/api/vacancies/1/status", new { status = "Applied" }));
-        Assert.Equal(("Applied", "b-search"), (applied.GetProperty("status").GetString(), applied.GetProperty("searchName").GetString()));
+        var skipped = await Json(await b.PostAsJsonAsync("/api/vacancies/1/status", new { status = "Skipped", reason = "не подходит" }));
+        Assert.Equal(("Skipped", "b-search"), (skipped.GetProperty("status").GetString(), skipped.GetProperty("searchName").GetString()));
         var vacancyA = Assert.Single(await Vacancies(a));
         Assert.Equal(("Queued", "a-search"), (vacancyA.GetProperty("status").GetString(), vacancyA.GetProperty("searchName").GetString()));
         Assert.Equal(1, await factory.WithDbAsync(db => db.Vacancies.CountAsync()));

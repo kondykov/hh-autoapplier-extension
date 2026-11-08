@@ -235,15 +235,29 @@ public class JobApplication
         return answered;
     }
 
+    // Отклик отправлен из очереди. Только из Queued и Questionnaire: не прошедший оценку или проверку отметить отправленным нельзя (#60)
     public void MarkApplied(string? resume, DateTimeOffset at)
     {
         if (Sent)
             throw new DomainException("Отклик на вакансию уже отправлен");
 
+        if (Status is not (VacancyStatus.Queued or VacancyStatus.Questionnaire))
+            throw new DomainException($"Отправленным можно отметить только отклик в очереди или с анкетой, сейчас {Status}");
+
         AppliedAt = at;
         if (!string.IsNullOrWhiteSpace(resume))
             ResumeProfile = resume;
         MoveTo(VacancyStatus.Applied, null, at);
+    }
+
+    // Чат на hh.ru есть, а статус потерялся: отклик уже у работодателя, поэтому из любого статуса до отправки (#26, #60)
+    public void RecoverApplied(DateTimeOffset at)
+    {
+        if (Sent)
+            throw new DomainException("Отклик на вакансию уже отправлен");
+
+        AppliedAt = at;
+        MoveTo(VacancyStatus.Applied, "восстановлен по чату hh.ru", at);
     }
 
     public void Skip(string? reason, DateTimeOffset at)
