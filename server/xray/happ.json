@@ -1,0 +1,20 @@
+{
+  "inbounds": [
+    {
+      "tag": "http-in",
+      "listen": "172.17.0.1",
+      "port": 10810,
+      "protocol": "http",
+      "settings": {}
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "vpn",
+      "protocol": "socks",
+      "settings": {
+        "servers": [{ "address": "127.0.0.1", "port": 10808 }]
+      }
+    }
+  ]
+}
