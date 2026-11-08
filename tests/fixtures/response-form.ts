@@ -2,9 +2,7 @@
 // варианты — [role=option], на странице отклика кнопка «Откликнуться» без data-qa; анкета — блоки [data-qa=task-body] (2026-10-25)
 
 export const PHP = "Fullstack Software Engineer | PHP / Nuxt";
-// Название резюме; в списке hh.ru к нему приклеена зарплата
-export const DOTNET_NAME = "Backend Software Engineer | C# .NET developer";
-export const DOTNET = `${DOTNET_NAME}130 000 ₽`;
+export const DOTNET = "Backend Software Engineer | C# .NET developer130 000 ₽";
 
 export interface FormOptions {
   resumes?: string[];

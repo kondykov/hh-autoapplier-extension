@@ -14,7 +14,7 @@ export interface VacancyItem {
 }
 
 export interface Vacancy extends VacancyItem {
-  // Полное название резюме на hh.ru (match профиля с сервера): по нему резюме выбирается в форме отклика
+  // Часть названия резюме на hh.ru (match профиля с сервера): по ней резюме выбирается в форме отклика
   resumeMatch?: string;
   // Готовое письмо с backend
   letter?: string;

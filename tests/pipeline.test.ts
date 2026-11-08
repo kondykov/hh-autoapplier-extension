@@ -8,7 +8,6 @@ import { isDryRun, isQueueOn, type QueueItem } from "../src/queue/queue-mode";
 import { ResumeSelector } from "../src/resume/selector";
 import {
   DOTNET,
-  DOTNET_NAME,
   letterValue,
   PHP,
   renderResponsePage,
@@ -44,7 +43,7 @@ const vacancy = (patch: Partial<Vacancy> = {}): Vacancy => ({
   link: RESPONSE_URL,
   // Резюме выбирает backend: имя профиля и его match на hh.ru
   resume: ".NET",
-  resumeMatch: DOTNET_NAME,
+  resumeMatch: "C# .NET",
   ...patch,
 });
 
@@ -80,7 +79,7 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
   it("резюме сервера — по его match, а не по стеку вакансии; письмо — с подстановками", async () => {
     renderResponsePage({ current: DOTNET, afterSubmit: "nothing" });
     const { pipeline } = setup({ dryRun: () => true });
-    const v = vacancy({ resume: "PHP", resumeMatch: PHP });
+    const v = vacancy({ resume: "PHP", resumeMatch: "PHP" });
 
     expect(await run(pipeline.applyOnPage(v))).toBe("dry_run");
     expect(resumeTitle()).toBe(PHP);
@@ -156,11 +155,11 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
     expect(deps.onApplied).not.toHaveBeenCalled();
   });
 
-  it("match — часть названия: ни одного точного совпадения, отклик не отправляется", async () => {
-    renderResponsePage();
+  it("match подходит к нескольким резюме — отклик не отправляется", async () => {
+    renderResponsePage({ resumes: [PHP, DOTNET, "Senior C# .NET"] });
     const { pipeline } = setup();
 
-    expect(await run(pipeline.applyOnPage(vacancy({ resumeMatch: "C# .NET" })))).toBe("failed");
+    expect(await run(pipeline.applyOnPage(vacancy()))).toBe("failed");
     expect(submits).toBe(0);
     expect(resumeTitle()).toBe(PHP);
   });

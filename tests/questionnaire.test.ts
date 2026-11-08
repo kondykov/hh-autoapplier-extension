@@ -7,7 +7,7 @@ import { Logger } from "../src/infra/logger";
 import { StaticTemplateProvider } from "../src/letters/letter-provider";
 import { fillQuestionnaire, toServerQuestions, type QuestionAnswer } from "../src/questions/fill";
 import { ResumeSelector } from "../src/resume/selector";
-import { DOTNET_NAME, letterValue, QUESTIONS, renderResponsePage, resetSubmits, submits } from "./fixtures/response-form";
+import { letterValue, QUESTIONS, renderResponsePage, resetSubmits, submits } from "./fixtures/response-form";
 
 const setUrl = (url: string) => (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL(url);
 
@@ -111,7 +111,7 @@ describe("ApplyPipeline: анкета с ответами backend", () => {
   }
 
   const vacancy = (answers?: QuestionAnswer[]): Vacancy => ({
-    title: "Разработчик C# .NET", company: "Acme", link: "", resume: ".NET", resumeMatch: DOTNET_NAME, answers,
+    title: "Разработчик C# .NET", company: "Acme", link: "", resume: ".NET", resumeMatch: "C# .NET", answers,
   });
 
   async function run(promise: Promise<ApplyResult>): Promise<ApplyResult> {
