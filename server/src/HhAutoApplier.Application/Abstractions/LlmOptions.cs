@@ -7,6 +7,8 @@ public class LlmOptions
 
     public const string OpenAiProvider = "openai";
 
+    public const string GigaChatProvider = "gigachat";
+
     public const string DefaultBaseUrl = "https://api.groq.com/openai/v1";
 
     public const string JsonObjectMode = "json_object";
@@ -33,6 +35,12 @@ public class LlmOptions
 
     // Доля одного пользователя в дневном лимите (#56, решение владельца 2026-11-06); 0 — без доли
     public int UserDailyRequestLimit { get; set; } = 150;
+
+    // Только для gigachat: адрес обмена ключа на токен доступа
+    public string AuthUrl { get; set; } = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth";
+
+    // Только для gigachat: GIGACHAT_API_PERS — физлица, GIGACHAT_API_B2B и GIGACHAT_API_CORP — ИП и юрлица
+    public string Scope { get; set; } = "GIGACHAT_API_PERS";
 
     // json_object или none (JSON задаётся промптом); пусто — как в профиле. Поддержка зависит и от конкретной модели
     public string? JsonMode { get; set; }

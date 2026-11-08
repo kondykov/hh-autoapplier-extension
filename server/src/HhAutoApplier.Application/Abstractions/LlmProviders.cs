@@ -25,5 +25,7 @@ public static class LlmProviders
     public static readonly IReadOnlyDictionary<string, LlmProviderProfile> All = new[]
     {
         new LlmProviderProfile(LlmOptions.OpenAiProvider),
+        // В описании API ГигаЧата json_object не найден (в примерах — json_schema); temperature больше нуля, 0,01 допустимо при любом прочтении (#67)
+        new LlmProviderProfile(LlmOptions.GigaChatProvider, LlmAuth.TokenExchange, SupportsJsonObject: false, MinTemperature: 0.01, NeedsOwnBaseUrl: true),
     }.ToDictionary(p => p.Name, StringComparer.OrdinalIgnoreCase);
 }

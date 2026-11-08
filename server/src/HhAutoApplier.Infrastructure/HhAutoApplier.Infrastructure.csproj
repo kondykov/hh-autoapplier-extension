@@ -15,6 +15,11 @@
     <PackageReference Include="Telegram.Bot" Version="22.10.3.3" />
   </ItemGroup>
 
+  <!-- Корень НУЦ Минцифры для соединений с ГигаЧатом: см. Llm/GigaChatTls.cs -->
+  <ItemGroup>
+    <EmbeddedResource Include="Llm\Certificates\russian_trusted_root_ca.pem" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

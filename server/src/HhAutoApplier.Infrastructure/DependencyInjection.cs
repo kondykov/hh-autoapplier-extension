@@ -52,7 +52,7 @@ public static class DependencyInjection
             services.AddTransient<IVacancySource>(sp => sp.GetRequiredService<HhWebSource>());
         }
 
-        // LLM: OpenAI-совместимый провайдер (по умолчанию Groq); без ключа IsConfigured = false
+        // LLM: OpenAI-совместимый провайдер (по умолчанию Groq) или ГигаЧат; без ключа IsConfigured = false
         var llm = config.GetSection(LlmOptions.Section);
         services.Configure<LlmOptions>(llm);
         var llmOptions = llm.Get<LlmOptions>() ?? new LlmOptions();
@@ -63,7 +63,15 @@ public static class DependencyInjection
             var from = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
             return scope.ServiceProvider.GetRequiredService<AppDbContext>().LlmCalls.Count(c => c.CreatedAt >= from && c.CreatedAt < from.AddDays(1));
         }));
-        services.AddHttpClient<ILlmClient, OpenAiCompatibleClient>();
+        var llmHttp = services.AddHttpClient<ILlmClient, OpenAiCompatibleClient>();
+        if (llmOptions.GetProfile().Name == LlmOptions.GigaChatProvider)
+        {
+            var root = GigaChatTls.LoadRoot();
+            llmHttp.ConfigurePrimaryHttpMessageHandler(() => GigaChatTls.CreateHandler(root));
+            services.AddHttpClient(GigaChatTokenSource.HttpClientName)
+                .ConfigurePrimaryHttpMessageHandler(() => GigaChatTls.CreateHandler(root));
+            services.AddSingleton<ILlmTokenSource, GigaChatTokenSource>();
+        }
 
         // Telegram: без токена бот выключен, уведомления не пишутся
         services.Configure<TelegramOptions>(config.GetSection(TelegramOptions.Section));

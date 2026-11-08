@@ -31,6 +31,7 @@ services:
       Hh__Enabled: ${HH_ENABLED:-true}
       Collector__IntervalMinutes: ${COLLECT_INTERVAL_MINUTES:-60}
       Llm__Provider: ${LLM_PROVIDER:-openai}
+      Llm__Scope: ${LLM_SCOPE:-GIGACHAT_API_PERS}
       Llm__JsonMode: ${LLM_JSON_MODE:-}
       Llm__ApiKey: ${LLM_API_KEY:-}
       Llm__BaseUrl: ${LLM_BASE_URL:-https://api.groq.com/openai/v1}
