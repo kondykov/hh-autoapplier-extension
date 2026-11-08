@@ -2,7 +2,8 @@
 # Через VPN идут только домены из правил xray/base.json, всё остальное — напрямую.
 # hh.ru в NO_PROXY: сбор вакансий не зависит от контейнера xray, даже если он упал.
 #
-# Включить: скопировать xray/outbound.example.json в xray/outbound.json (не в git), вписать параметры своего сервера,
+# Проще всего из ссылки vless://: python3 xray/vless-to-outbound.py (ввод скрыт, права выставит сам).
+# Вручную: скопировать xray/outbound.example.json в xray/outbound.json (не в git), вписать параметры своего сервера,
 # тег outbound оставить "vpn"; chown 65532:65532 xray/outbound.json && chmod 600 xray/outbound.json (xray в образе
 # работает под uid 65532); в .env добавить COMPOSE_FILE=docker-compose.yml:docker-compose.vpn.yml; docker compose up -d.
 services:
