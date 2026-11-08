@@ -50,6 +50,16 @@ public class HhSourceTests
     }
 
     [Fact]
+    public void Search_WithZeroResults_IgnoresFillerVacancies()
+    {
+        using var state = HhPageParser.ExtractState(Page("""
+            {"vacancySearchResult":{"totalResults":0,"vacancies":[{"vacancyId":201,"name":"Ведущий менеджер маркетплейса"}]}}
+            """))!;
+
+        Assert.Empty(HhPageParser.ParseSearch(state.RootElement, "dotnet", DateTimeOffset.UtcNow)!);
+    }
+
+    [Fact]
     public void Vacancy_AddsDescriptionStackAndDate()
     {
         var v = Card("101", "C# разработчик");

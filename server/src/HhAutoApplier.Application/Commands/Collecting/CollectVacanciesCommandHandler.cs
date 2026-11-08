@@ -45,6 +45,8 @@ public class CollectVacanciesCommandHandler(
                     if (page > 0)
                         await PauseAsync(ct);
 
+                    // Листаем до конца выдачи (пустая страница): hh.ru показывает часть новых вакансий с задержкой,
+                    // и они оказываются ниже уже известных — страница без новых не значит, что дальше их нет (#73)
                     var found = await source.SearchAsync(search, page, ct);
                     if (found.Count == 0)
                         break;
@@ -107,10 +109,6 @@ public class CollectVacanciesCommandHandler(
                         logger.LogWarning(e, "Сбор: страница {Page} поиска {Search} не сохранена", page, search.Id);
                         break;
                     }
-
-                    // Выдача отсортирована по дате: страница без новых — дальше только известные
-                    if (fresh.Count == 0)
-                        break;
                 }
             }
 

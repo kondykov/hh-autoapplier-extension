@@ -185,6 +185,18 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
         Assert.Contains("капча", await blocked.Content.ReadAsStringAsync());
     }
 
+    // hh.ru показывает часть вакансий с задержкой: новая может лежать глубже страницы, где всё уже известно (#73)
+    [Fact]
+    public async Task Collect_FindsNewVacancyBehindPageOfKnownOnes()
+    {
+        await SaveSearch("dotnet", "junior");
+        factory.Source.Add("10", "C# разработчик", "ASP.NET Core");
+        Assert.Equal(1, (await Json(await _api.PostAsync("/api/collect", null))).GetProperty("added").GetInt32());
+
+        factory.Source.Add("20", "Senior C# разработчик", "ASP.NET Core", page: 1);
+        Assert.Equal(1, (await Json(await _api.PostAsync("/api/collect", null))).GetProperty("added").GetInt32());
+    }
+
     [Fact]
     public async Task LlmCheck_WithoutKey_Is503_AndDoesNotCallProvider()
     {

@@ -148,7 +148,7 @@ public sealed class TokenHandler(HttpClient issuer) : DelegatingHandler
 // Источник вакансий для тестов сбора: отдаёт заданные карточки или «блокируется», как hh.ru при капче
 public sealed class FakeVacancySource : IVacancySource
 {
-    private readonly List<(string Id, string Title, string Description, bool Listed)> _cards = [];
+    private readonly List<(string Id, string Title, string Description, bool Listed, int Page)> _cards = [];
 
     // Страница вакансии не открывается (404, архив): LoadDetailsAsync — false
     public HashSet<string> NoDetails { get; } = [];
@@ -159,10 +159,10 @@ public sealed class FakeVacancySource : IVacancySource
 
     public string Name => "fake";
 
-    public void Add(string id, string title, string description) => _cards.Add((id, title, description, true));
+    public void Add(string id, string title, string description, int page = 0) => _cards.Add((id, title, description, true, page));
 
     // Вакансия есть на hh.ru, но в выдачу поисков не попадает: доступна только по странице вакансии
-    public void AddUnlisted(string id, string title, string description) => _cards.Add((id, title, description, false));
+    public void AddUnlisted(string id, string title, string description) => _cards.Add((id, title, description, false, 0));
 
     public void Reset()
     {
@@ -177,10 +177,8 @@ public sealed class FakeVacancySource : IVacancySource
         if (Blocked)
             throw new SourceBlockedException(Name, "капча");
 
-        IReadOnlyList<Vacancy> found = page > 0
-            ? []
-            : _cards.Where(c => c.Listed)
-                .Select(c => Vacancy.Create(c.Id, c.Title, $"https://hh.ru/vacancy/{c.Id}", search.Name, DateTimeOffset.UtcNow)).ToList();
+        IReadOnlyList<Vacancy> found = _cards.Where(c => c.Listed && c.Page == page)
+            .Select(c => Vacancy.Create(c.Id, c.Title, $"https://hh.ru/vacancy/{c.Id}", search.Name, DateTimeOffset.UtcNow)).ToList();
         return Task.FromResult(found);
     }
 
