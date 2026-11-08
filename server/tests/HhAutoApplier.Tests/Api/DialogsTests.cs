@@ -49,6 +49,7 @@ public class DialogsTests(ApiFactory factory) : IAsyncLifetime
         await Json(await _admin.PutAsJsonAsync("/api/searches", new { name = "dotnet", query = "C#" }));
         object Card(string id) => new { id, title = $"C# {id}", company = "Acme", description = "", salaryCurrency = "RUR", workFormat = "Удалённо" };
         await Json(await _admin.PostAsJsonAsync("/api/import", new { search = "dotnet", vacancies = new[] { Card("1"), Card("2"), Card("3") } }));
+        await factory.ConfirmImportedAsync();
         foreach (var id in new[] { "1", "2", "3" })
             await Json(await _admin.PostAsJsonAsync($"/api/vacancies/{id}/status", new { status = "Applied" }));
     }
@@ -109,6 +110,7 @@ public class DialogsTests(ApiFactory factory) : IAsyncLifetime
         await Json(await _admin.PutAsJsonAsync("/api/searches", new { name = "dotnet", query = "C#" }));
         factory.Llm.Configured = true;
         await Json(await _admin.PostAsJsonAsync("/api/import", new { search = "dotnet", vacancies = new[] { new { id = "5", title = "C# 5", company = "Acme", description = "", salaryCurrency = "RUR", workFormat = "Удалённо" } } }));
+        await factory.ConfirmImportedAsync();
         Assert.Equal(VacancyStatus.Pending, await StatusOf("5"));
 
         var result = await Import(Chat(51, "5", "RESPONSE", 501, Old));

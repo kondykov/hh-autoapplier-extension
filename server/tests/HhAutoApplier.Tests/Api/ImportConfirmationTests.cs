@@ -210,7 +210,13 @@ public class ImportConfirmationTests(ApiFactory factory) : IAsyncLifetime
     {
         await SaveSearch();
         await Import("1", "2");
-        await Json(await _api.PostAsJsonAsync("/api/vacancies/1/status", new { status = "Applied" }));
+        // Отклик из New становится отправленным только восстановлением по чату hh.ru: статусом через API — нельзя (#60)
+        await factory.WithDbAsync(async db =>
+        {
+            var application = await db.JobApplications.SingleAsync(a => a.VacancyId == "1");
+            application.RecoverApplied(DateTimeOffset.UtcNow);
+            return await db.SaveChangesAsync();
+        });
         await Json(await _api.PostAsJsonAsync("/api/vacancies/2/status", new { status = "Skipped", reason = "не интересно" }));
         factory.Source.NoDetails.UnionWith(["1", "2"]);
 
