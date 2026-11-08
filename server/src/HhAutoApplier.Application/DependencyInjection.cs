@@ -20,6 +20,7 @@ public static class DependencyInjection
 
         services.AddScoped<Notifier>();
         services.AddScoped<LlmUserQuota>();
+        services.AddScoped<LlmQualityMonitor>();
         services.AddSingleton<LlmPipelineGate>();
         services.AddSingleton(VacancyEvaluator.Default);
         services.AddSingleton(TimeProvider.System);

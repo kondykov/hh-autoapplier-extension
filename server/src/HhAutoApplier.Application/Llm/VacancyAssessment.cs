@@ -92,9 +92,11 @@ public static class VacancyAssessment
                 : int.TryParse(Str(root, "score"), out var parsed) ? parsed
                 : verdict == LlmVerdict.Fit ? 70 : verdict == LlmVerdict.Doubtful ? 50 : 10;
 
-            // Резюме — только из списка; иначе остаётся выбор правил
+            // Резюме — только из списка; иначе остаётся выбор правил. Единственное резюме подставляется само:
+            // выбирать не из чего, а модель отвечает null или строкой "null" (#67)
             var resumeName = Str(root, "resume");
-            var resume = resumes.FirstOrDefault(r => string.Equals(r.Name, resumeName?.Trim(), StringComparison.OrdinalIgnoreCase))?.Name;
+            var resume = resumes.FirstOrDefault(r => string.Equals(r.Name, resumeName?.Trim(), StringComparison.OrdinalIgnoreCase))?.Name
+                         ?? (resumes.Count == 1 ? resumes.Single().Name : null);
 
             var reason = Str(root, "reason")?.Trim();
             return new LlmAssessment(verdict.Value, Math.Clamp(score, 0, 100), resume, string.IsNullOrEmpty(reason) ? "без объяснения" : reason);

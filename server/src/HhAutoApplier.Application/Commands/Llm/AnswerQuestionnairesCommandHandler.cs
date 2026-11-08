@@ -61,6 +61,7 @@ public class AnswerQuestionnairesCommandHandler(
             var request = first;
             IReadOnlyList<IReadOnlyCollection<string>>? answers = null;
             IReadOnlyList<string> problems = [];
+            string? incomplete = null;
             for (var attempt = 1; attempt <= MaxAttempts; attempt++)
             {
                 // На повтор доли не хватило — ответы первой попытки с замечаниями идут на ручную проверку
@@ -83,16 +84,23 @@ public class AnswerQuestionnairesCommandHandler(
                 }
 
                 answers = QuestionnaireAnswering.Parse(result.Content);
-                problems = answers is null ? [] : QuestionnaireAnswering.Problems(application.Questions, answers, facts, rules);
-                db.LlmCalls.Add((problems.Count > 0
+                incomplete = answers is null ? null : QuestionnaireAnswering.Incomplete(application.Questions, answers);
+                problems = answers is null || incomplete is not null ? [] : QuestionnaireAnswering.Problems(application.Questions, answers, facts, rules);
+                var error = answers is null ? LlmCall.Unparsed
+                    : incomplete is not null ? $"{QuestionnaireAnswering.IncompleteError}: {incomplete}"
+                    : problems.Count > 0 ? $"{QuestionnaireAnswering.FiguresError}: {string.Join("; ", problems)}"
+                    : null;
+                db.LlmCalls.Add((error is not null
                     ? LlmCall.Rejected(QuestionnaireAnswering.Purpose, application.VacancyId, result.Model, prompt, result.Content,
-                        $"{QuestionnaireAnswering.FiguresError}: {string.Join("; ", problems)}", result.PromptTokens, result.CompletionTokens, clock.GetUtcNow())
+                        error, result.PromptTokens, result.CompletionTokens, clock.GetUtcNow())
                     : LlmCall.Succeeded(QuestionnaireAnswering.Purpose, application.VacancyId, result.Model, prompt, result.Content,
                         result.PromptTokens, result.CompletionTokens, clock.GetUtcNow())).For(application.UserId));
-                if (problems.Count == 0)
+                if (answers is null || (incomplete is null && problems.Count == 0))
                     break;
 
-                request = QuestionnaireAnswering.Retry(first, result.Content, problems);
+                request = incomplete is not null
+                    ? QuestionnaireAnswering.RetryIncomplete(first, result.Content, incomplete, application.Questions.Count)
+                    : QuestionnaireAnswering.Retry(first, result.Content, problems);
             }
             // Анкета остаётся ждать следующего запуска
             if (stoppedBy is not null)
@@ -101,15 +109,24 @@ public class AnswerQuestionnairesCommandHandler(
             // Неполный ответ или вариант не из анкеты — догадки работодателю не отправляем: пропуск с причиной,
             // чтобы не спрашивать LLM каждый запуск. Вернуть в очередь — вручную, расширение пришлёт анкету заново
             var ok = true;
-            try
+            // Ответов не столько, сколько вопросов, и после повтора: решает человек, а не пропуск
+            if (incomplete is not null)
             {
-                application.AnswerQuestions(answers ?? throw new DomainException("ответ LLM не разобран"), clock.GetUtcNow(),
-                    reviewText: !rules.SkipReview, problems);
-            }
-            catch (DomainException e)
-            {
-                application.Skip($"анкета без ответа LLM: {e.Message}", clock.GetUtcNow());
+                application.RequireQuestionnaireReview(incomplete, clock.GetUtcNow());
                 ok = false;
+            }
+            else
+            {
+                try
+                {
+                    application.AnswerQuestions(answers ?? throw new DomainException("ответ LLM не разобран"), clock.GetUtcNow(),
+                        reviewText: !rules.SkipReview, problems);
+                }
+                catch (DomainException e)
+                {
+                    application.Skip($"анкета без ответа LLM: {e.Message}", clock.GetUtcNow());
+                    ok = false;
+                }
             }
 
             if (!await db.SaveOrDiscardAsync(application, ct))

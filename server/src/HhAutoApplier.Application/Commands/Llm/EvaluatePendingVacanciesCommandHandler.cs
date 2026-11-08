@@ -63,11 +63,15 @@ public class EvaluatePendingVacanciesCommandHandler(
                 break;
             }
 
-            db.LlmCalls.Add(LlmCall.Succeeded(VacancyAssessment.Purpose, application.VacancyId, result.Model, prompt, result.Content,
-                result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(application.UserId));
+            var parsed = VacancyAssessment.Parse(result.Content, resumes);
+            db.LlmCalls.Add((parsed is null
+                ? LlmCall.Rejected(VacancyAssessment.Purpose, application.VacancyId, result.Model, prompt, result.Content,
+                    LlmCall.Unparsed, result.PromptTokens, result.CompletionTokens, clock.GetUtcNow())
+                : LlmCall.Succeeded(VacancyAssessment.Purpose, application.VacancyId, result.Model, prompt, result.Content,
+                    result.PromptTokens, result.CompletionTokens, clock.GetUtcNow())).For(application.UserId));
 
             // Неразобранный ответ — на ручную проверку, чтобы вакансия не застряла в Pending
-            var assessment = VacancyAssessment.Parse(result.Content, resumes)
+            var assessment = parsed
                              ?? new LlmAssessment(LlmVerdict.Doubtful, application.Score, null, "ответ LLM не разобран — проверить вручную");
             application.ApplyLlmEvaluation(assessment.Verdict, assessment.Score, assessment.Reason, assessment.Resume, result.Model, clock.GetUtcNow(),
                 reviewDoubtful: !rules.SkipReview);

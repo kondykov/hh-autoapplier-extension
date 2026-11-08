@@ -192,6 +192,27 @@ public class JobApplication
             MoveTo(VacancyStatus.Queued, "анкета: ответы LLM", at);
     }
 
+    // LLM не ответила на все вопросы: решает человек. Одобрить — в очередь, расширение пришлёт анкету заново
+    public void RequireQuestionnaireReview(string reason, DateTimeOffset at)
+    {
+        if (Status != VacancyStatus.Questionnaire)
+            throw new DomainException($"Анкета уходит на проверку только из статуса Questionnaire, сейчас {Status}");
+
+        MoveTo(VacancyStatus.Review, $"анкета: проверить — {reason}", at);
+    }
+
+    // Письмо LLM не прошло проверку: без письма отклик не уходит сам, решает человек
+    public void RequireLetterReview(string reason, DateTimeOffset at)
+    {
+        if (Status is not (VacancyStatus.Queued or VacancyStatus.Review))
+            throw new DomainException($"Письмо проверяется только для отклика в очереди или на проверке, сейчас {Status}");
+
+        MoveTo(VacancyStatus.Review, $"{LetterReviewPrefix} — {reason}", at);
+    }
+
+    // На проверке из-за письма LLM, а не сомнительной оценки
+    public bool LetterRejected => StatusReason?.StartsWith(LetterReviewPrefix, StringComparison.Ordinal) == true;
+
     // Новый список вопросов с ответами; сначала проверяются все, чтобы при ошибке не остались ответы наполовину
     private List<VacancyQuestion> Answered(IReadOnlyList<IReadOnlyCollection<string>> answers)
     {
@@ -275,6 +296,8 @@ public class JobApplication
 
     // Модель письма, поправленного человеком на ручной проверке
     public const string ManualLetter = "manual";
+
+    private const string LetterReviewPrefix = "письмо: проверить";
 
     // С запасом под лимит поля письма на hh.ru
     private const int MaxCoverLetterLength = 4000;

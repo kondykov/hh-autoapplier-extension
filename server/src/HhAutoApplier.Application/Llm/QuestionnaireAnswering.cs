@@ -18,6 +18,9 @@ public static class QuestionnaireAnswering
     // Причина в журнале LlmCalls, когда в текстовых ответах цифры не из фактов о кандидате
     public const string FiguresError = "цифры не из фактов";
 
+    // Причина в журнале LlmCalls, когда ответов не столько, сколько вопросов
+    public const string IncompleteError = "неполная анкета";
+
     private const int MaxDescription = 2000;
 
     // gpt-oss сначала рассуждает: запас токенов, чтобы JSON-ответ не обрезался
@@ -125,6 +128,21 @@ public static class QuestionnaireAnswering
 
         return problems;
     }
+
+    // Ответов не столько, сколько вопросов: описание для журнала и ручной проверки; null — число совпало
+    public static string? Incomplete(IReadOnlyList<VacancyQuestion> questions, IReadOnlyList<IReadOnlyCollection<string>> answers) =>
+        answers.Count == questions.Count ? null : $"ответов {answers.Count}, а вопросов {questions.Count}";
+
+    public static LlmRequest RetryIncomplete(LlmRequest request, string content, string incomplete, int questions) =>
+        request with
+        {
+            Messages =
+            [
+                .. request.Messages,
+                LlmMessage.Assistant(content),
+                LlmMessage.User($"В анкете {incomplete}. Ответь заново тем же JSON: в массиве answers ровно {questions} элементов, по одному на каждый вопрос, в том же порядке."),
+            ],
+        };
 
     // Повторная попытка: тот же разговор, ответ модели и список неверных цифр
     public static LlmRequest Retry(LlmRequest request, string content, IReadOnlyList<string> problems) =>

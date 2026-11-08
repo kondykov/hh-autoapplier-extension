@@ -234,7 +234,7 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await _api.PostAsJsonAsync("/api/llm/letters", new { })).StatusCode);
 
         factory.Llm.Configured = true;
-        const string letter = "Здравствуйте! Пишу на C# пять лет, ASP.NET Core знаю хорошо.\n\nС уважением, Иван";
+        const string letter = "Здравствуйте! Пишу на C#, ASP.NET Core знаю хорошо.\n\nС уважением, Иван";
         factory.Llm.Answers.Enqueue(letter);
         factory.Llm.Answers.Enqueue("Не могу.");
         var res = await Json(await _api.PostAsJsonAsync("/api/llm/letters", new { limit = 10 }));

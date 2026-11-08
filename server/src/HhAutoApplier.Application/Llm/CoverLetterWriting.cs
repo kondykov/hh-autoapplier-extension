@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Domain.Candidates;
 using HhAutoApplier.Domain.Resumes;
@@ -22,6 +23,14 @@ public static class CoverLetterWriting
     // Причина в журнале LlmCalls, когда цифры письма не из фактов: по ней письмо вакансии не переписывается сутки
     public const string FiguresError = "цифры не из фактов";
 
+    // Причина в журнале, когда в письме осталась заглушка: как и с цифрами, письмо сутки не переписывается
+    public const string PlaceholdersError = "заглушки в письме";
+
+    // «[Ваше Имя]», «[Контакты]» и отдельной строкой «(без подписи)», «(контакты из шаблона)»: такое работодателю уходить не должно.
+    // Круглые скобки — только на всю строку: внутри предложения это обычное пояснение
+    private static readonly Regex Placeholder = new(@"\[[^\[\]\r\n]{1,100}\]|^[ \t]*\([^()\r\n]{1,100}\)[ \t]*\r?$",
+        RegexOptions.CultureInvariant | RegexOptions.Multiline, TimeSpan.FromMilliseconds(200));
+
     private const string System = """
         Ты помогаешь соискателю писать сопроводительные письма к откликам на hh.ru.
         Напиши письмо по-русски под конкретную вакансию: 3–6 предложений, до 900 знаков, деловой и живой тон без канцелярита.
@@ -43,7 +52,8 @@ public static class CoverLetterWriting
     public static LlmRequest BuildRequest(Vacancy vacancy, ResumeProfile? resume, CandidateProfile? profile = null) =>
         new([LlmMessage.System(System), LlmMessage.User(Describe(vacancy, resume, profile))], Temperature: 0.2, MaxTokens: MaxTokens);
 
-    private static string Describe(Vacancy vacancy, ResumeProfile? resume, CandidateProfile? profile)
+    // Факты о кандидате из промпта — резюме, профиль и шаблон, без вакансии: по ним сверяются сроки и заглушки
+    public static string Facts(Vacancy vacancy, ResumeProfile? resume, CandidateProfile? profile)
     {
         var text = new StringBuilder();
         if (CandidateContext.Describe(profile, $"{vacancy.Title}\n{vacancy.Description}", vacancy.Stack) is { } candidate)
@@ -63,7 +73,13 @@ public static class CoverLetterWriting
             text.AppendLine("Резюме кандидата: не выбрано — пиши без фактов о кандидате, без имени, подписи и контактов.");
         }
 
-        var description = vacancy.Description.Length > MaxDescription ? vacancy.Description[..MaxDescription] + "…" : vacancy.Description;
+        return text.ToString();
+    }
+
+    private static string Describe(Vacancy vacancy, ResumeProfile? resume, CandidateProfile? profile)
+    {
+        var text = new StringBuilder(Facts(vacancy, resume, profile));
+        var description =vacancy.Description.Length > MaxDescription ? vacancy.Description[..MaxDescription] + "…" : vacancy.Description;
         text.AppendLine()
             .AppendLine("Вакансия:")
             .AppendLine($"Название: {vacancy.Title}")
@@ -76,24 +92,48 @@ public static class CoverLetterWriting
 
     // Цифры письма, которых нет в промпте (резюме, профиль, шаблон, вакансия) в том же виде. Модель перефразирует цифры
     // вопреки промпту: «на 30–40%» превращается в «до 30 %» — такое письмо работодателю уходить не должно
-    public static IReadOnlyList<string> UnsupportedFigures(string letter, LlmRequest request)
+    public static IReadOnlyList<string> UnsupportedFigures(string letter, LlmRequest request, string? candidateFacts = null)
     {
         var facts = string.Join("\n", request.Messages.Where(m => m.Role == "user").Select(m => m.Content));
-        return FactFigures.Unsupported(letter, facts);
+        return FactFigures.Unsupported(letter, facts, candidateFacts);
     }
 
-    // Повторная попытка: тот же разговор, письмо модели и список неверных цифр
-    public static LlmRequest Retry(LlmRequest request, string letter, IReadOnlyList<string> figures) =>
-        request with
+    // Заглушки, которых нет в шаблоне кандидата
+    public static IReadOnlyList<string> Placeholders(string letter, string facts) =>
+        Placeholder.Matches(letter).Select(m => m.Value.Trim()).Where(p => !facts.Contains(p, StringComparison.Ordinal)).Distinct().ToList();
+
+    // Причина отказа для журнала и ручной проверки
+    public static string Problem(IReadOnlyList<string> figures, IReadOnlyList<string> placeholders)
+    {
+        var parts = new List<string>();
+        if (figures.Count > 0)
+            parts.Add($"{FiguresError}: {string.Join(", ", figures)}");
+        if (placeholders.Count > 0)
+            parts.Add($"{PlaceholdersError}: {string.Join(", ", placeholders)}");
+        return string.Join("; ", parts);
+    }
+
+    // Повторная попытка: тот же разговор, письмо модели и список замечаний
+    public static LlmRequest Retry(LlmRequest request, string letter, IReadOnlyList<string> figures, IReadOnlyList<string>? placeholders = null)
+    {
+        var remarks = new List<string>();
+        if (figures.Count > 0)
+            remarks.Add($"В письме цифры, которых нет в резюме, профиле и шаблоне в таком виде: {string.Join(", ", figures)}. " +
+                        "Перепиши письмо: цифры — только дословно как в фактах (диапазон целиком, без «до», «более», «свыше»), иначе без цифр.");
+        if (placeholders is { Count: > 0 })
+            remarks.Add($"В письме заглушки: {string.Join(", ", placeholders)}. " +
+                        "Убери их: имя, подпись и контакты — только дословно из шаблона, без шаблона письмо заканчивается без подписи.");
+
+        return request with
         {
             Messages =
             [
                 .. request.Messages,
                 LlmMessage.Assistant(letter),
-                LlmMessage.User($"В письме цифры, которых нет в резюме, профиле и шаблоне в таком виде: {string.Join(", ", figures)}. " +
-                                "Перепиши письмо: цифры — только дословно как в фактах (диапазон целиком, без «до», «более», «свыше»), иначе без цифр."),
+                LlmMessage.User(string.Join(" ", remarks)),
             ],
         };
+    }
 
     // null — ответ не похож на письмо (пустой, слишком короткий, JSON)
     public static string? Parse(string content)
