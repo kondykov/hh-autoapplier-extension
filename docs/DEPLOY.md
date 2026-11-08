@@ -41,7 +41,18 @@ docker compose start api
 
 ### Сервер (root)
 
-Подготовлены заранее: runner в `/opt/actions-runner`, unit `/etc/systemd/system/actions-runner.service`, хук `/opt/actions-runner/hooks/job-started.sh`. Новую версию runner берут из [релизов actions/runner](https://github.com/actions/runner/releases), сверяя SHA256 со страницей релиза.
+Скрипт [`deploy/install-runner.sh`](../deploy/install-runner.sh) скачивает runner в `/opt/actions-runner`, сверяет SHA256, ставит unit и хук. Версия и хеш записаны в скрипте (значения — со [страницы релиза actions/runner](https://github.com/actions/runner/releases)). Дальше runner обновляется сам.
+
+Рабочая копия приложения не трогается, скрипт берётся из коммита во временный каталог. `РЕВИЗИЯ` — ветка с `deploy/`, после слияния `master`:
+
+```bash
+git -C /opt/hh-autoapplier fetch origin РЕВИЗИЯ
+mkdir /root/hh-deploy && git -C /opt/hh-autoapplier archive FETCH_HEAD deploy | tar -x -C /root/hh-deploy
+bash /root/hh-deploy/deploy/install-runner.sh
+rm -rf /root/hh-deploy
+```
+
+Учётная запись и права:
 
 ```bash
 useradd --system --create-home --shell /usr/sbin/nologin --groups docker deploy
