@@ -25,12 +25,13 @@ public class LlmChecksApiTests(ApiFactory factory) : IAsyncLifetime
         await factory.ResetAsync();
         await Json(await _api.PutAsJsonAsync("/api/searches", new { name = "dotnet", query = "C#" }));
         await Json(await _api.PutAsJsonAsync("/api/resumes", new { name = ".NET", match = "C#", keywords = new[] { "c#" }, summary = "Backend-разработчик: C#." }));
-        // Без LLM на импорте вакансия сразу в очереди
+        // Без LLM подтверждённая вакансия сразу в очереди
         await Json(await _api.PostAsJsonAsync("/api/import", new
         {
             search = "dotnet",
             vacancies = new[] { new { id = "1", title = "C# разработчик", company = "Acme", description = "Нужен опыт от 3 лет", salaryCurrency = "RUR", workFormat = "Удалённо" } },
         }));
+        await factory.ConfirmImportedAsync();
     }
 
     public Task DisposeAsync() => Task.CompletedTask;

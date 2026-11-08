@@ -76,6 +76,7 @@ public class TelegramTests(ApiFactory factory) : IAsyncLifetime
         await Json(await _admin.PutAsJsonAsync("/api/searches", new { name = "dotnet", query = "C#" }));
         object Card(string id) => new { id, title = $"C# разработчик {id}", company = "Acme", description = "", salaryCurrency = "RUR", workFormat = "Удалённо" };
         await Json(await _admin.PostAsJsonAsync("/api/import", new { search = "dotnet", vacancies = Enumerable.Range(1, count).Select(i => Card($"{i}")).ToArray() }));
+        await factory.ConfirmImportedAsync();
         for (var i = 0; i < count; i++)
             factory.Llm.Answers.Enqueue("""{"verdict": "doubtful", "score": 55, "resume": ".NET", "reason": "мало опыта"}""");
         await Json(await _admin.PostAsJsonAsync("/api/llm/evaluate", new { limit = 10 }));

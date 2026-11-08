@@ -161,6 +161,21 @@ public class DomainTests
         Assert.Equal(url, Vacancy.Create("1", "C# разработчик", url, "dotnet", Now).Url);
 
     [Fact]
+    public void MarkVacancyUnavailable_OnlyFromNew()
+    {
+        var waiting = New();
+
+        waiting.MarkVacancyUnavailable(Now);
+
+        Assert.Equal((VacancyStatus.Skipped, "вакансия недоступна"), (waiting.Status, waiting.StatusReason));
+        Assert.Throws<DomainException>(() => waiting.MarkVacancyUnavailable(Now));
+
+        var queued = Queued();
+        Assert.Throws<DomainException>(() => queued.MarkVacancyUnavailable(Now));
+        Assert.Equal(VacancyStatus.Queued, queued.Status);
+    }
+
+    [Fact]
     public void Vacancy_AcceptSourceCard_ReplacesClientCard()
     {
         var imported = Vacancy.Create("1", "Чужой заголовок", "javascript:alert(1)", "dotnet", Now, imported: true);

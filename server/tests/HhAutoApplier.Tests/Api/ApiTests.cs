@@ -27,8 +27,14 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
         return (await Json(res)).GetProperty("id").GetInt32();
     }
 
-    private Task<HttpResponseMessage> Import(string search, params object[] vacancies) =>
-        _api.PostAsJsonAsync("/api/import", new { search, vacancies });
+    // Импорт и подтверждение карточек сбором: дальше тесты работают с уже оценёнными откликами
+    private async Task<HttpResponseMessage> Import(string search, params object[] vacancies)
+    {
+        var response = await _api.PostAsJsonAsync("/api/import", new { search, vacancies });
+        if (response.IsSuccessStatusCode)
+            await factory.ConfirmImportedAsync();
+        return response;
+    }
 
     private static object Card(string id, string title, string description = "", int? salaryFrom = null) =>
         new { id, title, company = "Acme", description, salaryFrom, salaryCurrency = "RUR", workFormat = "Удалённо" };
@@ -100,8 +106,10 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
             Card("1", "Senior C# разработчик", "ASP.NET, PostgreSQL", 300_000),
             Card("2", "Junior C# разработчик"),
             Card("3", "PHP разработчик", "Laravel")));
-        Assert.Equal((3, 3, 2, 1), (first.GetProperty("received").GetInt32(), first.GetProperty("added").GetInt32(),
-            first.GetProperty("queued").GetInt32(), first.GetProperty("skipped").GetInt32()));
+        // Ответ импорта — до подтверждения: все ждут; оценка — после него
+        Assert.Equal((3, 3, 0, 0, 3), (first.GetProperty("received").GetInt32(), first.GetProperty("added").GetInt32(),
+            first.GetProperty("queued").GetInt32(), first.GetProperty("skipped").GetInt32(), first.GetProperty("waiting").GetInt32()));
+        Assert.Equal(2, (await Json(await _api.GetAsync("/api/vacancies?status=Queued"))).GetArrayLength());
 
         var again = await Json(await Import("dotnet", Card("1", "Senior C# разработчик")));
         Assert.Equal(0, again.GetProperty("added").GetInt32());

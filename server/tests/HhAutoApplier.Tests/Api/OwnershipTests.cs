@@ -38,12 +38,15 @@ public class OwnershipTests(ApiFactory factory) : IAsyncLifetime
     private static async Task SaveSearch(HttpClient client, string name, string query = "C#", params string[] exclude) =>
         await Json(await client.PutAsJsonAsync("/api/searches", new { name, query, rules = new { excludeKeywords = exclude } }));
 
-    private static async Task Import(HttpClient client, string search, params string[] ids) =>
+    private async Task Import(HttpClient client, string search, params string[] ids)
+    {
         await Json(await client.PostAsJsonAsync("/api/import", new
         {
             search,
             vacancies = ids.Select(id => new { id, title = "C# разработчик", company = "Acme", description = "ASP.NET Core" }),
         }));
+        await factory.ConfirmImportedAsync();
+    }
 
     private static async Task<List<string?>> Names(HttpClient client, string url) =>
         (await Json(await client.GetAsync(url))).EnumerateArray().Select(e => e.GetProperty("name").GetString()).ToList();

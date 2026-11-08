@@ -41,8 +41,11 @@ public class LlmQuotaTests(ApiFactory factory) : IAsyncLifetime
 
     private static object Card(string id) => new { id, title = "C# разработчик", company = "Acme", description = "ASP.NET Core" };
 
-    private static async Task Import(HttpClient client, params string[] ids) =>
+    private async Task Import(HttpClient client, params string[] ids)
+    {
         await Json(await client.PostAsJsonAsync("/api/import", new { search = "dotnet", vacancies = ids.Select(Card) }));
+        await factory.ConfirmImportedAsync();
+    }
 
     // Сегодняшние ответы LLM в журнале пользователя
     private Task Spend(Guid? user, int count) => factory.WithDbAsync(async db =>
@@ -67,6 +70,7 @@ public class LlmQuotaTests(ApiFactory factory) : IAsyncLifetime
         Assert.Empty(await Ids(client, "Queued"));
 
         await Json(await client.PostAsJsonAsync("/api/import", new { search = "dotnet", vacancies = cards.Take(100) }));
+        await factory.ConfirmImportedAsync();
         Assert.Equal(100, (await Ids(client, "Queued")).Count);
     }
 

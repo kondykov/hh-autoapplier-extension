@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using HhAutoApplier.Application.Abstractions;
+using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Vacancies;
 using HhAutoApplier.Infrastructure.Identity;
@@ -93,6 +94,19 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         Telegram.Configured = false;
     }
 
+    // Импорт ждёт подтверждения карточки (#55). Для тестов оценки, писем и очереди источник подтверждает ждущие карточки
+    // как есть, по лимиту за проход — столько сборов, сколько нужно; само подтверждение проверяет ImportConfirmationTests
+    public async Task ConfirmImportedAsync()
+    {
+        var waiting = await WithDbAsync(db => db.JobApplications.AsNoTracking()
+            .Where(a => a.Status == VacancyStatus.New && a.Vacancy.Imported).Select(a => a.Vacancy).Distinct().ToListAsync());
+        Source.ConfirmAsIs(waiting);
+
+        var admin = CreateApiClient();
+        for (var pass = 0; pass <= waiting.Count / 20; pass++)
+            (await admin.PostAsync("/api/collect", null)).EnsureSuccessStatusCode();
+    }
+
     public async Task<T> WithDbAsync<T>(Func<AppDbContext, Task<T>> action)
     {
         await using var scope = Services.CreateAsyncScope();
@@ -148,12 +162,20 @@ public sealed class TokenHandler(HttpClient issuer) : DelegatingHandler
 // Источник вакансий для тестов сбора: отдаёт заданные карточки или «блокируется», как hh.ru при капче
 public sealed class FakeVacancySource : IVacancySource
 {
-    private readonly List<(string Id, string Title, string Description, bool Listed, int Page)> _cards = [];
+    private readonly List<(string Id, string Title, string Description, bool Listed, int Page, int? SalaryFrom)> _cards = [];
+
+    private readonly Dictionary<string, Vacancy> _asIs = [];
 
     // Страница вакансии не открывается (404, архив): LoadDetailsAsync — false
     public HashSet<string> NoDetails { get; } = [];
 
     public bool Blocked { get; set; }
+
+    // Страница этой вакансии отвечает капчей: LoadDetailsAsync — SourceBlockedException
+    public HashSet<string> BlockedDetails { get; } = [];
+
+    // Пока грузится страница вакансии: действие пользователя в это время
+    public Func<string, Task>? WhileLoadingDetails { get; set; }
 
     // Задан — поиск ждёт, пока тест его не отпустит: проход сбора остаётся «идущим»
     public TaskCompletionSource? Hold { get; set; }
@@ -162,15 +184,26 @@ public sealed class FakeVacancySource : IVacancySource
 
     public string Name => "fake";
 
-    public void Add(string id, string title, string description, int page = 0) => _cards.Add((id, title, description, true, page));
+    public void Add(string id, string title, string description, int page = 0) => _cards.Add((id, title, description, true, page, null));
 
     // Вакансия есть на hh.ru, но в выдачу поисков не попадает: доступна только по странице вакансии
-    public void AddUnlisted(string id, string title, string description) => _cards.Add((id, title, description, false, 0));
+    public void AddUnlisted(string id, string title, string description, int? salaryFrom = null) =>
+        _cards.Add((id, title, description, false, 0, salaryFrom));
+
+    // Страница вакансии отдаёт те же данные, что уже в карточке; DetailsLoaded не считается — это подготовка теста
+    public void ConfirmAsIs(IEnumerable<Vacancy> vacancies)
+    {
+        foreach (var vacancy in vacancies)
+            _asIs[vacancy.Id] = vacancy;
+    }
 
     public void Reset()
     {
         _cards.Clear();
+        _asIs.Clear();
         NoDetails.Clear();
+        BlockedDetails.Clear();
+        WhileLoadingDetails = null;
         Blocked = false;
         Hold = null;
         DetailsLoaded = 0;
@@ -188,16 +221,30 @@ public sealed class FakeVacancySource : IVacancySource
             .Select(c => Vacancy.Create(c.Id, c.Title, $"https://hh.ru/vacancy/{c.Id}", search.Name, DateTimeOffset.UtcNow)).ToList();
     }
 
-    // Как HhWebSource: страница вакансии даёт и название, и описание
-    public Task<bool> LoadDetailsAsync(Vacancy vacancy, CancellationToken ct)
+    // Как HhWebSource: страница вакансии даёт и название, и описание, и зарплату
+    public async Task<bool> LoadDetailsAsync(Vacancy vacancy, CancellationToken ct)
     {
+        if (_asIs.TryGetValue(vacancy.Id, out var same))
+        {
+            vacancy.UpdateCard(same.Company, same.Area, same.Salary, same.WorkFormat, same.HasTest, same.PublishedAt);
+            vacancy.UpdateDetails(same.Title, same.Description, same.Stack);
+            return true;
+        }
+
         DetailsLoaded++;
+        if (BlockedDetails.Contains(vacancy.Id))
+            throw new SourceBlockedException(Name, "капча");
+
+        if (WhileLoadingDetails is { } action)
+            await action(vacancy.Id);
+
         var card = _cards.FirstOrDefault(c => c.Id == vacancy.Id);
         if (card.Id is null || NoDetails.Contains(vacancy.Id))
-            return Task.FromResult(false);
+            return false;
 
+        vacancy.UpdateCard(null, null, Salary.From(card.SalaryFrom, null, card.SalaryFrom is null ? null : "RUR"), null, null, null);
         vacancy.UpdateDetails(card.Title, card.Description, []);
-        return Task.FromResult(true);
+        return true;
     }
 }
 

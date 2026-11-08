@@ -86,6 +86,16 @@ public class JobApplication
         MoveTo(awaitLlm && evaluation.Status == VacancyStatus.Queued ? VacancyStatus.Pending : evaluation.Status, evaluation.Reason, at);
     }
 
+    // Страница вакансии недоступна, подтвердить импортную карточку нечем: отклик больше не ждёт (#59).
+    // Только из New: уже оценённые, отправленные и решённые отклики не трогаем
+    public void MarkVacancyUnavailable(DateTimeOffset at)
+    {
+        if (Status != VacancyStatus.New)
+            throw new DomainException($"Отклик в статусе {Status} не ждёт подтверждения вакансии");
+
+        MoveTo(VacancyStatus.Skipped, VacancyUnavailable, at);
+    }
+
     // LLM-оценка под резюме: подходящие — в очередь, сомнительные — на ручную проверку (Review; reviewDoubtful = false —
     // правило поиска «без проверки», сразу в очередь), неподходящие — пропуск с причиной.
     // resume — имя профиля, выбранное LLM; null — оставить выбор правил
@@ -296,6 +306,9 @@ public class JobApplication
 
     // Модель письма, поправленного человеком на ручной проверке
     public const string ManualLetter = "manual";
+
+    // Причина пропуска, когда страница вакансии не открылась при подтверждении импортной карточки
+    public const string VacancyUnavailable = "вакансия недоступна";
 
     private const string LetterReviewPrefix = "письмо: проверить";
 
