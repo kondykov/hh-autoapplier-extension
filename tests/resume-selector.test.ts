@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Vacancy } from "../src/core/state";
 import { Logger } from "../src/infra/logger";
-import { ResumeSelector } from "../src/resume/selector";
+import { isSameResume, ResumeSelector } from "../src/resume/selector";
 
 // Разметка как на живой странице отклика hh.ru (2026-10-24): заголовок резюме внутри [role=button], варианты — [role=option]
 function renderForm(current: string, options: string[]) {
@@ -15,15 +15,42 @@ function renderForm(current: string, options: string[]) {
 }
 
 const PHP = "Fullstack Software Engineer | PHP / Nuxt";
-const DOTNET = "Backend Software Engineer | C# .NET developer130 000 ₽";
+const DOTNET_NAME = "Backend Software Engineer | C# .NET developer";
+const DOTNET = `${DOTNET_NAME}130 000 ₽`;
 
-// Резюме выбирает backend (#27): имя профиля и match — подстрока названия резюме на hh.ru
+// Резюме выбирает backend (#27): имя профиля и match — полное название резюме на hh.ru
 const vacancy = (resumeMatch?: string): Vacancy => ({ title: "Старший разработчик C# .NET", link: "", company: "", resume: resumeMatch, resumeMatch });
 
-describe("ResumeSelector", () => {
-  const selector = new ResumeSelector(new Logger());
+describe("isSameResume", () => {
+  it("название целиком, с приклеенной зарплатой или без", () => {
+    expect(isSameResume(DOTNET_NAME, DOTNET_NAME)).toBe(true);
+    expect(isSameResume(DOTNET, DOTNET_NAME)).toBe(true);
+    expect(isSameResume("Backend .NET  150 000 ₽", "Backend .NET")).toBe(true);
+  });
 
-  beforeEach(() => vi.useFakeTimers());
+  it("часть названия не подходит", () => {
+    expect(isSameResume(DOTNET, "C# .NET")).toBe(false);
+    expect(isSameResume("Senior Backend", "Backend")).toBe(false);
+    expect(isSameResume(null, "Backend")).toBe(false);
+  });
+
+  it("цифры в конце названия без валюты — не зарплата", () => {
+    expect(isSameResume("Backend 2", "Backend")).toBe(false);
+    expect(isSameResume("Backend 2", "Backend 2")).toBe(true);
+  });
+});
+
+describe("ResumeSelector", () => {
+  let messages: { text: string; level: string }[];
+  let selector: ResumeSelector;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    messages = [];
+    const logger = new Logger();
+    logger.addSink({ write: (text, level) => messages.push({ text, level }) });
+    selector = new ResumeSelector(logger);
+  });
   afterEach(() => vi.useRealTimers());
 
   const choose = async (match?: string) => {
@@ -36,15 +63,15 @@ describe("ResumeSelector", () => {
 
   it("переключает на резюме, выбранное сервером", async () => {
     renderForm(PHP, [PHP, DOTNET]);
-    expect(await choose("C# .NET")).toEqual({ failed: false });
-    expect(title()).toContain("C# .NET");
+    expect(await choose(DOTNET_NAME)).toEqual({ failed: false });
+    expect(title()).toBe(DOTNET);
   });
 
   it("не трогает список, если нужное резюме уже выбрано", async () => {
     renderForm(DOTNET, [PHP, DOTNET]);
     const click = vi.fn();
     document.getElementById("trigger")!.addEventListener("click", click);
-    expect(await choose("C# .NET")).toEqual({ failed: false });
+    expect(await choose(DOTNET_NAME)).toEqual({ failed: false });
     expect(click).not.toHaveBeenCalled();
   });
 
@@ -56,6 +83,26 @@ describe("ResumeSelector", () => {
 
   it("сообщает о неудаче, если нужного резюме нет в списке", async () => {
     renderForm(PHP, [PHP]);
-    expect(await choose("C# .NET")).toEqual({ failed: true });
+    expect(await choose(DOTNET_NAME)).toEqual({ failed: true });
+  });
+
+  it("подстрока названия — ошибка в журнал, резюме не меняется", async () => {
+    renderForm(PHP, [PHP, "Backend .NET", "Senior Backend"]);
+    expect(await choose("Backend")).toEqual({ failed: true });
+    expect(title()).toBe(PHP);
+    expect(messages.some((m) => m.level === "error" && m.text.includes("нет точного совпадения"))).toBe(true);
+  });
+
+  it("уже выбранное резюме с подстрокой match не считается нужным", async () => {
+    renderForm("Senior Backend", ["Senior Backend", "Backend"]);
+    expect(await choose("Backend")).toEqual({ failed: false });
+    expect(title()).toBe("Backend");
+  });
+
+  it("несколько одинаковых вариантов — ошибка, наугад не выбирает", async () => {
+    renderForm(PHP, [PHP, "Backend 100 ₽", "Backend 200 ₽"]);
+    expect(await choose("Backend")).toEqual({ failed: true });
+    expect(title()).toBe(PHP);
+    expect(messages.some((m) => m.level === "error" && m.text.includes("подходит несколько (2)"))).toBe(true);
   });
 });

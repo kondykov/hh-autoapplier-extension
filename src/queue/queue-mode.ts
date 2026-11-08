@@ -7,7 +7,7 @@ export interface QueueItem {
   title: string;
   company: string;
   resume: string | null;
-  // Подстрока названия резюме на hh.ru (match профиля с сервера) — заполняет очередь перед открытием вакансии
+  // Полное название резюме на hh.ru (match профиля с сервера) — заполняет очередь перед открытием вакансии
   resumeMatch?: string;
   // Письмо под вакансию от LLM backend; нет — расширение берёт свой шаблон
   letter?: string;
@@ -54,7 +54,8 @@ export function toStatusReport(result: ApplyResult): StatusReport | null {
     case "success":
       return { status: "Applied", reason: null };
     case "outline":
-      return { status: "Skipped", reason: "анкета работодателя — вопросы сохранены в расширении" };
+      // Сюда попадает только анкета, вопросы которой не удалось прочитать: остальные уходят на сервер и возвращаются с ответами
+      return { status: "Skipped", reason: "анкета работодателя — вопросы не найдены на странице" };
     case "skipped":
       return { status: "Failed", reason: "форма отклика не открылась" };
     case "failed":

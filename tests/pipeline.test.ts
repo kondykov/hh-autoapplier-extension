@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApplyPipeline, type ApplyResult, type PipelineDeps } from "../src/apply/pipeline";
 import { attachLetterAndSubmit } from "../src/apply/submit";
-import { AppState, type Vacancy } from "../src/core/state";
+import type { Vacancy } from "../src/core/state";
 import { Logger } from "../src/infra/logger";
 import { StaticTemplateProvider } from "../src/letters/letter-provider";
 import { isDryRun, isQueueOn, type QueueItem } from "../src/queue/queue-mode";
 import { ResumeSelector } from "../src/resume/selector";
 import {
   DOTNET,
+  DOTNET_NAME,
   letterValue,
   PHP,
   renderResponsePage,
@@ -23,7 +24,6 @@ const RESPONSE_URL = "https://hh.ru/applicant/vacancy_response?vacancyId=1";
 function setup(overrides: Partial<PipelineDeps> = {}) {
   const logger = new Logger();
   const deps: PipelineDeps = {
-    state: new AppState(),
     logger,
     letters: new StaticTemplateProvider(() => "Здравствуйте, {{company}}! Интересна вакансия {{title}}"),
     resumes: new ResumeSelector(logger),
@@ -44,7 +44,7 @@ const vacancy = (patch: Partial<Vacancy> = {}): Vacancy => ({
   link: RESPONSE_URL,
   // Резюме выбирает backend: имя профиля и его match на hh.ru
   resume: ".NET",
-  resumeMatch: "C# .NET",
+  resumeMatch: DOTNET_NAME,
   ...patch,
 });
 
@@ -80,7 +80,7 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
   it("резюме сервера — по его match, а не по стеку вакансии; письмо — с подстановками", async () => {
     renderResponsePage({ current: DOTNET, afterSubmit: "nothing" });
     const { pipeline } = setup({ dryRun: () => true });
-    const v = vacancy({ resume: "PHP", resumeMatch: "PHP" });
+    const v = vacancy({ resume: "PHP", resumeMatch: PHP });
 
     expect(await run(pipeline.applyOnPage(v))).toBe("dry_run");
     expect(resumeTitle()).toBe(PHP);
@@ -153,7 +153,35 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
 
     expect(await run(pipeline.applyOnPage(vacancy()))).toBe("failed");
     expect(submits).toBe(0);
-    expect(deps.state.skipped).toBe(1);
+    expect(deps.onApplied).not.toHaveBeenCalled();
+  });
+
+  it("match — часть названия: ни одного точного совпадения, отклик не отправляется", async () => {
+    renderResponsePage();
+    const { pipeline } = setup();
+
+    expect(await run(pipeline.applyOnPage(vacancy({ resumeMatch: "C# .NET" })))).toBe("failed");
+    expect(submits).toBe(0);
+    expect(resumeTitle()).toBe(PHP);
+  });
+
+  it("кнопка «Отправить» с aria-disabled — неактивна, клика нет", async () => {
+    renderResponsePage();
+    document.getElementById("submit")!.setAttribute("aria-disabled", "true");
+    const { deps, pipeline } = setup();
+
+    expect(await run(pipeline.applyOnPage(vacancy()))).toBe("disabled");
+    expect(submits).toBe(0);
+    expect(deps.onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("aria-disabled=false — кнопка активна", async () => {
+    renderResponsePage();
+    document.getElementById("submit")!.setAttribute("aria-disabled", "false");
+    const { pipeline } = setup();
+
+    expect(await run(pipeline.applyOnPage(vacancy()))).toBe("success");
+    expect(submits).toBe(1);
   });
 
   it("после нажатия ничего не изменилось — «Непонятное»", async () => {
@@ -315,7 +343,6 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
 
     expect(await run(pipeline.applyOnPage(vacancy()))).toBe("failed");
     expect(deps.onApplied).not.toHaveBeenCalled();
-    expect(deps.state.skipped).toBe(1);
   });
 });
 
@@ -324,7 +351,7 @@ describe("attachLetterAndSubmit", () => {
 
   it("нет кнопки «Отправить» — failed, письмо всё равно вставлено", async () => {
     document.body.innerHTML = `<textarea data-qa="vacancy-response-popup-form-letter-input"></textarea>`;
-    const result = attachLetterAndSubmit(null, "Письмо", new Logger());
+    const result = attachLetterAndSubmit("Письмо", new Logger());
     await vi.runAllTimersAsync();
     expect(await result).toBe("failed");
     expect(letterValue()).toBe("Письмо");
@@ -338,7 +365,7 @@ describe("attachLetterAndSubmit", () => {
       clicked = true;
       document.querySelector('[data-qa="vacancy-response-popup"]')!.remove();
     };
-    const result = attachLetterAndSubmit(null, "Письмо", new Logger());
+    const result = attachLetterAndSubmit("Письмо", new Logger());
     await vi.runAllTimersAsync();
     expect(await result).toBe("success");
     expect(clicked).toBe(true);

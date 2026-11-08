@@ -39,7 +39,7 @@ async function tab(storage: MemoryStorage, self: number, opts: { open?: (id: num
     limit: new DailyLimit(storage, config.dailyLimit),
     letters: new StaticTemplateProvider(() => ""),
     resumes: new ResumeSelector(logger),
-    nav: { url: () => "https://hh.ru/", go: (to) => visited.push(to), reload: () => {} },
+    nav: { url: () => "https://hh.ru/", go: (to) => visited.push(to) },
     tab: { self, isOpen: async (id) => opts.open?.(id) ?? true },
   });
   // init вкладки-владельца сразу открывает вакансию — с паузой перед переходом

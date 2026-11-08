@@ -29,6 +29,7 @@ export const SELECTORS = {
   taskOption: 'label[data-qa="cell"]',
   taskOptionText: '[data-qa="cell-text-content"]',
   radioInput: 'input[type="radio"]',
+  checkboxInput: 'input[type="checkbox"]',
   vacancyResponseForm: "#RESPONSE_MODAL_FORM_ID",
 
   alreadyRespondedText: '[data-qa="already-responded-text"]',
@@ -58,6 +59,8 @@ export const SELECTORS = {
   anyResponseButton: 'button[data-qa*="response"]',
 
   chatUnreadBadge: '[data-qa="chatik-info-badges"]',
+  // Ссылка на чат в списке — вживую не снималась; нет её — чат определяется по тексту значка
+  chatLink: 'a[href*="/chat/"]',
   // Открытый чат: поле сообщения и предупреждение «переписка недоступна» (проверено вживую 2026-10-26)
   chatInput: '[data-qa="chatik-message-input"] textarea[data-qa="text-input"]',
   // Кнопка появляется только с текстом в поле — вживую не снималась; без неё сообщение уходит по Enter

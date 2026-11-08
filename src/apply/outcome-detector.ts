@@ -1,6 +1,5 @@
 import { DELAYS, wait } from "../core/delays";
 import { SELECTORS, TEXT_MARKERS } from "../core/selectors";
-import type { Vacancy } from "../core/state";
 import { getCoverLetterField } from "../dom/cover-letter";
 import { detectPageType } from "../dom/page-type";
 import { normalizeText, qs } from "../dom/query";
@@ -34,7 +33,7 @@ export function isOutlineDetected(): boolean {
 export const hasLetterPlace = () =>
   !!(getCoverLetterField() || qs(SELECTORS.coverLetterToggle) || qs(SELECTORS.addCoverLetterBtn));
 
-export function detectApplyOutcome(vacancy: Vacancy | null): ApplyOutcome | null {
+export function detectApplyOutcome(): ApplyOutcome | null {
   if (isOutlineDetected()) return "outline";
   if (qs(SELECTORS.responseModal)) return "modal";
   if (detectPageType() === "response") return isAlreadyRespondedOnPage() ? "responded" : "response";
@@ -43,14 +42,14 @@ export function detectApplyOutcome(vacancy: Vacancy | null): ApplyOutcome | null
 }
 
 // Исход подтверждается двумя одинаковыми результатами подряд
-export async function waitForApplyOutcome(vacancy: Vacancy | null, timeoutMs = 8000): Promise<ApplyOutcome> {
+export async function waitForApplyOutcome(timeoutMs = 8000): Promise<ApplyOutcome> {
   const start = Date.now();
   let previous: ApplyOutcome | null = null;
   while (Date.now() - start < timeoutMs) {
-    const outcome = detectApplyOutcome(vacancy);
+    const outcome = detectApplyOutcome();
     if (outcome === "outline") return "outline";
     if (outcome && outcome === previous) {
-      return outcome === "responded" ? await confirmResponded(vacancy) : outcome;
+      return outcome === "responded" ? await confirmResponded() : outcome;
     }
     previous = outcome;
     await wait(300);
@@ -58,11 +57,11 @@ export async function waitForApplyOutcome(vacancy: Vacancy | null, timeoutMs = 8
   return "none";
 }
 
-async function confirmResponded(vacancy: Vacancy | null): Promise<ApplyOutcome> {
+async function confirmResponded(): Promise<ApplyOutcome> {
   const graceEnd = Date.now() + HYBRID_GRACE_MS;
   while (Date.now() < graceEnd) {
     await wait(DELAYS.short);
     if (isOutlineDetected()) return "outline";
   }
-  return detectApplyOutcome(vacancy) === "outline" ? "outline" : "responded";
+  return detectApplyOutcome() === "outline" ? "outline" : "responded";
 }

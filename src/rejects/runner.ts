@@ -1,11 +1,15 @@
 import { DELAYS, pause } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
-import { qs, qsa } from "../dom/query";
+import { normalizeText, qs, qsa } from "../dom/query";
 import type { Logger } from "../infra/logger";
 import { isRejection } from "./matcher";
 import { humanClick } from "../dom/input";
 
-const processed = new WeakSet<Element>();
+const processed = new Set<string>();
+
+// Перерисовка списка заменяет DOM-элементы, а чат остаётся тем же: ключ — ссылка на чат, без неё — текст значка
+const chatKey = (badge: Element) =>
+  badge.closest(SELECTORS.chatLink)?.getAttribute("href")?.split("?")[0] ?? normalizeText(badge.textContent);
 
 export async function enableUnreadFilter(): Promise<void> {
   const filter = qs<HTMLElement>(SELECTORS.chatUnreadFilter);
@@ -16,10 +20,10 @@ export async function enableUnreadFilter(): Promise<void> {
 export async function openNextRejection(logger: Logger): Promise<boolean> {
   await enableUnreadFilter();
   const badge = qsa<HTMLElement>(SELECTORS.chatUnreadBadge).find(
-    (b) => !processed.has(b) && isRejection(b.textContent ?? ""),
+    (b) => !processed.has(chatKey(b)) && isRejection(b.textContent ?? ""),
   );
   if (!badge) return false;
-  processed.add(badge);
+  processed.add(chatKey(badge));
   badge.scrollIntoView?.({ block: "center" });
   await humanClick(badge);
   logger.log(`Отказ открыт: "${(badge.textContent ?? "").trim().slice(0, 60)}"`, "step");

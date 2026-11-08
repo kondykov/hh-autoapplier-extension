@@ -60,7 +60,6 @@ function context(opts: { url?: string; queue?: QueueItem[]; result?: ApplyResult
         visited.push(to);
         url = to;
       }),
-      reload: vi.fn(),
     },
     tab: { self: opts.tab ?? null, isOpen: vi.fn(async () => opts.tabOpen ?? true) },
     persist: vi.fn(async () => {}),
@@ -416,6 +415,17 @@ describe("DialogStep", () => {
     expect(ctx.backend.reportAutoReply).toHaveBeenLastCalledWith(2, false, "чат не открылся");
     expect(ctx.state.autoReplies).toEqual([]);
     expect(step.accepts("chat", ctx.state)).toBe(false);
+  });
+
+  it("чат с id, начинающимся так же, — чужой: не пишем", async () => {
+    const { ctx } = context({ url: "https://tver.hh.ru/chat/123", config: { queueDryRun: false } });
+    ctx.state.autoReplies = [reply(12)];
+    const send = vi.fn(async () => ({ ok: true as const }));
+
+    await run(new DialogStep(ctx, reader([12]), send).resume());
+
+    expect(send).not.toHaveBeenCalled();
+    expect(ctx.backend.reportAutoReply).toHaveBeenCalledWith(12, false, "чат не открылся");
   });
 
   it("пробный режим включили во время автоответов — остановиться, не отправляя", async () => {

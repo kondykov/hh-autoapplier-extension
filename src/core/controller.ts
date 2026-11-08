@@ -110,7 +110,6 @@ export class Controller {
   private createPipeline(): ApplyPipeline {
     const d = this.d;
     return new ApplyPipeline({
-      state: d.state,
       logger: d.logger,
       letters: d.letters,
       resumes: d.resumes,

@@ -14,7 +14,7 @@ export interface VacancyItem {
 }
 
 export interface Vacancy extends VacancyItem {
-  // Подстрока названия резюме на hh.ru (match профиля с сервера): по ней резюме выбирается в форме отклика
+  // Полное название резюме на hh.ru (match профиля с сервера): по нему резюме выбирается в форме отклика
   resumeMatch?: string;
   // Готовое письмо с backend
   letter?: string;
@@ -24,7 +24,6 @@ export interface Vacancy extends VacancyItem {
 
 interface PersistedState {
   applied: number;
-  skipped: number;
   queueRunning: boolean;
   queueCurrent: QueueItem | null;
   queueTried: string[];
@@ -38,7 +37,6 @@ interface PersistedState {
 
 export class AppState {
   applied = 0;
-  skipped = 0;
   // Режим «из очереди» переживает переходы между страницами отклика
   queueRunning = false;
   queueCurrent: QueueItem | null = null;
@@ -62,7 +60,6 @@ export class AppState {
   toJSON(): PersistedState {
     return {
       applied: this.applied,
-      skipped: this.skipped,
       queueRunning: this.queueRunning,
       queueCurrent: this.queueCurrent,
       queueTried: this.queueTried,
@@ -99,7 +96,6 @@ export class StateRepository {
 function fromSaved(saved: Partial<PersistedState>): AppState {
   const state = new AppState();
   state.applied = saved.applied ?? 0;
-  state.skipped = saved.skipped ?? 0;
   state.queueRunning = saved.queueRunning ?? false;
   state.queueCurrent = saved.queueCurrent ?? null;
   state.queueTried = saved.queueTried ?? [];

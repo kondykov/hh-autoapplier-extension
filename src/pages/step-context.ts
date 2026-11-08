@@ -14,7 +14,6 @@ import type { Panel } from "../ui/panel";
 export interface Navigator {
   url(): string;
   go(url: string): void;
-  reload(): void;
 }
 
 export const browserNavigator: Navigator = {
@@ -22,7 +21,6 @@ export const browserNavigator: Navigator = {
   go: (url) => {
     location.href = url;
   },
-  reload: () => location.reload(),
 };
 
 // То, что шагам нужно от панели; полная панель — в ui/panel.ts

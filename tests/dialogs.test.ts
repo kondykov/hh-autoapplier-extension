@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatSource, CHATIK, describeWriteReason, parseChats, parseWritePossibility } from "../src/dialogs/chats";
-import { sendChatMessage } from "../src/dialogs/reply";
+import { isChatPage, sendChatMessage } from "../src/dialogs/reply";
 import { detectPageType } from "../src/dom/page-type";
 
 const ME = "123";
@@ -98,6 +98,17 @@ describe("страница чатов", () => {
     expect(detectPageType("https://tver.hh.ru/chat/123")).toBe("chat");
     expect(detectPageType("https://hh.ru/applicant/negotiations")).toBe("chat");
     expect(detectPageType("https://hh.ru/applicant/vacancy_response?vacancyId=1")).toBe("response");
+  });
+});
+
+describe("isChatPage", () => {
+  it("id сравнивается целиком", () => {
+    expect(isChatPage("https://tver.hh.ru/chat/12", 12)).toBe(true);
+    expect(isChatPage("https://hh.ru/chat/12/?hhtmFrom=x", 12)).toBe(true);
+    expect(isChatPage("https://hh.ru/chat/123", 12)).toBe(false);
+    expect(isChatPage("https://hh.ru/chat/12abc", 12)).toBe(false);
+    expect(isChatPage("https://hh.ru/chat", 12)).toBe(false);
+    expect(isChatPage("https://hh.ru/applicant?from=/chat/12", 12)).toBe(false);
   });
 });
 

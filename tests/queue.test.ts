@@ -26,7 +26,7 @@ describe("queue-mode", () => {
 
   it("переводит исход конвейера в статус сервера", () => {
     expect(toStatusReport("success")).toEqual({ status: "Applied", reason: null });
-    expect(toStatusReport("outline")?.status).toBe("Skipped");
+    expect(toStatusReport("outline")).toEqual({ status: "Skipped", reason: "анкета работодателя — вопросы не найдены на странице" });
     for (const r of ["skipped", "failed", "unclear"] as const) expect(toStatusReport(r)?.status).toBe("Failed");
     // Пробный прогон и неактивная кнопка — серверу не сообщаем
     expect(toStatusReport("dry_run")).toBeNull();
@@ -99,7 +99,7 @@ describe("attachLetterAndSubmit: пробный режим", () => {
     const click = vi.fn();
     document.querySelector("button")!.addEventListener("click", click);
 
-    const result = attachLetterAndSubmit(null, "Здравствуйте", new Logger(), true);
+    const result = attachLetterAndSubmit("Здравствуйте", new Logger(), true);
     await vi.runAllTimersAsync();
 
     expect(await result).toBe("dry_run");

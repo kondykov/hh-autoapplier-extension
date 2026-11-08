@@ -123,15 +123,17 @@ export class Panel implements LogSink {
     this.el("hh-btn-autoreply").onclick = () => this.handlers.onAutoReply();
     this.el("hh-btn-queue").onclick = () => this.handlers.onQueue();
 
-    // Выключение пробного режима — переход к настоящим откликам, только с подтверждением
+    // Выключение пробного режима — переход к настоящим откликам, только с подтверждением.
+    // Панель живёт в DOM страницы: снять режим может только действие человека (event.isTrusted), не скрипт hh.ru
     const dryRun = this.el<HTMLInputElement>("hh-input-dryrun");
     dryRun.checked = this.initial.queueDryRun;
-    dryRun.onchange = async () => {
+    dryRun.onchange = async (event) => {
       if (dryRun.checked) {
         this.handlers.onQueueDryRunChange(true);
         return;
       }
       dryRun.checked = true;
+      if (!event.isTrusted) return;
       if (!(await this.ask("Режим «из очереди» начнёт отправлять отклики по-настоящему. Выключить пробный режим?", "Да, отправлять")))
         return;
       dryRun.checked = false;
@@ -225,8 +227,12 @@ export class Panel implements LogSink {
         resolve(yes);
       };
       this.pendingAnswer = answer;
-      this.el("hh-btn-confirm-yes").onclick = () => answer(true);
-      this.el("hh-btn-confirm-no").onclick = () => answer(false);
+      // Отвечает только человек: программный click() скрипта страницы игнорируется
+      const onlyTrusted = (yes: boolean) => (event: Event) => {
+        if (event.isTrusted) answer(yes);
+      };
+      this.el("hh-btn-confirm-yes").onclick = onlyTrusted(true);
+      this.el("hh-btn-confirm-no").onclick = onlyTrusted(false);
     });
   }
 
