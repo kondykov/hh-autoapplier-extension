@@ -36,7 +36,11 @@ services:
       Llm__DailyRequestLimit: ${LLM_DAILY_LIMIT:-300}
       Llm__UserDailyRequestLimit: ${LLM_USER_DAILY_LIMIT:-150}
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${API_PORT:-8080}:8080"
+    volumes:
+      # Ключи подписи cookie: вне тома при каждом up --build слетают сессии входа
+      - dpkeys:/root/.aspnet/DataProtection-Keys
 
 volumes:
   pgdata:
+  dpkeys:

@@ -1,0 +1,25 @@
+# Служба self-hosted GitHub runner (#65). Ставится в /etc/systemd/system/, порядок — docs/DEPLOY.md.
+[Unit]
+Description=GitHub Actions runner (hh-autoapplier, деплой backend)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/opt/actions-runner
+ExecStart=/opt/actions-runner/bin/runsvc.sh
+# Страховка на стороне сервера: задача не из кнопки Deploy не выполнится, даже если сбиты настройки репозитория
+Environment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/actions-runner/hooks/job-started.sh
+KillMode=process
+KillSignal=SIGTERM
+TimeoutStopSec=5min
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
