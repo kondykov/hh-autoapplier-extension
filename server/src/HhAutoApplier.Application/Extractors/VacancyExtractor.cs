@@ -43,6 +43,8 @@ public class VacancyExtractor : IExtractor<JobApplication, VacancyDto>
             CoverLetterAt = source.CoverLetterAt,
             Questions = source.Questions.Select(q => new VacancyQuestionDto(q.Text, q.Type, q.Options, q.Answer)).ToList(),
             History = source.History.Select(e => new ApplicationEventDto(e.At, e.From, e.To, e.Reason)).ToList(),
+            HiddenAt = source.HiddenAt,
+            Dismissed = source.Dismissed,
         };
     }
 }

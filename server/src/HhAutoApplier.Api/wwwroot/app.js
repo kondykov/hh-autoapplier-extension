@@ -113,13 +113,14 @@ async function overview() {
 async function vacancies(statusFilter) {
   const take = 50;
   const searches = await api(scoped("/api/searches"));
-  const state = { status: statusFilter ?? "", search: "", skip: 0 };
+  const state = { status: statusFilter ?? "", search: "", hidden: false, skip: 0 };
 
   const statusSelect = el("select", { "aria-label": "Статус" }, el("option", { value: "", textContent: "Все статусы" }),
     Object.entries(STATUSES).map(([value, text]) => el("option", { value, textContent: text })));
   statusSelect.value = state.status;
   const searchSelect = el("select", { "aria-label": "Поиск" }, el("option", { value: "", textContent: "Все поиски" }),
     searches.map((s) => el("option", { value: s.name, textContent: s.name })));
+  const hidden = el("input", { type: "checkbox" });
   const prev = el("button", { textContent: "← Назад" });
   const next = el("button", { textContent: "Дальше →" });
   const page = el("span", { className: "muted" });
@@ -129,6 +130,7 @@ async function vacancies(statusFilter) {
     const query = new URLSearchParams({ skip: state.skip, take });
     if (state.status) query.set("status", state.status);
     if (state.search) query.set("search", state.search);
+    if (state.hidden) query.set("includeHidden", "true");
     try {
       const items = await api(scoped(`/api/vacancies?${query}`));
       list.replaceChildren(...(items.length ? items.map(vacancyCard) : [el("p", { className: "empty", textContent: "Ничего нет." })]));
@@ -142,11 +144,12 @@ async function vacancies(statusFilter) {
 
   statusSelect.onchange = () => { state.status = statusSelect.value; state.skip = 0; load(); };
   searchSelect.onchange = () => { state.search = searchSelect.value; state.skip = 0; load(); };
+  hidden.onchange = () => { state.hidden = hidden.checked; state.skip = 0; load(); };
   prev.onclick = () => { state.skip = Math.max(0, state.skip - take); load(); };
   next.onclick = () => { state.skip += take; load(); };
   await load();
 
-  return [el("h1", { textContent: "Вакансии" }), el("div", { className: "bar" }, statusSelect, searchSelect, prev, next, page), list];
+  return [el("h1", { textContent: "Вакансии" }), el("div", { className: "bar" }, statusSelect, searchSelect, el("label", {}, hidden, " Показать скрытые"), prev, next, page), list];
 }
 
 function salary(v) {
@@ -170,11 +173,40 @@ function vacancyActions(v, pill) {
     return `«${v.title}»: ${STATUSES[status]}`;
   };
 
+  if (v.hiddenAt) {
+    const unhide = el("button", { textContent: "Вернуть" });
+    unhide.onclick = () => run(unhide, () => post(`/api/vacancies/${encodeURIComponent(v.id)}/unhide`), () => {
+      unhide.remove();
+      result.textContent = "возвращена в список";
+      result.closest("article").classList.add("decided");
+      return `«${v.title}»: возвращена в список`;
+    });
+    return el("div", { className: "actions" }, unhide, result);
+  }
+
   if (REQUEUE.includes(v.status)) {
     const requeue = el("button", { className: "primary", textContent: "В очередь" });
+    // Оценить заново и скрыть — только отсеянные: у Failed отклик мог уйти на hh.ru
+    const reevaluate = v.dismissed ? el("button", { textContent: "Оценить заново" }) : null;
+    const hide = v.dismissed ? el("button", { textContent: "Скрыть" }) : null;
+    const clear = () => [requeue, reevaluate, hide].forEach((b) => b?.remove());
+
     requeue.onclick = () => run(requeue, () => post(`/api/vacancies/${encodeURIComponent(v.id)}/status`, { status: "Queued" }),
-      () => { requeue.remove(); result.textContent = "в очереди"; return done(result, "Queued"); });
-    return el("div", { className: "actions" }, requeue, result);
+      () => { clear(); result.textContent = "в очереди"; return done(result, "Queued"); });
+    if (v.dismissed) {
+      reevaluate.onclick = () => run(reevaluate, () => post(`/api/vacancies/${encodeURIComponent(v.id)}/reevaluate`), (r) => {
+        clear();
+        result.textContent = r.status === "Skipped" ? `снова отсеяна: ${r.statusReason ?? ""}` : STATUSES[r.status];
+        return done(result, r.status);
+      });
+      hide.onclick = () => run(hide, () => post(`/api/vacancies/${encodeURIComponent(v.id)}/hide`), () => {
+        clear();
+        result.textContent = "скрыта";
+        result.closest("article").classList.add("decided");
+        return `«${v.title}»: скрыта`;
+      });
+    }
+    return el("div", { className: "actions" }, requeue, reevaluate, hide, result);
   }
 
   if (SKIPPABLE.includes(v.status)) {
@@ -191,7 +223,7 @@ function vacancyActions(v, pill) {
 function vacancyCard(v) {
   const pill = el("span", { className: "pill", textContent: STATUSES[v.status] ?? v.status });
   return el("article", { className: "card" },
-    el("div", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title }), " ", pill),
+    el("div", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title }), " ", pill, v.hiddenAt ? " " : null, v.hiddenAt ? el("span", { className: "pill", textContent: "скрыта" }) : null),
     el("div", { className: "meta", textContent: [v.company, v.area, salary(v), v.workFormat, `балл ${v.llmScore ?? v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.searchName && `поиск ${v.searchName}`, v.appliedAt && `отклик ${date(v.appliedAt)}`].filter(Boolean).join(" · ") }),
     v.statusReason || v.llmReason ? el("div", { className: "reason", textContent: v.statusReason ?? v.llmReason }) : null,
     v.coverLetter ? el("details", {}, el("summary", { textContent: "Письмо" }), el("div", { className: "pre", textContent: v.coverLetter })) : null,
