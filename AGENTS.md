@@ -27,6 +27,7 @@ cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:808
 - Контракт: `ApiContract.Version` и `API_VERSION` в `src/api/version.ts` — поднимать вместе и только при несовместимом изменении (удалили или переименовали поле или эндпоинт, поменяли смысл статуса); новое необязательное поле контракт не меняет. Расхождение ловит `npm test`
 - Известное расхождение контракта не даёт запустить очередь; сборка без `/api/version` — предупреждение
 - Сборка образа с коммитом: `GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build`
+- Релиз в `master`: на merge-коммит — аннотированный тег `ext-v<версия>` и, если менялся backend, `backend-v<версия>`; GitHub Release на теге (`ext-*`, при релизе только backend — `backend-*`), в описании — версия backend и контракт API
 
 ## Testing
 - Чистая логика — тесты в `tests/` (vitest + happy-dom), без живого hh.ru; разметка формы отклика hh.ru — `tests/fixtures/response-form.ts` (по живой странице), её же брать для новых тестов конвейера
