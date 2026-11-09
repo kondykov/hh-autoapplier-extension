@@ -251,6 +251,124 @@ describe("QueueStep", () => {
     expect(messages.at(-1)).toContain("Капча посреди отклика");
   });
 
+  describe("капча после «Отправить» (#78)", () => {
+    const submitted = (url: string) => {
+      const env = context({ url, queue: [item("1"), item("2")], config: { queueDryRun: false } });
+      Object.assign(env.ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"], queueOpened: true, queueSubmitted: "1" });
+      return env;
+    };
+
+    const expectStopped = ({ ctx, visited, messages }: ReturnType<typeof submitted>) => {
+      expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
+      expect(visited).toEqual([]);
+      expect(ctx.state.queueRunning).toBe(false);
+      expect(ctx.persist).toHaveBeenCalled();
+      expect(messages.at(-1)).toContain("мог уйти");
+      expect(messages.at(-1)).not.toContain("не нажата");
+    };
+
+    it("конвейер вернул капчу: статус не уходит, неудачей не считается, сообщение — проверить отклик", async () => {
+      const env = submitted(RESPONSE("1"));
+      env.ctx.state.queueFailStreak = 2;
+      env.ctx.state.queueSubmitted = null;
+      // Отметку ставит onSubmit уже внутри конвейера
+      env.ctx.pipeline.applyOnPage.mockImplementation(async () => {
+        env.ctx.state.queueSubmitted = "1";
+        return "captcha";
+      });
+
+      await run(new QueueStep(env.ctx).resume());
+
+      expectStopped(env);
+      expect(env.ctx.state.queueFailStreak).toBe(2);
+    });
+
+    it("новая страница после клика — капча: очередь останавливается сразу, а не ждёт решения", async () => {
+      document.body.innerHTML = "<main></main>";
+      const env = submitted("https://hh.ru/account/captcha");
+      env.ctx.captcha.consumeHit.mockReturnValue(true);
+
+      await run(new QueueStep(env.ctx).resume());
+
+      expectStopped(env);
+      expect(env.ctx.captcha.waitUntilClear).not.toHaveBeenCalled();
+      expect(env.ctx.pipeline.applyOnPage).not.toHaveBeenCalled();
+    });
+
+    it("капча дорисовалась, пока ждём подтверждение на новой странице", async () => {
+      document.body.innerHTML = "<main>Вакансия</main>";
+      const env = submitted("https://hh.ru/vacancy/1");
+      let shown = false;
+      env.ctx.captcha.consumeHit.mockImplementation(() => shown);
+      setTimeout(() => (shown = true), 1000);
+
+      await run(new QueueStep(env.ctx).resume());
+
+      expectStopped(env);
+    });
+  });
+
+  describe("капча перед следующей вакансией (#78)", () => {
+    it.each<[ApplyResult, number]>([
+      ["success", 1],
+      ["dry_run", 0],
+    ])("после исхода %s: страница не меняется, очередь остановлена", async (result, reports) => {
+      const { ctx, visited, messages } = context({ url: RESPONSE("1"), queue: [item("1"), item("2")], config: { queueDryRun: result === "dry_run" } });
+      Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"], queueOpened: true });
+      let shown = false;
+      ctx.captcha.consumeHit.mockImplementation(() => shown);
+      ctx.pipeline.applyOnPage.mockImplementation(async () => {
+        shown = true;
+        return result;
+      });
+
+      await run(new QueueStep(ctx).resume());
+
+      expect(visited).toEqual([]);
+      expect(ctx.backend.reportStatus).toHaveBeenCalledTimes(reports);
+      expect(ctx.state.queueRunning).toBe(false);
+      expect(ctx.persist).toHaveBeenCalled();
+      expect(messages.at(-1)).toContain("Капча");
+    });
+
+    it("в паузе перед переходом: страница не меняется, статусов нет", async () => {
+      const { ctx, visited, messages } = context({ queue: [item("1")], config: { queueDryRun: false } });
+      let shown = false;
+      ctx.captcha.consumeHit.mockImplementation(() => shown);
+      // setStep — сразу перед паузой
+      ctx.panel.setStep.mockImplementation(() => {
+        shown = true;
+      });
+
+      await run(new QueueStep(ctx).toggle());
+
+      expect(visited).toEqual([]);
+      expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
+      expect(ctx.state.queueRunning).toBe(false);
+      expect(messages.at(-1)).toContain("Капча");
+    });
+
+    it("запуск при капче на странице — не уходит", async () => {
+      const { ctx, visited } = context({ queue: [item("1")] });
+      ctx.captcha.consumeHit.mockReturnValue(true);
+
+      await run(new QueueStep(ctx).toggle());
+
+      expect(visited).toEqual([]);
+      expect(ctx.state.queueRunning).toBe(false);
+    });
+
+    it("капча решена до запуска: старая отметка не останавливает очередь", async () => {
+      const { ctx, visited } = context({ queue: [item("1")] });
+      ctx.captcha.consumeHit.mockReturnValueOnce(true);
+
+      await run(new QueueStep(ctx).toggle());
+
+      expect(visited).toEqual([RESPONSE("1")]);
+      expect(ctx.state.queueRunning).toBe(true);
+    });
+  });
+
   it("исключение внутри шага — очередь на паузу с сообщением, а не зависшая (#52)", async () => {
     const { ctx, messages } = context();
     ctx.backend.getQueue.mockRejectedValue(new Error("сбой"));
