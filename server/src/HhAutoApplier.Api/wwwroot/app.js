@@ -224,7 +224,7 @@ function vacancyCard(v) {
   const pill = el("span", { className: "pill", textContent: STATUSES[v.status] ?? v.status });
   return el("article", { className: "card" },
     el("div", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title }), " ", pill, v.hiddenAt ? " " : null, v.hiddenAt ? el("span", { className: "pill", textContent: "скрыта" }) : null),
-    el("div", { className: "meta", textContent: [v.company, v.area, salary(v), v.workFormat, `балл ${v.llmScore ?? v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.searchName && `поиск ${v.searchName}`, v.appliedAt && `отклик ${date(v.appliedAt)}`].filter(Boolean).join(" · ") }),
+    el("div", { className: "meta", textContent: [v.company, v.area, salary(v), v.workFormat, v.workExperience && `опыт: ${v.workExperience}`, `балл ${v.llmScore ?? v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.searchName && `поиск ${v.searchName}`, v.appliedAt && `отклик ${date(v.appliedAt)}`].filter(Boolean).join(" · ") }),
     v.statusReason || v.llmReason ? el("div", { className: "reason", textContent: v.statusReason ?? v.llmReason }) : null,
     v.coverLetter ? el("details", {}, el("summary", { textContent: "Письмо" }), el("div", { className: "pre", textContent: v.coverLetter })) : null,
     v.history?.length ? el("details", {}, el("summary", { textContent: `История (${v.history.length})` }),
@@ -261,7 +261,7 @@ function reviewCard(v) {
 
   const node = el("article", { className: "card" },
     el("h2", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title })),
-    el("div", { className: "meta", textContent: [v.company, v.area, salary(v) ?? "зарплата не указана", v.workFormat, `балл ${v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.hasTest && "есть тест"].filter(Boolean).join(" · ") }),
+    el("div", { className: "meta", textContent: [v.company, v.area, salary(v) ?? "зарплата не указана", v.workFormat, v.workExperience && `опыт: ${v.workExperience}`, `балл ${v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.hasTest && "есть тест"].filter(Boolean).join(" · ") }),
     el("div", { className: "verdict", textContent: v.statusReason ?? v.llmReason ?? "LLM сомневается" }),
     v.stack?.length ? el("div", { className: "meta", textContent: `Стек: ${v.stack.join(", ")}` }) : null,
     el("details", {}, el("summary", { textContent: "Описание вакансии" }), el("div", { className: "desc", textContent: v.description || "описания нет" })),
@@ -394,6 +394,7 @@ function searchForm(s) {
     enabled: el("input", { type: "checkbox", checked: s?.enabled ?? true }),
     includeKeywords: el("input", { value: (r.includeKeywords ?? []).join(", ") }),
     excludeKeywords: el("input", { value: (r.excludeKeywords ?? []).join(", ") }),
+    levelKeywords: el("input", { value: (r.levelKeywords ?? []).join(", "), placeholder: "junior, младший", title: "Ищутся только в названии. Отсев — только без опыта или при стажировке, иначе решает LLM" }),
     allowedFormats: el("input", { value: (r.allowedFormats ?? []).join(", "), placeholder: "Удалённо, Гибрид" }),
     minSalaryRub: el("input", { type: "number", value: r.minSalaryRub ?? "" }),
     minScore: el("input", { type: "number", value: r.minScore ?? 0 }),
@@ -409,7 +410,7 @@ function searchForm(s) {
     el("h2", { textContent: s ? s.name : "Новый поиск" }),
     el("div", { className: "form" },
       field("Название", inputs.name), field("Запрос", inputs.query), field("Регион (area)", inputs.area), field("Доп. параметры", inputs.extraParams),
-      field("Включён", inputs.enabled), field("Нужные слова", inputs.includeKeywords), field("Исключить слова", inputs.excludeKeywords),
+      field("Включён", inputs.enabled), field("Нужные слова", inputs.includeKeywords), field("Исключить слова", inputs.excludeKeywords), field("Слова уровня (в названии)", inputs.levelKeywords),
       field("Форматы работы", inputs.allowedFormats), field("Зарплата от, ₽", inputs.minSalaryRub), field("Мин. балл", inputs.minScore),
       field("Только с зарплатой", inputs.requireSalary), field("Пропускать с тестом", inputs.skipWithTest), field("Без ручной проверки", inputs.skipReview)),
     readOnly() ? null : el("div", { className: "bar", style: "margin:12px 0 0" }, save, remove));
@@ -420,7 +421,7 @@ function searchForm(s) {
       name: inputs.name.value.trim(), query: inputs.query.value.trim(), area: inputs.area.value.trim() || null,
       extraParams: inputs.extraParams.value.trim() || null, enabled: inputs.enabled.checked,
       rules: {
-        includeKeywords: lines(inputs.includeKeywords.value), excludeKeywords: lines(inputs.excludeKeywords.value),
+        includeKeywords: lines(inputs.includeKeywords.value), excludeKeywords: lines(inputs.excludeKeywords.value), levelKeywords: lines(inputs.levelKeywords.value),
         allowedFormats: lines(inputs.allowedFormats.value), minSalaryRub: inputs.minSalaryRub.value ? Number(inputs.minSalaryRub.value) : null,
         minScore: Number(inputs.minScore.value || 0), requireSalary: inputs.requireSalary.checked,
         skipWithTest: inputs.skipWithTest.checked, skipReview: inputs.skipReview.checked,

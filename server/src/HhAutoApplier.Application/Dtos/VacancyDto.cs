@@ -27,6 +27,9 @@ public record VacancyDto
 
     public required string[] Stack { get; init; }
 
+    // Требуемый опыт текстом (#72); новое поле — прежние клиенты его не читают
+    public string? WorkExperience { get; init; }
+
     public bool HasTest { get; init; }
 
     public DateTimeOffset PublishedAt { get; init; }

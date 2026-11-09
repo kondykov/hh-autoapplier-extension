@@ -545,6 +545,9 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("WorkExperience")
+                        .HasColumnType("text");
+
                     b.Property<string>("WorkFormat")
                         .IsRequired()
                         .HasColumnType("text");
@@ -932,6 +935,9 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                                 .IsRequired();
 
                             b1.PrimitiveCollection<string>("IncludeKeywords")
+                                .IsRequired();
+
+                            b1.PrimitiveCollection<string>("LevelKeywords")
                                 .IsRequired();
 
                             b1.Property<int?>("MinSalaryRub");
