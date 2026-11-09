@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using HhAutoApplier.Application.Abstractions;
 using Microsoft.Extensions.Logging;
@@ -11,6 +12,8 @@ namespace HhAutoApplier.Infrastructure.Llm;
 // Клиент chat/completions для OpenAI-совместимых провайдеров (Groq, OpenAI, OpenRouter, локальные серверы). Различия провайдеров — в LlmProviderProfile
 public class OpenAiCompatibleClient : ILlmClient
 {
+    private const string NoText = "в ответе провайдера нет текста";
+
     private readonly HttpClient _http;
 
     private readonly LlmOptions _opt;
@@ -128,12 +131,23 @@ public class OpenAiCompatibleClient : ILlmClient
 
     private async Task<LlmResult> ReadAsync(HttpResponseMessage response, CancellationToken ct)
     {
-        var chat = await response.Content.ReadFromJsonAsync<ChatResponse>(ct);
-        var content = chat?.Choices?.FirstOrDefault()?.Message?.Content;
-        if (content is null)
-            throw new LlmUnavailableException("в ответе провайдера нет текста");
+        ChatResponse? chat;
+        try
+        {
+            chat = await response.Content.ReadFromJsonAsync<ChatResponse>(ct);
+        }
+        catch (JsonException)
+        {
+            throw new LlmUnavailableException(NoText);
+        }
 
-        return new LlmResult(content, chat!.Model ?? _opt.Model, chat.Usage?.PromptTokens ?? 0, chat.Usage?.CompletionTokens ?? 0);
+        if (chat?.Choices?.FirstOrDefault() is not { } choice)
+            throw new LlmUnavailableException(NoText);
+
+        // Вариант есть, текста нет (модель потратила токены на рассуждения): это ответ на этот запрос, а не сбой провайдера (#81).
+        // Пустой текст идёт путём неразобранного ответа. Модель не пустая: без неё запись в журнале считалась бы сбоем провайдера
+        var model = string.IsNullOrEmpty(chat.Model) ? _opt.Model : chat.Model;
+        return new LlmResult(choice.Message?.Content ?? "", model, chat.Usage?.PromptTokens ?? 0, chat.Usage?.CompletionTokens ?? 0);
     }
 
     private Task PauseAsync(int attempt, TimeSpan? retryAfter, string reason, CancellationToken ct)
