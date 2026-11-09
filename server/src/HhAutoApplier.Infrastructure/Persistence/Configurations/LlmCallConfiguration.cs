@@ -1,4 +1,5 @@
 using HhAutoApplier.Domain.Llm;
+using HhAutoApplier.Infrastructure.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -14,5 +15,8 @@ public class LlmCallConfiguration : IEntityTypeConfiguration<LlmCall>
         // Дневной лимит считается по времени запросов
         builder.HasIndex(x => x.CreatedAt);
         builder.HasIndex(x => x.VacancyId);
+        // Неудачи писем — по отклику (#57). Удалённый пользователь не стирает журнал: на нём держится дневной лимит
+        builder.HasIndex(x => new { x.UserId, x.VacancyId });
+        builder.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.SetNull);
     }
 }

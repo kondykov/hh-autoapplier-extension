@@ -22,7 +22,11 @@ public class JobApplicationConfiguration : IEntityTypeConfiguration<JobApplicati
         builder.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         // Удалённый поиск не стирает отклики: остаются с правилами по умолчанию
         builder.HasOne(x => x.Search).WithMany().HasForeignKey(x => x.SearchId).OnDelete(DeleteBehavior.SetNull);
+        // Оптимистичная конкурентность (#54): системная колонка xmin Postgres. LLM-конвейер ждёт ответа секундами —
+        // решение пользователя за это время не затирается, конфликт отбрасывает результат LLM
+        builder.Property<uint>("Version").IsRowVersion();
         builder.Ignore(x => x.Rules);
+        builder.Ignore(x => x.Sent);
 
         // Анкета с ответами и история переходов — колонками jsonb
         builder.OwnsMany(x => x.Questions, o =>

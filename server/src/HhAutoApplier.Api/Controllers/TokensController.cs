@@ -21,9 +21,9 @@ public class TokensController : ApiController
     }
 
     /// <summary>
-    /// Выпустить токен: значение (hh_…) показывается один раз — вставьте его в панель расширения вместо общего ключа.
+    /// Выпустить токен: значение (hh_…) показывается один раз — вставьте его в поле «Токен» панели расширения.
     /// </summary>
-    /// <response code="409">Вход по токену или ключу — выпуск только после входа по паролю.</response>
+    /// <response code="409">Вход по токену — выпуск только после входа по паролю.</response>
     [HttpPost]
     [ProducesResponseType(typeof(CreatedApiTokenDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationError), StatusCodes.Status400BadRequest)]

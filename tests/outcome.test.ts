@@ -9,20 +9,20 @@ describe("outcome detector", () => {
   it("detects outline in modal", () => {
     document.body.innerHTML = `<div data-qa="vacancy-response-popup">Для отклика необходимо ответить на несколько вопросов</div>`;
     expect(isOutlineDetected()).toBe(true);
-    expect(detectApplyOutcome(null)).toBe("outline");
+    expect(detectApplyOutcome()).toBe("outline");
   });
 
   it("detects regular modal", () => {
     document.body.innerHTML = `<div data-qa="vacancy-response-popup">Резюме</div>`;
-    expect(detectApplyOutcome(null)).toBe("modal");
+    expect(detectApplyOutcome()).toBe("modal");
   });
 
   it("detects letter place", () => {
     document.body.innerHTML = `<button data-qa="vacancy-response-letter-toggle">Приложить письмо</button>`;
-    expect(detectApplyOutcome(null)).toBe("letter");
+    expect(detectApplyOutcome()).toBe("letter");
   });
 
   it("returns null on empty page", () => {
-    expect(detectApplyOutcome(null)).toBeNull();
+    expect(detectApplyOutcome()).toBeNull();
   });
 });

@@ -7,6 +7,8 @@ export interface QueueItem {
   title: string;
   company: string;
   resume: string | null;
+  // Часть названия резюме на hh.ru (match профиля с сервера) — заполняет очередь перед открытием вакансии
+  resumeMatch?: string;
   // Письмо под вакансию от LLM backend; нет — расширение берёт свой шаблон
   letter?: string;
   // Ответы LLM на анкету работодателя; есть — конвейер заполнит анкету вместо пропуска
@@ -29,9 +31,27 @@ export function isPageOf(url: string, id: string): boolean {
   return vacancyId === id;
 }
 
+// Пробный режим очереди — fail-closed: остановленная очередь не отправляет никогда (#49)
+export const isDryRun = (queueRunning: boolean, queueDryRun: boolean): boolean => !queueRunning || queueDryRun;
+
+// Очередь всё ещё ведёт вакансию этой страницы: её не остановили и не перезапустили с другой вакансией
+export function isQueueOn(queueRunning: boolean, current: QueueItem | null, link: string): boolean {
+  if (!queueRunning || !current) return false;
+  try {
+    return isPageOf(link, current.id);
+  } catch {
+    return false;
+  }
+}
+
 // Первая вакансия очереди, которую ещё не пробовали в этом запуске
 export const pickNext = (queue: QueueItem[], tried: string[]): QueueItem | null =>
   queue.find((v) => !tried.includes(v.id)) ?? null;
+
+// Сколько неудач подряд очередь терпит, прежде чем остановиться (#75)
+export const QUEUE_FAIL_LIMIT = 3;
+
+export const isQueueFailure = (result: ApplyResult): boolean => result === "skipped" || result === "failed" || result === "unclear";
 
 // Исход конвейера → статус на сервере. null — серверу ничего не сообщаем (пробный прогон, ручное вмешательство)
 export function toStatusReport(result: ApplyResult): StatusReport | null {
@@ -39,7 +59,8 @@ export function toStatusReport(result: ApplyResult): StatusReport | null {
     case "success":
       return { status: "Applied", reason: null };
     case "outline":
-      return { status: "Skipped", reason: "анкета работодателя — вопросы сохранены в расширении" };
+      // Сюда попадает только анкета, вопросы которой не удалось прочитать: остальные уходят на сервер и возвращаются с ответами
+      return { status: "Skipped", reason: "анкета работодателя — вопросы не найдены на странице" };
     case "skipped":
       return { status: "Failed", reason: "форма отклика не открылась" };
     case "failed":
@@ -48,6 +69,8 @@ export function toStatusReport(result: ApplyResult): StatusReport | null {
       return { status: "Failed", reason: "отклик не подтверждён — проверить вручную" };
     case "disabled":
     case "dry_run":
+    case "stopped":
+    case "captcha":
       return null;
   }
 }

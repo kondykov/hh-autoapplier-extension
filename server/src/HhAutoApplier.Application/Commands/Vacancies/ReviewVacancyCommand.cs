@@ -17,6 +17,10 @@ public record ReviewVacancyCommand
     [MaxLength(4000)]
     public string? CoverLetter { get; init; }
 
+    // Одобрить: ответы анкеты, поправленные человеком, — все по порядку вопросов; пусто — оставить ответы LLM
+    [MaxLength(50)]
+    public List<List<string>>? Answers { get; init; }
+
     // Отклонить: причина для отчёта
     [MaxLength(500)]
     public string? Reason { get; init; }

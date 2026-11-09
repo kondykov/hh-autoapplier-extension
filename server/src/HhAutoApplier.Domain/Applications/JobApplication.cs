@@ -86,6 +86,16 @@ public class JobApplication
         MoveTo(awaitLlm && evaluation.Status == VacancyStatus.Queued ? VacancyStatus.Pending : evaluation.Status, evaluation.Reason, at);
     }
 
+    // Страница вакансии недоступна, подтвердить импортную карточку нечем: отклик больше не ждёт (#59).
+    // Только из New: уже оценённые, отправленные и решённые отклики не трогаем
+    public void MarkVacancyUnavailable(DateTimeOffset at)
+    {
+        if (Status != VacancyStatus.New)
+            throw new DomainException($"Отклик в статусе {Status} не ждёт подтверждения вакансии");
+
+        MoveTo(VacancyStatus.Skipped, VacancyUnavailable, at);
+    }
+
     // LLM-оценка под резюме: подходящие — в очередь, сомнительные — на ручную проверку (Review; reviewDoubtful = false —
     // правило поиска «без проверки», сразу в очередь), неподходящие — пропуск с причиной.
     // resume — имя профиля, выбранное LLM; null — оставить выбор правил
@@ -109,14 +119,19 @@ public class JobApplication
         MoveTo(doubtful && reviewDoubtful ? VacancyStatus.Review : VacancyStatus.Queued, doubtful ? $"LLM сомневается: {reason}" : null, at);
     }
 
-    // Ручная проверка: одобрить — в очередь; coverLetter — письмо, поправленное человеком (null — оставить письмо LLM)
-    public void Approve(string? coverLetter, DateTimeOffset at)
+    // Ручная проверка: одобрить — в очередь; coverLetter — письмо, поправленное человеком (null — оставить письмо LLM);
+    // answers — ответы анкеты, поправленные человеком, все по порядку вопросов (null — оставить ответы LLM)
+    public void Approve(string? coverLetter, DateTimeOffset at, IReadOnlyList<IReadOnlyCollection<string>>? answers = null)
     {
         if (Status != VacancyStatus.Review)
             throw new DomainException($"Одобрить можно только отклик на проверке, сейчас {Status}");
 
+        // Ответы — до письма: при ошибке в ответах письмо не меняется
+        var answered = answers is null ? null : Answered(answers);
         if (!string.IsNullOrWhiteSpace(coverLetter))
             SetCoverLetter(coverLetter, ManualLetter, at);
+        if (answered is not null)
+            Questions = answered;
         MoveTo(VacancyStatus.Queued, "одобрено вручную", at);
     }
 
@@ -146,7 +161,7 @@ public class JobApplication
     // Сбросить письмо, чтобы LLM написала его заново (поменялись резюме, шаблон или промпт)
     public void ResetCoverLetter()
     {
-        if (Status is VacancyStatus.Applied or VacancyStatus.Rejected)
+        if (Sent)
             throw new DomainException("Отклик уже отправлен — письмо не переписать");
 
         (CoverLetter, CoverLetterModel, CoverLetterAt) = (null, null, null);
@@ -154,7 +169,7 @@ public class JobApplication
 
     // Расширение встретило анкету: вопросы ждут ответов LLM, отклик уходит из очереди.
     // Анкета могла поменяться — прежние ответы сбрасываются.
-    // Только из очереди (или повторно из анкеты): ответы LLM ведут сразу в очередь, и анкета не должна вернуть туда
+    // Только из очереди (или повторно из анкеты): ответы LLM могут вести сразу в очередь, и анкета не должна вернуть туда
     // отклонённое вручную, ждущее проверки или ещё не оценённое
     public void RequireAnswers(IReadOnlyCollection<VacancyQuestion> questions, DateTimeOffset at)
     {
@@ -168,29 +183,66 @@ public class JobApplication
         MoveTo(VacancyStatus.Questionnaire, "анкета: ждёт ответов LLM", at);
     }
 
-    // Ответы в порядке вопросов. Неполные или с несуществующим вариантом — DomainException, отклик остаётся ждать.
-    // Решение владельца: анкета видна только со входом, поэтому с ответами — сразу в очередь, без ручной проверки
-    public void AnswerQuestions(IReadOnlyList<IReadOnlyCollection<string>> answers, DateTimeOffset at)
+    // Ответы LLM в порядке вопросов. Неполные или с несуществующим вариантом — DomainException, отклик остаётся ждать.
+    // Решение владельца (#58, пересмотр решения 2026-10-25): текстовые ответы LLM пишет сама и они уходят работодателю
+    // от имени кандидата — на ручную проверку (Review), кроме поиска «без проверки» (reviewText = false); ответы только
+    // вариантами — сразу в очередь. problems — цифры не из фактов после повторной попытки: на проверку всегда
+    public void AnswerQuestions(IReadOnlyList<IReadOnlyCollection<string>> answers, DateTimeOffset at, bool reviewText,
+        IReadOnlyCollection<string>? problems = null)
     {
         if (Status != VacancyStatus.Questionnaire)
             throw new DomainException($"Ответы на анкету возможны только в статусе Questionnaire, сейчас {Status}");
 
+        Questions = Answered(answers);
+        if (problems is { Count: > 0 })
+            MoveTo(VacancyStatus.Review, $"анкета: проверить — {string.Join("; ", problems)}", at);
+        else if (reviewText && Questions.Any(q => q.Type == QuestionType.Text))
+            MoveTo(VacancyStatus.Review, "анкета: проверить ответы LLM", at);
+        else
+            MoveTo(VacancyStatus.Queued, "анкета: ответы LLM", at);
+    }
+
+    // LLM не ответила на все вопросы: решает человек. Одобрить — в очередь, расширение пришлёт анкету заново
+    public void RequireQuestionnaireReview(string reason, DateTimeOffset at)
+    {
+        if (Status != VacancyStatus.Questionnaire)
+            throw new DomainException($"Анкета уходит на проверку только из статуса Questionnaire, сейчас {Status}");
+
+        MoveTo(VacancyStatus.Review, $"анкета: проверить — {reason}", at);
+    }
+
+    // Письмо LLM не прошло проверку: без письма отклик не уходит сам, решает человек
+    public void RequireLetterReview(string reason, DateTimeOffset at)
+    {
+        if (Status is not (VacancyStatus.Queued or VacancyStatus.Review))
+            throw new DomainException($"Письмо проверяется только для отклика в очереди или на проверке, сейчас {Status}");
+
+        MoveTo(VacancyStatus.Review, $"{LetterReviewPrefix} — {reason}", at);
+    }
+
+    // На проверке из-за письма LLM, а не сомнительной оценки
+    public bool LetterRejected => StatusReason?.StartsWith(LetterReviewPrefix, StringComparison.Ordinal) == true;
+
+    // Новый список вопросов с ответами; сначала проверяются все, чтобы при ошибке не остались ответы наполовину
+    private List<VacancyQuestion> Answered(IReadOnlyList<IReadOnlyCollection<string>> answers)
+    {
         if (answers.Count != Questions.Count)
             throw new DomainException($"Ответов {answers.Count}, а вопросов {Questions.Count}");
 
-        // Сначала проверить все, чтобы при ошибке не остались ответы наполовину
         var answered = Questions.Select(q => VacancyQuestion.Create(q.Text, q.Type, q.Options)).ToList();
         for (var i = 0; i < answered.Count; i++)
             answered[i].SetAnswer(answers[i]);
-
-        Questions = answered;
-        MoveTo(VacancyStatus.Queued, "анкета: ответы LLM", at);
+        return answered;
     }
 
+    // Отклик отправлен из очереди. Только из Queued и Questionnaire: не прошедший оценку или проверку отметить отправленным нельзя (#60)
     public void MarkApplied(string? resume, DateTimeOffset at)
     {
-        if (Status is VacancyStatus.Applied or VacancyStatus.Rejected)
+        if (Sent)
             throw new DomainException("Отклик на вакансию уже отправлен");
+
+        if (Status is not (VacancyStatus.Queued or VacancyStatus.Questionnaire))
+            throw new DomainException($"Отправленным можно отметить только отклик в очереди или с анкетой, сейчас {Status}");
 
         AppliedAt = at;
         if (!string.IsNullOrWhiteSpace(resume))
@@ -198,9 +250,19 @@ public class JobApplication
         MoveTo(VacancyStatus.Applied, null, at);
     }
 
+    // Чат на hh.ru есть, а статус потерялся: отклик уже у работодателя, поэтому из любого статуса до отправки (#26, #60)
+    public void RecoverApplied(DateTimeOffset at)
+    {
+        if (Sent)
+            throw new DomainException("Отклик на вакансию уже отправлен");
+
+        AppliedAt = at;
+        MoveTo(VacancyStatus.Applied, "восстановлен по чату hh.ru", at);
+    }
+
     public void Skip(string? reason, DateTimeOffset at)
     {
-        if (Status is VacancyStatus.Applied or VacancyStatus.Rejected)
+        if (Sent)
             throw new DomainException("Нельзя пропустить вакансию, на которую уже откликнулись");
 
         MoveTo(VacancyStatus.Skipped, reason ?? StatusReason, at);
@@ -208,20 +270,32 @@ public class JobApplication
 
     public void Fail(string? reason, DateTimeOffset at)
     {
-        if (Status is VacancyStatus.Applied or VacancyStatus.Rejected)
+        if (Sent)
             throw new DomainException("Отклик уже отправлен — ошибка отклика невозможна");
 
         MoveTo(VacancyStatus.Failed, reason ?? StatusReason, at);
     }
 
-    // Работодатель отказал после отклика
+    // Работодатель отказал после отклика или после приглашения
     public void Reject(string? reason, DateTimeOffset at)
     {
-        if (Status != VacancyStatus.Applied)
+        if (Status is not (VacancyStatus.Applied or VacancyStatus.Invited))
             throw new DomainException("Отказ возможен только после отклика");
 
         MoveTo(VacancyStatus.Rejected, reason ?? StatusReason, at);
     }
+
+    // Работодатель пригласил (из чата hh.ru, #26)
+    public void Invite(string? reason, DateTimeOffset at)
+    {
+        if (Status != VacancyStatus.Applied)
+            throw new DomainException("Приглашение возможно только после отклика");
+
+        MoveTo(VacancyStatus.Invited, reason, at);
+    }
+
+    // Отклик уже у работодателя: письмо, анкету и статус до отклика не поменять
+    public bool Sent => Status is VacancyStatus.Applied or VacancyStatus.Invited or VacancyStatus.Rejected;
 
     // Вернуть в очередь пропущенный или упавший отклик
     public void Requeue(DateTimeOffset at)
@@ -246,6 +320,11 @@ public class JobApplication
 
     // Модель письма, поправленного человеком на ручной проверке
     public const string ManualLetter = "manual";
+
+    // Причина пропуска, когда страница вакансии не открылась при подтверждении импортной карточки
+    public const string VacancyUnavailable = "вакансия недоступна";
+
+    private const string LetterReviewPrefix = "письмо: проверить";
 
     // С запасом под лимит поля письма на hh.ru
     private const int MaxCoverLetterLength = 4000;

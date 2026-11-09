@@ -38,12 +38,15 @@ public class OwnershipTests(ApiFactory factory) : IAsyncLifetime
     private static async Task SaveSearch(HttpClient client, string name, string query = "C#", params string[] exclude) =>
         await Json(await client.PutAsJsonAsync("/api/searches", new { name, query, rules = new { excludeKeywords = exclude } }));
 
-    private static async Task Import(HttpClient client, string search, params string[] ids) =>
+    private async Task Import(HttpClient client, string search, params string[] ids)
+    {
         await Json(await client.PostAsJsonAsync("/api/import", new
         {
             search,
             vacancies = ids.Select(id => new { id, title = "C# разработчик", company = "Acme", description = "ASP.NET Core" }),
         }));
+        await factory.ConfirmImportedAsync();
+    }
 
     private static async Task<List<string?>> Names(HttpClient client, string url) =>
         (await Json(await client.GetAsync(url))).EnumerateArray().Select(e => e.GetProperty("name").GetString()).ToList();
@@ -98,8 +101,8 @@ public class OwnershipTests(ApiFactory factory) : IAsyncLifetime
 
         // Импорт известной вакансии в свой поиск даёт B свой отклик; статус A не меняется
         await Import(b, "b-search", "1");
-        var applied = await Json(await b.PostAsJsonAsync("/api/vacancies/1/status", new { status = "Applied" }));
-        Assert.Equal(("Applied", "b-search"), (applied.GetProperty("status").GetString(), applied.GetProperty("searchName").GetString()));
+        var skipped = await Json(await b.PostAsJsonAsync("/api/vacancies/1/status", new { status = "Skipped", reason = "не подходит" }));
+        Assert.Equal(("Skipped", "b-search"), (skipped.GetProperty("status").GetString(), skipped.GetProperty("searchName").GetString()));
         var vacancyA = Assert.Single(await Vacancies(a));
         Assert.Equal(("Queued", "a-search"), (vacancyA.GetProperty("status").GetString(), vacancyA.GetProperty("searchName").GetString()));
         Assert.Equal(1, await factory.WithDbAsync(db => db.Vacancies.CountAsync()));
@@ -160,10 +163,10 @@ public class OwnershipTests(ApiFactory factory) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ApiKey_AdminEmailUsersData_WithUserRole()
+    public async Task Token_OwnersData_WithUserRole()
     {
         await SaveSearch(_admin, "admin-search");
-        var key = factory.CreateKeyClient();
+        var key = factory.CreateTokenClient();
 
         Assert.Equal(["admin-search"], await Names(key, "/api/searches"));
         Assert.Equal([".NET", "PHP"], await Names(key, "/api/resumes"));
@@ -173,7 +176,7 @@ public class OwnershipTests(ApiFactory factory) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden, (await key.PostAsync("/api/collect", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await key.PostAsync("/api/llm/check", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await key.GetAsync("/api/users")).StatusCode);
-        // Ключ — роль User: чужие данные по ?userId недоступны
+        // Токен — роль User: чужие данные по ?userId недоступны
         var (idA, _) = await CreateUser("a@test.local");
         Assert.Equal(HttpStatusCode.Forbidden, (await key.GetAsync($"/api/vacancies?userId={idA}")).StatusCode);
     }

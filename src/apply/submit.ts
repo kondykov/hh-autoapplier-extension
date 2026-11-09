@@ -1,11 +1,11 @@
-import { DELAYS, wait } from "../core/delays";
+import { DELAYS, pause, wait } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
-import type { Vacancy } from "../core/state";
 import { ensureCoverLetterFieldVisible, fillTextarea, getCoverLetterField } from "../dom/cover-letter";
 import { detectPageType } from "../dom/page-type";
-import { isAlreadyResponded, normalizeText, qs, qsa } from "../dom/query";
+import { normalizeText, qs, qsa } from "../dom/query";
 import type { Logger } from "../infra/logger";
 import { isAlreadyRespondedOnPage, isOutlineDetected } from "./outcome-detector";
+import { humanClick } from "../dom/input";
 
 // dry_run — пробный режим: форма заполнена, кнопка «Отправить» найдена и активна, но не нажата
 export type SubmitResult = "success" | "outline" | "pending_response" | "disabled" | "unclear" | "failed" | "dry_run";
@@ -22,13 +22,12 @@ function findButtonByText(root: ParentNode, text: string, excludeApply: boolean)
   return nodes.find((n) => !isApply(n) && normalizeText(n.textContent).includes(text)) ?? null;
 }
 
-async function findSubmitButton(scope: Element | null, timeoutMs = 4000): Promise<HTMLElement | null> {
+async function findSubmitButton(timeoutMs = 4000): Promise<HTMLElement | null> {
   const start = Date.now();
   do {
     const modal = qs(SELECTORS.responseModal);
     const scopes: ParentNode[] = [];
     if (modal) scopes.push(modal);
-    if (scope && scope !== modal) scopes.push(scope);
     scopes.push(document.body);
 
     for (const s of scopes) {
@@ -48,10 +47,11 @@ async function findSubmitButton(scope: Element | null, timeoutMs = 4000): Promis
   } while (true);
 }
 
+// success — только по положительному признаку: «Вы откликнулись» или закрылась форма, открытая при клике.
+// Без окна и без поля письма «формы нет» с самого начала — это не признак отправки (#50)
 async function waitForSubmitResult(
-  vacancy: Vacancy | null,
   startPage: string,
-  hadModal: boolean,
+  hadForm: boolean,
   timeoutMs: number,
   questionnaire: boolean,
 ): Promise<SubmitResult> {
@@ -61,9 +61,8 @@ async function waitForSubmitResult(
     if (!questionnaire && isOutlineDetected()) return "outline";
     if (detectPageType() !== startPage) return "pending_response";
     if (isAlreadyRespondedOnPage()) return "success";
-    if (vacancy?.card && isAlreadyResponded(vacancy.card)) return "success";
     const formOpen = qs(SELECTORS.responseModal) || getCoverLetterField();
-    if (!formOpen && (hadModal || startPage !== "search")) {
+    if (!formOpen && hadForm) {
       if (++closedStreak >= 2) return "success";
     } else {
       closedStreak = 0;
@@ -73,13 +72,18 @@ async function waitForSubmitResult(
   return "unclear";
 }
 
+// Кнопка неактивна: hh.ru помечает это атрибутом disabled или aria-disabled
+const isInactive = (el: HTMLElement) => (el as HTMLButtonElement).disabled || el.getAttribute("aria-disabled") === "true";
+
 export async function attachLetterAndSubmit(
-  vacancy: Vacancy | null,
   letter: string,
   logger: Logger,
-  dryRun = false,
+  // Пробный режим; функция — перечитывается перед самым кликом
+  dryRun: boolean | (() => boolean) = false,
   // Анкета уже заполнена ответами: её вопросы на странице — не повод останавливаться
   questionnaire = false,
+  // Сразу перед нажатием «Отправить»: записать, что отклик уходит, и учесть его в лимитах
+  beforeClick?: () => Promise<void>,
 ): Promise<SubmitResult> {
   if (!questionnaire && isOutlineDetected()) return "outline";
 
@@ -92,34 +96,37 @@ export async function attachLetterAndSubmit(
   if (textarea) {
     fillTextarea(textarea, letter);
     logger.log("Сопроводительное письмо вставлено", "success");
-    await wait(DELAYS.small);
+    await pause(DELAYS.small);
   } else {
     logger.log("Поле письма не найдено, отправляю без письма", "warn");
   }
 
   if (!questionnaire && isOutlineDetected()) return "outline";
 
-  const submit = await findSubmitButton(vacancy?.card ?? null);
+  const submit = await findSubmitButton();
   if (!submit) {
     logger.log('Кнопка "Отправить" не найдена', "warn");
     return "failed";
   }
   const real = (submit.closest("button") as HTMLButtonElement | null) ?? submit;
-  if ((submit as HTMLButtonElement).disabled || (real as HTMLButtonElement).disabled) {
+  if (isInactive(submit) || isInactive(real)) {
     logger.log('Кнопка "Отправить" неактивна. Возможно, нужно выбрать резюме.', "warn");
     return "disabled";
   }
 
-  if (dryRun) {
+  const isDry = typeof dryRun === "function" ? dryRun : () => dryRun;
+  if (isDry()) {
     logger.log('Пробный режим: кнопка "Отправить" найдена и активна, не нажимаю', "warn");
     return "dry_run";
   }
 
   const startPage = detectPageType();
-  const hadModal = !!qs(SELECTORS.responseModal);
+  const hadForm = !!(qs(SELECTORS.responseModal) || getCoverLetterField());
   submit.scrollIntoView({ block: "center", inline: "center" });
-  await wait(DELAYS.short);
-  submit.click();
+  if (!(await humanClick(submit, () => !isDry(), beforeClick))) {
+    logger.log('Пробный режим включён перед нажатием: "Отправить" не нажата', "warn");
+    return "dry_run";
+  }
   logger.log('Нажата кнопка "Отправить"', "step");
-  return waitForSubmitResult(vacancy, startPage, hadModal, 8000, questionnaire);
+  return waitForSubmitResult(startPage, hadForm, 8000, questionnaire);
 }

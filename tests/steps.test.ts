@@ -1,22 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AutoReply } from "../src/api/client";
 import type { ApplyResult } from "../src/apply/pipeline";
 import { DEFAULT_CONFIG, type AppConfig } from "../src/core/config";
 import { DailyLimit } from "../src/core/daily-limit";
-import { AppState, type Vacancy } from "../src/core/state";
+import { AppState, StateRepository, type Vacancy } from "../src/core/state";
+import type { DialogChat } from "../src/dialogs/chats";
 import { Logger } from "../src/infra/logger";
 import { MemoryStorage } from "../src/infra/storage";
+import { DialogStep } from "../src/pages/dialog-step";
 import { QueueStep } from "../src/pages/queue-step";
 import { SearchStep } from "../src/pages/search-step";
 import { pickStep, type StepContext } from "../src/pages/step-context";
-import { VacancyStep } from "../src/pages/vacancy-step";
-import type { QueueItem } from "../src/queue/queue-mode";
+import { toStatusReport, type QueueItem } from "../src/queue/queue-mode";
+import type { ImportCard } from "../src/search/vacancy-collector";
 import { renderResponsePage } from "./fixtures/response-form";
 
 const item = (id: string): QueueItem => ({ id, title: `Вакансия ${id}`, company: "Acme", resume: ".NET" });
 const RESPONSE = (id: string) => `https://hh.ru/applicant/vacancy_response?vacancyId=${id}`;
 
 // Контекст шага без браузера: навигация, панель, backend и конвейер — подменные
-function context(opts: { url?: string; queue?: QueueItem[]; result?: ApplyResult; config?: Partial<AppConfig>; dailyLimit?: number } = {}) {
+function context(opts: { url?: string; queue?: QueueItem[]; result?: ApplyResult; config?: Partial<AppConfig>; dailyLimit?: number; autoReplies?: AutoReply[]; tab?: number; tabOpen?: boolean } = {}) {
   let url = opts.url ?? "https://hh.ru/";
   const visited: string[] = [];
   const messages: string[] = [];
@@ -31,20 +34,24 @@ function context(opts: { url?: string; queue?: QueueItem[]; result?: ApplyResult
     limit: new DailyLimit(new MemoryStorage(), opts.dailyLimit ?? 10),
     panel: {
       setStep: vi.fn(),
-      setNextEnabled: vi.fn(),
-      setAutoActive: vi.fn(),
       setQueueActive: vi.fn(),
       setRejectActive: vi.fn(),
-      setUrl: vi.fn(),
     },
     backend: {
       getQueue: vi.fn(async () => ({ ok: true as const, items: opts.queue ?? [] })),
+      getResumes: vi.fn(async () => ({ ok: true as const, resumes: [{ name: ".NET", match: "C# .NET" }] })),
+      importVacancies: vi.fn(async (_search: string, _cards: ImportCard[]) => ({ ok: true as const, result: { received: 2, added: 2, queued: 1, skipped: 1, waiting: 0 } })),
       reportStatus: vi.fn(async () => ({ ok: true as const })),
       submitQuestionnaire: vi.fn(async () => ({ ok: true as const })),
+      reportEvent: vi.fn(async () => ({ ok: true as const })),
+      importDialogs: vi.fn(async (chats: DialogChat[]) => ({
+        ok: true as const,
+        result: { received: chats.length, newMessages: 1, rejected: 1, invited: 0, autoReplies: opts.autoReplies ?? [] },
+      })),
+      reportAutoReply: vi.fn(async (_chatId: number, _sent: boolean, _error?: string) => ({ ok: true as const })),
     },
     pipeline: {
       applyOnPage: vi.fn(async (_v: Vacancy) => opts.result ?? "success"),
-      applyFromSearch: vi.fn(async (_v: Vacancy) => opts.result ?? "success"),
     },
     captcha: { waitUntilClear: vi.fn(async () => false), consumeHit: vi.fn(() => false) },
     nav: {
@@ -53,8 +60,8 @@ function context(opts: { url?: string; queue?: QueueItem[]; result?: ApplyResult
         visited.push(to);
         url = to;
       }),
-      reload: vi.fn(),
     },
+    tab: { self: opts.tab ?? null, isOpen: vi.fn(async () => opts.tabOpen ?? true) },
     persist: vi.fn(async () => {}),
   } satisfies StepContext;
   return { ctx, visited, messages, setUrl: (u: string) => (url = u) };
@@ -69,18 +76,12 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe("pickStep", () => {
-  it("очередь важнее авто-режима, авто-режим — по типу страницы, без режимов — никто", () => {
+  it("после загрузки страницы работу продолжает только очередь", () => {
     const { ctx } = context();
-    const steps = [new QueueStep(ctx), new SearchStep(ctx), new VacancyStep(ctx)];
+    const steps = [new QueueStep(ctx)];
     const state = new AppState();
 
     expect(pickStep(steps, "search", state)).toBeNull();
-
-    state.running = true;
-    expect(pickStep(steps, "search", state)?.name).toBe("выдача");
-    expect(pickStep(steps, "response", state)?.name).toBe("страница вакансии");
-    expect(pickStep(steps, "unknown", state)).toBeNull();
-
     state.queueRunning = true;
     expect(pickStep(steps, "search", state)?.name).toBe("очередь");
     expect(pickStep(steps, "unknown", state)?.name).toBe("очередь");
@@ -88,16 +89,25 @@ describe("pickStep", () => {
 });
 
 describe("QueueStep", () => {
-  it("запуск: выключает авто-режим и открывает страницу отклика первой вакансии", async () => {
+  it("запуск: открывает страницу отклика первой вакансии с match резюме сервера", async () => {
     const { ctx, visited } = context({ queue: [item("1"), item("2")] });
-    ctx.state.running = true;
 
     await run(new QueueStep(ctx).toggle());
 
-    expect(ctx.state.running).toBe(false);
     expect(ctx.state.queueRunning).toBe(true);
-    expect(ctx.state.queueCurrent?.id).toBe("1");
+    expect(ctx.state.queueCurrent).toMatchObject({ id: "1", resume: ".NET", resumeMatch: "C# .NET" });
     expect(visited).toEqual([RESPONSE("1")]);
+  });
+
+  it("резюме с сервера недоступны — очередь останавливается, вакансия не открывается", async () => {
+    const { ctx, visited, messages } = context({ queue: [item("1")] });
+    ctx.backend.getResumes.mockResolvedValue({ ok: false, error: "сервер недоступен: timeout" } as never);
+
+    await run(new QueueStep(ctx).toggle());
+
+    expect(ctx.state.queueRunning).toBe(false);
+    expect(visited).toEqual([]);
+    expect(messages.at(-1)).toContain("Резюме с сервера недоступны");
   });
 
   it("пустая очередь и недоступный сервер останавливают режим", async () => {
@@ -115,15 +125,111 @@ describe("QueueStep", () => {
 
   it("на странице отклика: исход уходит на сервер, затем следующая вакансия", async () => {
     const { ctx, visited } = context({ url: RESPONSE("1"), queue: [item("1"), item("2")], result: "success", config: { queueDryRun: false } });
-    Object.assign(ctx.state, { queueRunning: true, queueCurrent: { ...item("1"), letter: "Письмо под вакансию" }, queueTried: ["1"] });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: { ...item("1"), resumeMatch: "C# .NET", letter: "Письмо под вакансию" }, queueTried: ["1"] });
 
     await run(new QueueStep(ctx).resume());
 
     const v = ctx.pipeline.applyOnPage.mock.calls[0][0];
     expect(v.resume).toBe(".NET");
+    expect(v.resumeMatch).toBe("C# .NET");
     expect(v.letter).toBe("Письмо под вакансию");
     expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", { status: "Applied", reason: null }, ".NET");
     expect(visited).toEqual([RESPONSE("2")]);
+  });
+
+  it("лимит за запуск: после N отправленных очередь останавливается сама", async () => {
+    const { ctx, visited, messages } = context({ url: RESPONSE("1"), queue: [item("1"), item("2")], result: "success", config: { queueDryRun: false, queueRunLimit: 1 } });
+
+    await run(new QueueStep(ctx).toggle());
+    expect(ctx.state.queueRunApplied).toBe(0);
+    expect(visited).toEqual([RESPONSE("1")]);
+
+    // Лимит запуска учитывает onSubmit конвейера в момент нажатия «Отправить» (#52)
+    ctx.pipeline.applyOnPage.mockImplementation(async () => {
+      ctx.state.queueRunApplied++;
+      return "success";
+    });
+    await run(new QueueStep(ctx).resume());
+
+    expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", { status: "Applied", reason: null }, ".NET");
+    expect(ctx.state.queueRunApplied).toBe(1);
+    expect(ctx.state.queueRunning).toBe(false);
+    expect(visited).toEqual([RESPONSE("1")]);
+    expect(messages.at(-1)).toContain("Лимит запуска: отправлено 1 из 1");
+  });
+
+  it("отклик ушёл, а очередь остановили или включили пробный режим — статус всё равно на сервер, дальше не идёт", async () => {
+    const { ctx, visited } = context({ url: RESPONSE("1"), queue: [item("1"), item("2")], result: "success", config: { queueDryRun: false } });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"] });
+    // Пока конвейер ждал подтверждения отклика, владелец остановил очередь и поставил галочку пробного режима
+    ctx.pipeline.applyOnPage.mockImplementation(async () => {
+      Object.assign(ctx.state, { queueRunning: false });
+      ctx.config.queueDryRun = true;
+      return "success";
+    });
+
+    await run(new QueueStep(ctx).resume());
+
+    expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", { status: "Applied", reason: null }, ".NET");
+    expect(visited).toEqual([]);
+  });
+
+  // #52: после «Отправить» hh.ru загрузил новую страницу раньше исхода — раньше это было Failed «форма не открылась»
+  it("«Отправить» нажата, загрузилась другая страница без подтверждения — «не подтверждён», а не «форма не открылась»", async () => {
+    document.body.innerHTML = "<main>Вакансия</main>";
+    const { ctx, visited } = context({ url: "https://hh.ru/vacancy/1", queue: [item("1"), item("2")], config: { queueDryRun: false } });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"], queueOpened: true, queueSubmitted: "1" });
+
+    await run(new QueueStep(ctx).resume());
+
+    expect(ctx.pipeline.applyOnPage).not.toHaveBeenCalled();
+    expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", toStatusReport("unclear"), ".NET");
+    expect(ctx.state.queueSubmitted).toBeNull();
+    expect(visited).toEqual([RESPONSE("2")]);
+  });
+
+  it("«Отправить» нажата, новая страница — «Вы откликнулись»: Applied", async () => {
+    document.body.innerHTML = "<main><div>Вы откликнулись</div></main>";
+    const { ctx } = context({ url: "https://hh.ru/vacancy/1", queue: [item("1")], config: { queueDryRun: false } });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"], queueOpened: true, queueSubmitted: "1" });
+
+    await run(new QueueStep(ctx).resume());
+
+    expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", { status: "Applied", reason: null }, ".NET");
+  });
+
+  it("капча посреди вакансии: очередь на паузе, статус не уходит (#52)", async () => {
+    const { ctx, visited, messages } = context({ url: RESPONSE("1"), queue: [item("1"), item("2")], result: "captcha", config: { queueDryRun: false } });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"] });
+
+    await run(new QueueStep(ctx).resume());
+
+    expect(ctx.state.queueRunning).toBe(false);
+    expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
+    expect(visited).toEqual([]);
+    expect(messages.at(-1)).toContain("Капча посреди отклика");
+  });
+
+  it("исключение внутри шага — очередь на паузу с сообщением, а не зависшая (#52)", async () => {
+    const { ctx, messages } = context();
+    ctx.backend.getQueue.mockRejectedValue(new Error("сбой"));
+
+    await run(new QueueStep(ctx).toggle());
+
+    expect(ctx.state.queueRunning).toBe(false);
+    expect(ctx.panel.setQueueActive).toHaveBeenLastCalledWith(false);
+    expect(messages.at(-1)).toContain("Ошибка очереди: сбой");
+  });
+
+  it("конвейер остановлен посреди вакансии: статус не уходит, очередь не трогается (#49)", async () => {
+    const { ctx, visited } = context({ url: RESPONSE("1"), queue: [item("1"), item("2")], result: "stopped", config: { queueDryRun: false } });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"] });
+
+    await run(new QueueStep(ctx).resume());
+
+    expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
+    expect(visited).toEqual([]);
+    expect(ctx.state.queueCurrent?.id).toBe("1");
   });
 
   it("пробный режим: на сервер ничего не уходит, очередь идёт дальше", async () => {
@@ -159,15 +265,97 @@ describe("QueueStep", () => {
     expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", expect.objectContaining({ status: "Skipped" }), ".NET");
   });
 
-  it("hh.ru не открыл форму: Failed без запуска конвейера", async () => {
-    const { ctx } = context({ url: "https://hh.ru/vacancy/999", queue: [item("1")], config: { queueDryRun: false } });
-    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"] });
+  it("страница от hh.ru после прошлого отклика пришла раньше перехода — открыть форму, а не Failed", async () => {
+    const { ctx, visited } = context({ url: "https://hh.ru/vacancy/999?from=response", queue: [item("1")], config: { queueDryRun: false } });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"], queueOpened: false });
+
+    await run(new QueueStep(ctx).resume());
+
+    expect(visited).toEqual([RESPONSE("1")]);
+    expect(ctx.state.queueOpened).toBe(true);
+    expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
+    expect(ctx.pipeline.applyOnPage).not.toHaveBeenCalled();
+  });
+
+  // #75: без входа hh.ru ведёт сюда (проверено 2026-11-09)
+  const SIGNUP = "https://hh.ru/account/signup?postponed=&backurl=%2Fsearch%2Fvacancy&hhtmFrom=vacancy_response";
+
+  it.each([
+    ["регистрацию", SIGNUP, "/account/signup"],
+    ["другую вакансию", "https://hh.ru/vacancy/999", "/vacancy/999"],
+  ])("hh.ru увёл с формы на %s: очередь остановлена, статус не меняется (#75)", async (_name, url, path) => {
+    const { ctx, visited, messages } = context({ url, queue: [item("1"), item("2")], config: { queueDryRun: false } });
+    Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"], queueOpened: true });
 
     await run(new QueueStep(ctx).resume());
 
     expect(ctx.pipeline.applyOnPage).not.toHaveBeenCalled();
-    expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", expect.objectContaining({ status: "Failed" }), ".NET");
-    expect(ctx.state.queueRunning).toBe(false); // других вакансий нет
+    expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
+    expect(visited).toEqual([]);
+    expect(ctx.state.queueRunning).toBe(false);
+    expect(ctx.panel.setQueueActive).toHaveBeenLastCalledWith(false);
+    expect(messages.at(-1)).toContain(path);
+    expect(messages.at(-1)).not.toContain("backurl");
+    expect(ctx.persist).toHaveBeenCalled();
+  });
+
+  // Прогон по адресам очереди: после каждого resume подменный nav уже стоит на следующей форме
+  const queueRun = (results: ApplyResult[], config: Partial<AppConfig> = { queueDryRun: false }) => {
+    const queue = ["1", "2", "3", "4", "5", "6"].map(item);
+    const env = context({ url: RESPONSE("1"), queue, config });
+    Object.assign(env.ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"], queueOpened: true });
+    for (const result of results) env.ctx.pipeline.applyOnPage.mockResolvedValueOnce(result);
+    return { ...env, step: new QueueStep(env.ctx) };
+  };
+
+  it("три неудачи подряд — очередь останавливается, четвёртая вакансия не открывается (#75)", async () => {
+    const { ctx, step, visited, messages } = queueRun(["skipped", "failed", "unclear"]);
+
+    for (let i = 0; i < 3; i++) await run(step.resume());
+
+    expect(ctx.backend.reportStatus).toHaveBeenCalledTimes(3);
+    expect(visited).toEqual([RESPONSE("2"), RESPONSE("3")]);
+    expect(ctx.state.queueRunning).toBe(false);
+    expect(ctx.state.queueCurrent).toBeNull();
+    expect(messages.at(-1)).toContain("3 неудачи подряд");
+  });
+
+  it("удача сбрасывает счётчик неудач (#75)", async () => {
+    const { ctx, step, visited } = queueRun(["skipped", "failed", "success", "skipped", "failed"]);
+
+    for (let i = 0; i < 5; i++) await run(step.resume());
+
+    expect(ctx.state.queueRunning).toBe(true);
+    expect(visited.at(-1)).toBe(RESPONSE("6"));
+  });
+
+  it("пробный режим: три неудачи подряд тоже останавливают, статусы не уходят (#75)", async () => {
+    const { ctx, step, visited } = queueRun(["skipped", "skipped", "skipped"], { queueDryRun: true });
+
+    for (let i = 0; i < 3; i++) await run(step.resume());
+
+    expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
+    expect(visited).toEqual([RESPONSE("2"), RESPONSE("3")]);
+    expect(ctx.state.queueRunning).toBe(false);
+  });
+
+  it("новый запуск очереди начинает счёт неудач заново (#75)", async () => {
+    const { ctx } = context({ queue: [item("1")] });
+    ctx.state.queueFailStreak = 2;
+
+    await run(new QueueStep(ctx).toggle());
+
+    expect(ctx.state.queueFailStreak).toBe(0);
+  });
+
+  it("счётчик неудач переживает переход между страницами (#75)", async () => {
+    const repository = new StateRepository(new MemoryStorage());
+    const state = new AppState();
+    state.queueFailStreak = 2;
+
+    await repository.save(state);
+
+    expect((await repository.load()).queueFailStreak).toBe(2);
   });
 
   it("статус не дошёл до сервера или кнопка неактивна — остановка без перехода", async () => {
@@ -190,79 +378,147 @@ describe("QueueStep", () => {
     await run(new QueueStep(ctx).toggle());
     expect(visited).toEqual([]);
     expect(ctx.state.queueRunning).toBe(false);
+    expect(ctx.backend.reportEvent).toHaveBeenCalledWith("DailyLimit", expect.stringContaining("0"));
   });
 });
 
-describe("SearchStep.next", () => {
-  const vacancy = (title: string): Vacancy => ({ title, link: "", company: "Acme", card: null, applyBtn: null });
+describe("SearchStep.send — выдача на сервер (#27)", () => {
+  const SEARCH = "https://hh.ru/search/vacancy?text=C%23";
+  const card = (id: string, title: string, responded = false) => `
+    <div data-qa="vacancy-serp__vacancy">
+      <a data-qa="serp-item__title" href="https://tver.hh.ru/vacancy/${id}?query=C%23">${title}</a>
+      <div data-qa="vacancy-serp__vacancy-employer">Acme</div>
+      <div data-qa="vacancy-serp__vacancy_snippet_requirement">Опыт с ASP.NET Core и PostgreSQL</div>
+      ${responded ? "<span data-qa=\"vacancy-serp__vacancy_responded\"></span>" : ""}
+    </div>`;
 
-  it("откликается на текущую вакансию и сдвигает указатель", async () => {
-    const { ctx } = context({ url: "https://hh.ru/search/vacancy?text=C%23" });
-    ctx.state.vacancies = [vacancy("A"), vacancy("B")];
-
-    await run(new SearchStep(ctx).next());
-
-    expect(ctx.pipeline.applyFromSearch).toHaveBeenCalledTimes(1);
-    expect(ctx.state.index).toBe(1);
+  beforeEach(() => {
+    document.body.innerHTML = card("1", "C# разработчик") + card("2", "Backend .NET") + card("3", "Уже откликались", true);
   });
 
-  it("в авто-режиме идёт по всем вакансиям и останавливается в конце", async () => {
-    const { ctx } = context({ url: "https://hh.ru/search/vacancy?text=C%23" });
-    ctx.state.vacancies = [vacancy("A"), vacancy("B")];
-    ctx.state.running = true;
+  it("карточки без отклика уходят в поиск на сервере, итог — в журнал", async () => {
+    const { ctx, messages } = context({ url: SEARCH, config: { importSearch: "dotnet" } });
 
-    await run(new SearchStep(ctx).next());
+    expect(await new SearchStep(ctx).send()).toBe(true);
 
-    expect(ctx.pipeline.applyFromSearch).toHaveBeenCalledTimes(2);
-    expect(ctx.state.running).toBe(false);
+    const [search, cards] = ctx.backend.importVacancies.mock.calls[0];
+    expect(search).toBe("dotnet");
+    expect(cards.map((c) => c.id)).toEqual(["1", "2"]);
+    expect(cards[0]).toMatchObject({ title: "C# разработчик", company: "Acme", url: "https://hh.ru/vacancy/1" });
+    expect(cards[0].description).toContain("ASP.NET Core");
+    expect(messages.at(-1)).toContain("получено 2, новых 2");
   });
 
-  it("капча сорвала шаг — та же вакансия повторяется", async () => {
-    const { ctx } = context({ url: "https://hh.ru/search/vacancy?text=C%23" });
-    ctx.state.vacancies = [vacancy("A")];
-    ctx.captcha.consumeHit.mockReturnValueOnce(false).mockReturnValueOnce(true);
+  it("без поиска на сервере и не на выдаче — ничего не отправляет", async () => {
+    const noSearch = context({ url: SEARCH });
+    expect(await new SearchStep(noSearch.ctx).send()).toBe(false);
+    expect(noSearch.messages.at(-1)).toContain("поиск");
 
-    await run(new SearchStep(ctx).next());
-
-    expect(ctx.state.index).toBe(0);
+    const notSearch = context({ url: "https://hh.ru/vacancy/1", config: { importSearch: "dotnet" } });
+    expect(await new SearchStep(notSearch.ctx).send()).toBe(false);
+    expect(notSearch.ctx.backend.importVacancies).not.toHaveBeenCalled();
+    expect(noSearch.ctx.backend.importVacancies).not.toHaveBeenCalled();
   });
 
-  it("лимит исчерпан и неактивная кнопка останавливают авто-режим", async () => {
-    const limited = context({ url: "https://hh.ru/search/vacancy?text=C%23", dailyLimit: 0 });
-    limited.ctx.state.vacancies = [vacancy("A")];
-    limited.ctx.state.running = true;
-    await run(new SearchStep(limited.ctx).next());
-    expect(limited.ctx.pipeline.applyFromSearch).not.toHaveBeenCalled();
-    expect(limited.ctx.state.running).toBe(false);
+  it("ошибка сервера (нет такого поиска) — в журнал", async () => {
+    const { ctx, messages } = context({ url: SEARCH, config: { importSearch: "нет такого" } });
+    ctx.backend.importVacancies.mockResolvedValue({ ok: false, error: "сервер ответил 400: поиск «нет такого» не найден" } as never);
 
-    const disabled = context({ url: "https://hh.ru/search/vacancy?text=C%23", result: "disabled" });
-    disabled.ctx.state.vacancies = [vacancy("A"), vacancy("B")];
-    disabled.ctx.state.running = true;
-    await run(new SearchStep(disabled.ctx).next());
-    expect(disabled.ctx.pipeline.applyFromSearch).toHaveBeenCalledTimes(1);
-    expect(disabled.ctx.state.running).toBe(false);
+    expect(await new SearchStep(ctx).send()).toBe(false);
+    expect(messages.at(-1)).toContain("не найден");
   });
 });
 
-describe("VacancyStep", () => {
-  it("после отклика возвращает на сохранённый поиск и помечает возобновление", async () => {
-    const { ctx, visited } = context({ url: "https://hh.ru/vacancy/1", config: { searchRedirectUrl: "https://hh.ru/search/vacancy?text=QA" } });
-    ctx.state.running = true;
-
-    await run(new VacancyStep(ctx).resume());
-
-    expect(ctx.pipeline.applyOnPage).toHaveBeenCalled();
-    expect(ctx.state.resumeAfterRedirect).toBe(true);
-    expect(visited).toEqual(["https://hh.ru/search/vacancy?text=QA"]);
+describe("DialogStep", () => {
+  const CHATS = "https://tver.hh.ru/chat";
+  const reply = (chatId: number): AutoReply => ({ chatId, vacancyId: String(chatId), title: `C# ${chatId}`, company: "Acme" });
+  const chat = (chatId: number): DialogChat => ({
+    chatId, vacancyId: String(chatId), title: "C#", company: "Acme", state: "DISCARD", messageId: chatId * 10, text: "К сожалению…", at: "2026-10-26T10:00:00+03:00", fromEmployer: true,
+  });
+  const reader = (writable: number[]) => ({
+    recent: vi.fn(async () => [chat(1), chat(2)]),
+    writePossibility: vi.fn(async (id: number) => (writable.includes(id) ? { canWrite: true, reason: null } : { canWrite: false, reason: "WITHOUT_INVITATION" })),
   });
 
-  it("неактивная кнопка — остановка авто-режима без перехода", async () => {
-    const { ctx, visited } = context({ url: "https://hh.ru/vacancy/1", result: "disabled" });
-    ctx.state.running = true;
+  it("чаты — на сервер; закрытая переписка — автоответ невозможен; пробный режим ничего не отправляет", async () => {
+    const { ctx, visited, messages } = context({ url: CHATS, autoReplies: [reply(1), reply(2)] });
+    const chats = reader([2]);
 
-    await run(new VacancyStep(ctx).resume());
+    await run(new DialogStep(ctx, chats, vi.fn()).run());
 
-    expect(ctx.state.running).toBe(false);
+    expect(ctx.backend.importDialogs.mock.calls[0][0].map((c) => c.chatId)).toEqual([1, 2]);
+    expect(ctx.backend.reportAutoReply).toHaveBeenCalledTimes(1);
+    expect(ctx.backend.reportAutoReply).toHaveBeenCalledWith(1, false, expect.stringContaining("после приглашения"));
+    expect(messages.some((m) => m.includes("Пробный режим") && m.includes("C# 2"))).toBe(true);
+    expect(ctx.state.autoReplies).toEqual([]);
     expect(visited).toEqual([]);
+  });
+
+  it("не на странице чатов — ничего не собирает", async () => {
+    const { ctx } = context({ url: "https://hh.ru/vacancy/1" });
+    const chats = reader([]);
+
+    await run(new DialogStep(ctx, chats, vi.fn()).run());
+
+    expect(chats.recent).not.toHaveBeenCalled();
+    expect(ctx.backend.importDialogs).not.toHaveBeenCalled();
+  });
+
+  it("без пробного режима: открывает чат, отправляет шаблон, переходит к следующему", async () => {
+    const { ctx, visited, setUrl } = context({ url: CHATS, autoReplies: [reply(1), reply(2)], config: { queueDryRun: false, rejectionReply: "Спасибо!" } });
+    const send = vi.fn(async () => ({ ok: true as const }));
+    const step = new DialogStep(ctx, reader([1, 2]), send);
+
+    await run(step.run());
+    expect(visited).toEqual(["https://tver.hh.ru/chat/1"]);
+    expect(step.accepts("chat", ctx.state)).toBe(true);
+
+    await run(step.resume());
+    expect(send).toHaveBeenCalledWith("Спасибо!");
+    expect(ctx.backend.reportAutoReply).toHaveBeenCalledWith(1, true, undefined);
+    expect(visited.at(-1)).toBe("https://tver.hh.ru/chat/2");
+
+    // hh.ru открыл не тот чат — в чужой не пишем
+    setUrl("https://tver.hh.ru/chat/999");
+    await run(step.resume());
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(ctx.backend.reportAutoReply).toHaveBeenLastCalledWith(2, false, "чат не открылся");
+    expect(ctx.state.autoReplies).toEqual([]);
+    expect(step.accepts("chat", ctx.state)).toBe(false);
+  });
+
+  it("чат с id, начинающимся так же, — чужой: не пишем", async () => {
+    const { ctx } = context({ url: "https://tver.hh.ru/chat/123", config: { queueDryRun: false } });
+    ctx.state.autoReplies = [reply(12)];
+    const send = vi.fn(async () => ({ ok: true as const }));
+
+    await run(new DialogStep(ctx, reader([12]), send).resume());
+
+    expect(send).not.toHaveBeenCalled();
+    expect(ctx.backend.reportAutoReply).toHaveBeenCalledWith(12, false, "чат не открылся");
+  });
+
+  it("пробный режим включили во время автоответов — остановиться, не отправляя", async () => {
+    const { ctx } = context({ url: "https://tver.hh.ru/chat/1" });
+    ctx.state.autoReplies = [reply(1)];
+    const send = vi.fn();
+
+    await run(new DialogStep(ctx, reader([1]), send).resume());
+
+    expect(send).not.toHaveBeenCalled();
+    expect(ctx.backend.reportAutoReply).not.toHaveBeenCalled();
+    expect(ctx.state.autoReplies).toEqual([]);
+  });
+});
+
+describe("DialogStep: ошибки", () => {
+  it("сервер не принял чаты — в панели ошибка, а не «Собираю чаты…»", async () => {
+    const { ctx } = context({ url: "https://tver.hh.ru/chat" });
+    ctx.backend.importDialogs.mockResolvedValue({ ok: false, error: "сервер ответил 500" } as never);
+    const chats = { recent: vi.fn(async () => []), writePossibility: vi.fn() };
+
+    await run(new DialogStep(ctx, chats, vi.fn()).run());
+
+    expect(ctx.panel.setStep).toHaveBeenLastCalledWith("Автоответ: ошибка — см. журнал");
   });
 });

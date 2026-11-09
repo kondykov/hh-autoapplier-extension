@@ -68,8 +68,9 @@ public class VacanciesController : ApiController
     }
 
     /// <summary>
-    /// Ручная проверка вакансии в статусе Review: одобрить — в очередь (coverLetter — поправленное письмо, пусто — письмо LLM),
-    /// отклонить — Skipped с причиной. Список на проверке — GET /api/vacancies?status=Review, страница — /review.html.
+    /// Ручная проверка вакансии в статусе Review: одобрить — в очередь (coverLetter — поправленное письмо, пусто — письмо LLM;
+    /// answers — поправленные ответы анкеты, все по порядку вопросов, пусто — ответы LLM),
+    /// отклонить — Skipped с причиной. Список на проверке — GET /api/vacancies?status=Review, страница — веб-интерфейс, «Проверка» (/#review).
     /// </summary>
     /// <response code="404">Вакансия не найдена.</response>
     /// <response code="409">Вакансия не на проверке.</response>
@@ -84,7 +85,7 @@ public class VacanciesController : ApiController
         CancellationToken ct
     )
     {
-        var command = new ReviewVacancyCommand { VacancyId = id, Approve = request.Approve, CoverLetter = request.CoverLetter, Reason = request.Reason };
+        var command = new ReviewVacancyCommand { VacancyId = id, Approve = request.Approve, CoverLetter = request.CoverLetter, Answers = request.Answers, Reason = request.Reason };
         return FromResult((await handler.Handle(command, ct)).Value);
     }
 
@@ -122,9 +123,9 @@ public class VacanciesController : ApiController
     }
 
     /// <summary>
-    /// Принять вакансии от клиента и оценить их правилами поиска. Уже известные пропускаются.
-    /// Вакансия, которую уже импортировал другой пользователь и источник ещё не подтвердил, ждёт (waiting): её карточка — чужие данные,
-    /// отклик оценится после подтверждения карточки при сборе.
+    /// Принять вакансии от клиента. Уже известные пропускаются.
+    /// Вакансия, которую источник ещё не подтвердил, ждёт (waiting): с выдачи приходит неполная карточка,
+    /// отклик оценится правилами поиска после подтверждения по странице вакансии при сборе.
     /// </summary>
     /// <response code="400">Поиск с таким именем не найден.</response>
     /// <response code="409">Те же вакансии одновременно добавил сбор — повторите импорт.</response>
@@ -146,4 +147,5 @@ public record SetVacancyStatusRequest(VacancyStatus Status, string? Reason, stri
 
 public record SubmitQuestionnaireRequest([Required, MinLength(1), MaxLength(50)] List<QuestionInput> Questions);
 
-public record ReviewVacancyRequest(bool Approve, [MaxLength(4000)] string? CoverLetter, [MaxLength(500)] string? Reason);
+public record ReviewVacancyRequest(bool Approve, [MaxLength(4000)] string? CoverLetter, [MaxLength(500)] string? Reason,
+    [MaxLength(50)] List<List<string>>? Answers = null);

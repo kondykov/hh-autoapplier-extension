@@ -9,7 +9,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
-builder.Services.AddAuth(builder.Configuration);
+builder.Services.AddAuth();
 builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddOpenApi();
@@ -22,8 +22,10 @@ var app = builder.Build();
 
 await app.Services.InitializeDatabaseAsync();
 
+app.UseMiddleware<HhAutoApplier.Api.ConcurrencyConflictMiddleware>();
 app.UseCors();
-// Страница ручной проверки (wwwroot) — без входа: данных в ней нет, вход она спрашивает сама
+// Страницы (wwwroot) — без входа: данных в них нет, вход они спрашивают сами. «/» — веб-интерфейс index.html (#46)
+app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();

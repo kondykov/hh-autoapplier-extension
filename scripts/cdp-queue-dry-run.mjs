@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 
 // Один проход режима «из очереди» в пробном режиме через CDP запущенного dev-браузера (scripts/dev-browser.mjs).
-// Отказывается работать, если пробный режим выключен или уже идёт авто-режим / очередь.
+// Отказывается работать, если пробный режим выключен или очередь уже идёт.
 // Печатает журнал панели и снимок формы (резюме, анкета, письмо) на каждом «готов к отправке».
 // «Отправить» не нажимает расширение; скрипт сам ничего на hh.ru не нажимает, кроме кнопки панели «Из очереди».
 const TIMEOUT_MS = 6 * 60 * 1000;
@@ -14,13 +14,13 @@ const flags = () =>
   sw.evaluate(async () => {
     const all = await chrome.storage.local.get(null);
     const key = Object.keys(all).find((k) => all[k] && typeof all[k] === "object" && "queueRunning" in all[k]);
-    return { running: all[key]?.running, queueRunning: all[key]?.queueRunning, dryRun: all.hh_autoapply_config?.queueDryRun };
+    return { queueRunning: all[key]?.queueRunning, dryRun: all.hh_autoapply_config?.queueDryRun };
   });
 
 const start = await flags();
 console.log("флаги:", JSON.stringify(start));
-if (start.running || start.queueRunning || start.dryRun !== true) {
-  console.log("Отмена: нужен пробный режим и выключенные авто-режим и очередь");
+if (start.queueRunning || start.dryRun !== true) {
+  console.log("Отмена: нужен пробный режим и выключенная очередь");
   process.exit(1);
 }
 
@@ -52,10 +52,36 @@ const page = ctx.pages().find((p) => p.url().includes("hh.ru")) ?? ctx.pages()[0
 await page.waitForSelector("#hh-btn-queue", { state: "attached", timeout: 30000 });
 await page.evaluate(() => document.getElementById("hh-btn-queue").click());
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const isRunning = async () => (await flags().catch(() => ({ queueRunning: true }))).queueRunning;
+
+// Остановка записью в хранилище: вкладка, ведущая очередь, примет её как «Стоп» из другой вкладки (#51) — страница ни при чём
+const stopQueue = () =>
+  sw.evaluate(async () => {
+    const all = await chrome.storage.local.get(null);
+    const key = Object.keys(all).find((k) => all[k] && typeof all[k] === "object" && "queueRunning" in all[k]);
+    await chrome.storage.local.set({ [key]: { ...all[key], queueRunning: false, queueCurrent: null, queueSubmitted: null } });
+  });
+
 const began = Date.now();
-await new Promise((r) => setTimeout(r, 3000));
-while (Date.now() - began < TIMEOUT_MS && (await flags().catch(() => ({ queueRunning: true }))).queueRunning)
-  await new Promise((r) => setTimeout(r, 2000));
-console.log("итог:", JSON.stringify(await flags()));
+await sleep(3000);
+let running = await isRunning();
+while (running && Date.now() - began < TIMEOUT_MS) {
+  await sleep(2000);
+  running = await isRunning();
+}
+
+const timedOut = running;
+if (timedOut) {
+  console.log("Таймаут: останавливаю очередь");
+  // Вкладка-владелец могла записать своё состояние поверх — проверяем и повторяем
+  for (let attempt = 0; attempt < 5 && running; attempt++) {
+    await stopQueue().catch((e) => console.log("не удалось записать остановку:", e.message));
+    await sleep(2000);
+    running = await isRunning();
+  }
+  if (running) console.log("ОЧЕРЕДЬ НЕ ОСТАНОВЛЕНА: нажмите «Стоп очередь» в панели");
+}
+console.log("итог:", JSON.stringify(await flags().catch((e) => e.message)));
 // Без browser.close(): он закрыл бы dev-браузер владельца
-process.exit(0);
+process.exit(timedOut ? 1 : 0);

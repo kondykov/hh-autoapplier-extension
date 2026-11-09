@@ -15,6 +15,20 @@ describe("server config", () => {
   });
 });
 
+// #52: 200 с не-JSON бросал исключение вне try — очередь «включена», но стоит
+describe("BackendClient: ответ 200 не JSON", () => {
+  const html: ApiSender = async () => ({ status: 200, body: "<html>proxy</html>" });
+
+  it("каждый разбор — ошибка запроса, а не исключение", async () => {
+    const client = new BackendClient(html);
+    expect(await client.getQueue()).toMatchObject({ ok: false, error: expect.stringContaining("не JSON") });
+    expect(await client.getResumes()).toMatchObject({ ok: false });
+    expect(await client.importVacancies("s", [])).toMatchObject({ ok: false });
+    expect(await client.importDialogs([])).toMatchObject({ ok: false });
+    expect(await client.check()).toMatchObject({ ok: false });
+  });
+});
+
 describe("executeApiRequest", () => {
   const ok = (body = "{}") => vi.fn(async () => new Response(body, { status: 200 }));
 
@@ -75,7 +89,7 @@ describe("BackendClient.check", () => {
       "/health": { status: 200, body: "{}" },
       "/api/stats": { status: 401, body: "" },
     }));
-    expect(await badKey.check()).toEqual({ ok: false, message: "Сервер доступен, но ключ API неверный" });
+    expect(await badKey.check()).toEqual({ ok: false, message: "Сервер доступен, но токен неверный — выпустите новый (POST /api/tokens)" });
   });
 
   it("переживает падение канала к фону", async () => {

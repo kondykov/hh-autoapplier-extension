@@ -43,6 +43,10 @@ public static partial class HhPageParser
             || !result.TryGetProperty("vacancies", out var items) || items.ValueKind != JsonValueKind.Array)
             return null;
 
+        // Ничего не найдено: hh.ru заполняет страницу посторонними вакансиями региона
+        if (Int(result, "totalResults") == 0)
+            return [];
+
         return items.EnumerateArray()
             .Where(i => i.TryGetProperty("vacancyId", out _))
             .Select(i =>

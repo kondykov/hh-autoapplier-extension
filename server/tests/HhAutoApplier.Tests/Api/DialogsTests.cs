@@ -1,0 +1,195 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using HhAutoApplier.Application.Abstractions;
+using HhAutoApplier.Application.Commands.Dialogs;
+using HhAutoApplier.Application.Commands.Telegram;
+using HhAutoApplier.Domain.Dialogs;
+using HhAutoApplier.Domain.Notifications;
+using HhAutoApplier.Domain.Vacancies;
+using HhAutoApplier.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace HhAutoApplier.Tests.Api;
+
+// Ответы работодателей (#26): приём чатов от расширения, статусы откликов, автоответ на отказ, разбор LLM и Telegram
+[Collection(ApiCollection.Name)]
+public class DialogsTests(ApiFactory factory) : IAsyncLifetime
+{
+    private static readonly DateTimeOffset Old = new(2026, 10, 20, 9, 0, 0, TimeSpan.Zero);
+
+    private readonly HttpClient _admin = factory.CreateApiClient();
+
+    public async Task InitializeAsync() => await factory.ResetAsync();
+
+    public Task DisposeAsync() => Task.CompletedTask;
+
+    private static async Task<JsonElement> Json(HttpResponseMessage response)
+    {
+        Assert.True(response.IsSuccessStatusCode, $"{(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+        return await response.Content.ReadFromJsonAsync<JsonElement>();
+    }
+
+    private async Task<T> InScope<T>(Func<IServiceProvider, Task<T>> action)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        return await action(scope.ServiceProvider);
+    }
+
+    private static object Chat(long chatId, string vacancyId, string? state, long messageId, DateTimeOffset at, bool fromEmployer = true, string text = "Здравствуйте!") =>
+        new { chatId, vacancyId, title = $"C# {vacancyId}", company = "Acme", state, messageId, text, at, fromEmployer };
+
+    private async Task<JsonElement> Import(params object[] chats) =>
+        await Json(await _admin.PostAsJsonAsync("/api/dialogs", new { chats }));
+
+    // Отклики администратора на вакансии 1–3 отправлены
+    private async Task Applied()
+    {
+        await Json(await _admin.PutAsJsonAsync("/api/searches", new { name = "dotnet", query = "C#" }));
+        object Card(string id) => new { id, title = $"C# {id}", company = "Acme", description = "", salaryCurrency = "RUR", workFormat = "Удалённо" };
+        await Json(await _admin.PostAsJsonAsync("/api/import", new { search = "dotnet", vacancies = new[] { Card("1"), Card("2"), Card("3") } }));
+        await factory.ConfirmImportedAsync();
+        foreach (var id in new[] { "1", "2", "3" })
+            await Json(await _admin.PostAsJsonAsync($"/api/vacancies/{id}/status", new { status = "Applied" }));
+    }
+
+    private Task<VacancyStatus> StatusOf(string id) =>
+        factory.WithDbAsync(db => db.JobApplications.Where(a => a.VacancyId == id).Select(a => a.Status).SingleAsync());
+
+    [Fact]
+    public async Task Import_SetsStatuses_AutoReplyOnlyForNewRejections()
+    {
+        await Applied();
+
+        // Первый сбор: старый отказ и собеседование; свой последний ответ работодателю не сохраняется
+        var first = await Import(Chat(11, "1", "DISCARD", 101, Old), Chat(12, "2", "INTERVIEW", 102, Old), Chat(13, "3", "RESPONSE", 103, Old, fromEmployer: false));
+        Assert.Equal((3, 2, 1, 1), (first.GetProperty("received").GetInt32(), first.GetProperty("newMessages").GetInt32(),
+            first.GetProperty("rejected").GetInt32(), first.GetProperty("invited").GetInt32()));
+        Assert.Empty(first.GetProperty("autoReplies").EnumerateArray());
+        Assert.Equal(VacancyStatus.Rejected, await StatusOf("1"));
+        Assert.Equal(VacancyStatus.Invited, await StatusOf("2"));
+        Assert.Equal(VacancyStatus.Applied, await StatusOf("3"));
+
+        // Повтор того же сбора ничего не меняет; новый отказ после приглашения — с автоответом
+        var second = await Import(Chat(11, "1", "DISCARD", 101, Old), Chat(12, "2", "DISCARD", 104, DateTimeOffset.UtcNow.AddMinutes(1)));
+        Assert.Equal(1, second.GetProperty("newMessages").GetInt32());
+        Assert.Equal(VacancyStatus.Rejected, await StatusOf("2"));
+        var reply = Assert.Single(second.GetProperty("autoReplies").EnumerateArray());
+        Assert.Equal(12, reply.GetProperty("chatId").GetInt64());
+
+        await Json(await _admin.PostAsJsonAsync("/api/dialogs/12/auto-reply", new { sent = true }));
+        Assert.Equal(HttpStatusCode.Conflict, (await _admin.PostAsJsonAsync("/api/dialogs/12/auto-reply", new { sent = true })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _admin.PostAsJsonAsync("/api/dialogs/99/auto-reply", new { sent = true })).StatusCode);
+
+        var dialogs = await Json(await _admin.GetAsync("/api/dialogs"));
+        Assert.Equal(2, dialogs.GetArrayLength());
+        Assert.Equal("Sent", dialogs.EnumerateArray().Single(d => d.GetProperty("chatId").GetInt64() == 12).GetProperty("autoReply").GetString());
+        // Отказ с автоответом обработан; старый отказ — нет
+        Assert.Single((await Json(await _admin.GetAsync("/api/dialogs?handled=false"))).EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Import_ChatFindsLostApplication_AppliedThenRejected()
+    {
+        await Applied();
+        // Расширение не сообщило отклик: на сервере Failed, а на hh.ru есть чат с отказом
+        await Json(await _admin.PostAsJsonAsync("/api/import", new { search = "dotnet", vacancies = new[] { new { id = "4", title = "C# 4", company = "Acme", description = "", salaryCurrency = "RUR", workFormat = "Удалённо" } } }));
+        await Json(await _admin.PostAsJsonAsync("/api/vacancies/4/status", new { status = "Failed", reason = "форма не открылась" }));
+
+        var result = await Import(Chat(31, "4", "DISCARD", 301, Old));
+
+        Assert.Equal((1, 1), (result.GetProperty("recovered").GetInt32(), result.GetProperty("rejected").GetInt32()));
+        Assert.Equal(VacancyStatus.Rejected, await StatusOf("4"));
+    }
+
+    // MarkApplied из Pending запрещён, но чат доказывает, что отклик уже у работодателя (#60)
+    [Fact]
+    public async Task Import_ChatFindsApplicationNotYetEvaluated_Recovered()
+    {
+        await Json(await _admin.PutAsJsonAsync("/api/searches", new { name = "dotnet", query = "C#" }));
+        factory.Llm.Configured = true;
+        await Json(await _admin.PostAsJsonAsync("/api/import", new { search = "dotnet", vacancies = new[] { new { id = "5", title = "C# 5", company = "Acme", description = "", salaryCurrency = "RUR", workFormat = "Удалённо" } } }));
+        await factory.ConfirmImportedAsync();
+        Assert.Equal(VacancyStatus.Pending, await StatusOf("5"));
+
+        var result = await Import(Chat(51, "5", "RESPONSE", 501, Old));
+
+        Assert.Equal(1, result.GetProperty("recovered").GetInt32());
+        Assert.Equal(VacancyStatus.Applied, await StatusOf("5"));
+    }
+
+    private sealed class Owner(Guid id) : ICurrentUser
+    {
+        public Guid? Id => id;
+
+        public string Name => "owner";
+
+        public string Role => "User";
+
+        public bool ViaApiKey => false;
+    }
+
+    // Две вкладки: второй запрос записывает тот же чат между чтением и сохранением первого (#60)
+    [Fact]
+    public async Task Import_SameChatConcurrently_Conflict()
+    {
+        var admin = await factory.WithDbAsync(async db => (await db.Users.SingleAsync(u => u.Email == ApiFactory.AdminEmail)).Id);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.SavingChanges += (_, _) =>
+        {
+            using var other = factory.Services.CreateScope();
+            var rival = other.ServiceProvider.GetRequiredService<AppDbContext>();
+            rival.EmployerMessages.Add(EmployerMessage.Create(admin, 41, null, "C#", "Acme", 401, "Здравствуйте!", Old, "RESPONSE", Old, false));
+            rival.SaveChanges();
+        };
+        var chat = new DialogChat { ChatId = 41, Title = "C#", Company = "Acme", State = "RESPONSE", MessageId = 401, Text = "Здравствуйте!", At = Old, FromEmployer = true };
+
+        var result = await new ImportDialogsCommandHandler(db, new Owner(admin), TimeProvider.System).Handle(new ImportDialogsCommand { Chats = [chat] });
+
+        Assert.True(result.IsT1);
+        Assert.Equal(1, await factory.WithDbAsync(d => d.EmployerMessages.CountAsync(m => m.ChatId == 41)));
+    }
+
+    [Fact]
+    public async Task Analysis_InvitationToTelegram_ParsedOrOther()
+    {
+        await Applied();
+        factory.Telegram.Configured = true;
+        var code = (await Json(await _admin.PostAsync("/api/telegram/link", null))).GetProperty("code").GetString()!;
+        await InScope(sp => sp.GetRequiredService<HandleTelegramMessageCommandHandler>()
+            .Handle(new HandleTelegramMessageCommand { ChatId = 100, IsPrivate = true, Text = $"/start {code}", Username = "owner" }));
+
+        await Import(Chat(21, "1", "INTERVIEW", 201, Old, text: "Приглашаем на звонок завтра"), Chat(22, "2", "RESPONSE", 202, Old, text: "???"), Chat(23, "3", "DISCARD", 203, Old));
+
+        factory.Llm.Configured = true;
+        factory.Llm.Answers.Enqueue("""{"kind": "invitation", "summary": "звонок завтра", "reply": "Спасибо! Удобно [время]."}""");
+        factory.Llm.Answers.Enqueue("не JSON");
+        var result = await InScope(sp => sp.GetRequiredService<AnalyzeDialogsCommandHandler>().Handle(new AnalyzeDialogsCommand()));
+        Assert.Equal((1, 1, 0), (result.AsT0.Analyzed, result.AsT0.Failed, result.AsT0.Remaining));
+        // Отказ LLM не разбирала
+        Assert.Equal(2, factory.Llm.Calls);
+
+        var dialogs = (await Json(await _admin.GetAsync("/api/dialogs"))).EnumerateArray().ToDictionary(d => d.GetProperty("chatId").GetInt64());
+        Assert.Equal("Invitation", dialogs[21].GetProperty("kind").GetString());
+        Assert.Equal("Спасибо! Удобно [время].", dialogs[21].GetProperty("suggestedReply").GetString());
+        Assert.Equal("Other", dialogs[22].GetProperty("kind").GetString());
+        Assert.Equal("Rejection", dialogs[23].GetProperty("kind").GetString());
+
+        var notification = Assert.Single(await factory.WithDbAsync(db => db.Notifications.Where(n => n.Kind == NotificationKind.EmployerReply).ToListAsync()));
+        Assert.Contains("Приглашение: C# 1", notification.Text);
+        Assert.Contains("https://hh.ru/chat/21", notification.Text);
+        Assert.Contains("Удобно [время]", notification.Text);
+
+        // «Обработано» из Telegram — как в веб-интерфейсе; чужой чат не найти
+        var press = (long chat, string data) => InScope(sp => sp.GetRequiredService<HandleTelegramCallbackCommandHandler>()
+            .Handle(new HandleTelegramCallbackCommand { ChatId = chat, Data = data }));
+        Assert.Equal("Чат не найден", (await press(100, "handled:999")).Notice);
+        Assert.Equal("✔ Обработано", (await press(100, "handled:21")).Status);
+        Assert.DoesNotContain((await Json(await _admin.GetAsync("/api/dialogs?handled=false"))).EnumerateArray(), d => d.GetProperty("chatId").GetInt64() == 21);
+
+        await Json(await _admin.PostAsync("/api/dialogs/21/handled", null));
+        Assert.DoesNotContain((await Json(await _admin.GetAsync("/api/dialogs?handled=false"))).EnumerateArray(), d => d.GetProperty("chatId").GetInt64() == 21);
+    }
+}

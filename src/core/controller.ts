@@ -2,19 +2,18 @@ import type { BackendClient } from "../api/client";
 import { ApplyPipeline } from "../apply/pipeline";
 import { CaptchaGuard } from "../captcha/guard";
 import type { KeyValueStorage } from "../infra/storage";
+import type { TabInfo } from "../infra/tab";
 import type { Logger } from "../infra/logger";
 import type { LetterProvider } from "../letters/letter-provider";
+import { DialogStep } from "../pages/dialog-step";
 import { QueueStep } from "../pages/queue-step";
 import { RejectStep } from "../pages/reject-step";
 import { SearchStep } from "../pages/search-step";
-import { browserNavigator, pageOf, pickStep, type Navigator, type StepContext } from "../pages/step-context";
-import { VacancyStep } from "../pages/vacancy-step";
-import type { QuestionStore } from "../questions/store";
-import type { ApplicationStore } from "../report/applications";
-import { ReportActions } from "../report/report-actions";
+import { browserNavigator, pageOf, pickStep, stopQueue, type Navigator, type StepContext } from "../pages/step-context";
+import { isDryRun, isQueueOn } from "../queue/queue-mode";
 import type { ResumeSelector } from "../resume/selector";
 import type { Panel } from "../ui/panel";
-import type { AppConfig } from "./config";
+import { watchConfig, type AppConfig } from "./config";
 import type { DailyLimit } from "./daily-limit";
 import { Settings } from "./settings";
 import type { AppState, StateRepository } from "./state";
@@ -28,26 +27,27 @@ interface ControllerDeps {
   logger: Logger;
   panel: Panel;
   letters: LetterProvider;
-  questions: QuestionStore;
-  applications: ApplicationStore;
   resumes: ResumeSelector;
   backend: BackendClient;
   nav?: Navigator;
+  tab?: TabInfo;
 }
+
+// Без service worker (тесты, старый фон): очередь не привязана к вкладке
+const ANY_TAB: TabInfo = { self: null, isOpen: async () => true };
 
 // Сборка: общий контекст, шаги страниц, настройки и отчёты. После загрузки страницы управление получает подходящий шаг
 export class Controller {
   readonly search: SearchStep;
 
-  readonly vacancy: VacancyStep;
-
   readonly queue: QueueStep;
 
   readonly rejects: RejectStep;
 
+  readonly dialogs: DialogStep;
+
   readonly settings: Settings;
 
-  readonly reports: ReportActions;
 
   private readonly captcha: CaptchaGuard;
 
@@ -56,9 +56,11 @@ export class Controller {
   constructor(private d: ControllerDeps) {
     this.captcha = new CaptchaGuard((shown) => {
       d.panel.setCaptcha(shown);
-      d.logger.log(shown ? "Капча: авто-режим на паузе" : "Капча решена, продолжаю", shown ? "warn" : "success");
+      d.logger.log(shown ? "Капча: работа на паузе" : "Капча решена, продолжаю", shown ? "warn" : "success");
+      // Работа встала и ждёт человека — сообщить в Telegram (#28); при ручном просмотре hh.ru капча — не новость
+      if (shown && d.state.queueRunning)
+        void d.backend.reportEvent("Captcha", location.href);
     });
-    this.reports = new ReportActions(d.state, d.questions, d.applications, d.logger, () => this.persist(), (m, yes) => d.panel.ask(m, yes));
     this.settings = new Settings(d.config, d.storage, d.panel, d.logger, d.limit, d.backend, () => this.refresh());
 
     const ctx: StepContext = {
@@ -71,13 +73,14 @@ export class Controller {
       backend: d.backend,
       captcha: this.captcha,
       nav: d.nav ?? browserNavigator,
+      tab: d.tab ?? ANY_TAB,
       pipeline: this.createPipeline(),
       persist: () => this.persist(),
     };
     this.search = new SearchStep(ctx);
-    this.vacancy = new VacancyStep(ctx);
     this.queue = new QueueStep(ctx);
     this.rejects = new RejectStep(ctx);
+    this.dialogs = new DialogStep(ctx);
     this.ctx = ctx;
   }
 
@@ -85,49 +88,85 @@ export class Controller {
     const { state, panel } = this.d;
     await this.refresh();
     this.captcha.start();
-    panel.setAutoActive(state.running);
+    this.d.repo.watch((saved) => this.onExternalState(saved));
+    watchConfig(this.d.storage, (config) => this.onExternalConfig(config));
+    await this.queue.adoptOrphan();
     panel.setQueueActive(state.queueRunning);
-
-    const page = pageOf(this.ctx);
-    // Порядок важен: очередь берётся за любую страницу и важнее обычного авто-режима
-    const step = pickStep([this.queue, this.search, this.vacancy], page, state);
-    if (!step) {
-      panel.setStep(page === "search" ? 'Нажмите "Собрать вакансии"' : "Откройте страницу поиска вакансий (/search/vacancy)");
+    if (state.queueRunning && !this.queue.owns(state)) {
+      panel.setStep("Очередь идёт в другой вкладке — «Стоп очередь» остановит её");
       return;
     }
-    if (step !== this.queue)
-      await this.captcha.waitUntilClear();
+
+    const page = pageOf(this.ctx);
+    const step = pickStep([this.queue, this.dialogs], page, state);
+    if (!step) {
+      panel.setStep(page === "search" ? "Отправьте выдачу на сервер или запустите очередь"
+        : page === "chat" ? "«Автоответ» — чаты на сервер, «спасибо» на новые отказы" : "Запустите режим «из очереди»");
+      return;
+    }
     await step.resume();
   }
 
   private createPipeline(): ApplyPipeline {
     const d = this.d;
     return new ApplyPipeline({
-      state: d.state,
       logger: d.logger,
       letters: d.letters,
       resumes: d.resumes,
-      searchUrl: () => d.config.searchRedirectUrl,
+      // Лимиты уже учтены в onSubmit — в момент нажатия
       onApplied: async (vacancy) => {
-        await d.limit.increment();
         d.state.applied++;
-        await d.applications.add({
-          title: vacancy.title,
-          stack: (vacancy.stack ?? []).join(", "),
-          company: vacancy.company,
-          salary: vacancy.salary ?? "",
-          format: vacancy.format ?? "",
-          resume: vacancy.resume ?? "",
-          link: vacancy.link || location.href,
-          appliedAt: new Date().toISOString(),
-        });
         d.logger.log(`Отклик зарегистрирован: "${vacancy.title}"`, "success");
       },
-      onOutline: (vacancy) => this.reports.saveQuestions(vacancy),
+      // Отметка и лимиты — до клика (#52): после него hh.ru может сразу загрузить новую страницу, а «Непонятное» тоже ушло
+      onSubmit: async () => {
+        d.state.queueSubmitted = d.state.queueCurrent?.id ?? null;
+        d.state.queueRunApplied++;
+        await d.limit.increment();
+        await this.persist();
+      },
+      captchaHit: () => this.captcha.consumeHit(),
       onChange: () => this.persist(),
-      dryRun: () => d.state.queueRunning && d.config.queueDryRun,
-      stayOnOutline: () => d.state.queueRunning,
+      dryRun: () => isDryRun(d.state.queueRunning, d.config.queueDryRun),
+      active: (vacancy) => isQueueOn(d.state.queueRunning, d.state.queueCurrent, vacancy.link),
     });
+  }
+
+  // Состояние записала другая вкладка (#51)
+  private onExternalState(saved: AppState): void {
+    const { state, panel } = this.d;
+    if (state.queueRunning && this.queue.owns(state)) {
+      // Своя очередь: из другой вкладки принимается только остановка этого же запуска
+      if (!saved.queueRunning && saved.queueRunId === state.queueRunId)
+        stopQueue(this.ctx, "Очередь остановлена в другой вкладке");
+      return;
+    }
+    // Свой остановленный запуск не воскрешать: другая вкладка могла записать его до того, как узнала об остановке
+    if (saved.queueRunning && saved.queueRunId === state.queueRunId && state.queueTab === this.ctx.tab.self) return;
+    // Чужая очередь (или её нет): поля очереди — как в хранилище, чтобы своя запись их не затёрла
+    state.queueRunning = saved.queueRunning;
+    state.queueCurrent = saved.queueCurrent;
+    state.queueTried = saved.queueTried;
+    state.queueRunApplied = saved.queueRunApplied;
+    state.queueFailStreak = saved.queueFailStreak;
+    state.queueOpened = saved.queueOpened;
+    state.queueSubmitted = saved.queueSubmitted;
+    state.queueTab = saved.queueTab;
+    state.queueRunId = saved.queueRunId;
+    panel.setQueueActive(state.queueRunning);
+    if (state.queueRunning) panel.setStep("Очередь идёт в другой вкладке — «Стоп очередь» остановит её");
+  }
+
+  // Настройки сохранила другая вкладка (#51): пробный режим и лимиты — сразу, в том числе для вакансии в работе
+  private onExternalConfig(config: AppConfig): void {
+    const { logger, panel, limit } = this.d;
+    const dryRunChanged = config.queueDryRun !== this.d.config.queueDryRun;
+    Object.assign(this.d.config, config);
+    limit.limit = config.dailyLimit;
+    panel.setSettings(config);
+    if (dryRunChanged)
+      logger.log(config.queueDryRun ? "Пробный режим включён в другой вкладке" : "Пробный режим выключен в другой вкладке", "warn");
+    void this.refresh();
   }
 
   private async persist() {
@@ -136,13 +175,9 @@ export class Controller {
   }
 
   private async refresh() {
-    const { state, limit, panel, questions } = this.d;
+    const { state, limit, panel } = this.d;
     panel.setStats({
       applied: state.applied,
-      outline: state.outline.length,
-      unclear: state.unclear.length,
-      questions: (await questions.list()).length,
-      total: state.vacancies.length,
       daily: await limit.count(),
       dailyLimit: limit.limit,
     });

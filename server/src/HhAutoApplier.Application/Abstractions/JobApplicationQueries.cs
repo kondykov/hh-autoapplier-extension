@@ -1,4 +1,6 @@
 using HhAutoApplier.Domain.Applications;
+using HhAutoApplier.Domain.Candidates;
+using HhAutoApplier.Domain.Resumes;
 using Microsoft.EntityFrameworkCore;
 
 namespace HhAutoApplier.Application.Abstractions;
@@ -20,4 +22,20 @@ public static class JobApplicationQueries
 
     public static Task<JobApplication?> FindApplicationAsync(this IAppDbContext db, Guid? owner, string vacancyId, CancellationToken ct) =>
         db.Applications(owner).FirstOrDefaultAsync(a => a.VacancyId == vacancyId, ct);
+
+    // Резюме и профили кандидата — только владельцев откликов выборки: LLM-конвейер идёт раз в минуту
+    public static IQueryable<ResumeProfile> ResumesOf(this IAppDbContext db, IEnumerable<JobApplication> applications)
+    {
+        var owners = Owners(applications);
+        return db.Resumes.AsNoTracking().Where(r => owners.Contains(r.UserId));
+    }
+
+    public static IQueryable<CandidateProfile> ProfilesOf(this IAppDbContext db, IEnumerable<JobApplication> applications)
+    {
+        var owners = Owners(applications);
+        return db.CandidateProfiles.AsNoTracking().Where(p => owners.Contains(p.UserId));
+    }
+
+    private static List<Guid?> Owners(IEnumerable<JobApplication> applications) =>
+        applications.Select(a => a.UserId).Distinct().ToList();
 }

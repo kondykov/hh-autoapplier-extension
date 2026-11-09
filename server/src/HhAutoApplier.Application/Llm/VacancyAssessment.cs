@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using HhAutoApplier.Application.Abstractions;
+using HhAutoApplier.Domain.Candidates;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Vacancies;
@@ -26,17 +27,20 @@ public static class VacancyAssessment
         fit — стоит откликаться; doubtful — есть сомнения (роль, уровень, стек совпадают частично, неясные условия);
         reject — явно не подходит (другая профессия или роль, уровень, основной стек, условия).
         resume — какое резюме из списка лучше отправить; null, если не подходит ни одно.
+        Профиль кандидата, если дан, — факты о нём наравне с резюме: учитывай факты по навыкам, прежде чем решить, что опыта нет.
         """;
 
-    public static LlmRequest BuildRequest(Vacancy vacancy, IReadOnlyCollection<ResumeProfile> resumes, FilterRules rules) =>
-        new([LlmMessage.System(System), LlmMessage.User(Describe(vacancy, resumes, rules))], Temperature: 0.1, MaxTokens: MaxTokens, Json: true);
+    public static LlmRequest BuildRequest(Vacancy vacancy, IReadOnlyCollection<ResumeProfile> resumes, FilterRules rules, CandidateProfile? profile = null) =>
+        new([LlmMessage.System(System), LlmMessage.User(Describe(vacancy, resumes, rules, profile))], Temperature: 0.1, MaxTokens: MaxTokens, Json: true);
 
-    private static string Describe(Vacancy vacancy, IReadOnlyCollection<ResumeProfile> resumes, FilterRules rules)
+    private static string Describe(Vacancy vacancy, IReadOnlyCollection<ResumeProfile> resumes, FilterRules rules, CandidateProfile? profile)
     {
         var text = new StringBuilder();
         text.AppendLine("Резюме кандидата:");
         foreach (var r in resumes)
             text.AppendLine($"- {r.Name}: {r.Summary ?? "подробного описания нет, ключевые слова: " + string.Join(", ", r.Keywords)}");
+        if (CandidateContext.Describe(profile, $"{vacancy.Title}\n{vacancy.Description}", vacancy.Stack) is { } candidate)
+            text.AppendLine(candidate);
 
         var limits = new List<string>();
         if (rules.ExcludeKeywords.Count > 0)
@@ -88,9 +92,11 @@ public static class VacancyAssessment
                 : int.TryParse(Str(root, "score"), out var parsed) ? parsed
                 : verdict == LlmVerdict.Fit ? 70 : verdict == LlmVerdict.Doubtful ? 50 : 10;
 
-            // Резюме — только из списка; иначе остаётся выбор правил
+            // Резюме — только из списка; иначе остаётся выбор правил. Единственное резюме подставляется само:
+            // выбирать не из чего, а модель отвечает null или строкой "null" (#67)
             var resumeName = Str(root, "resume");
-            var resume = resumes.FirstOrDefault(r => string.Equals(r.Name, resumeName?.Trim(), StringComparison.OrdinalIgnoreCase))?.Name;
+            var resume = resumes.FirstOrDefault(r => string.Equals(r.Name, resumeName?.Trim(), StringComparison.OrdinalIgnoreCase))?.Name
+                         ?? (resumes.Count == 1 ? resumes.Single().Name : null);
 
             var reason = Str(root, "reason")?.Trim();
             return new LlmAssessment(verdict.Value, Math.Clamp(score, 0, 100), resume, string.IsNullOrEmpty(reason) ? "без объяснения" : reason);

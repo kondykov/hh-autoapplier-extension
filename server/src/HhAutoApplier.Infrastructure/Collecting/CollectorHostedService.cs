@@ -1,6 +1,8 @@
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Application.Commands.Collecting;
-using HhAutoApplier.Application.Commands.Llm;
+using HhAutoApplier.Application.Errors;
+using HhAutoApplier.Application.Notifications;
+using HhAutoApplier.Domain.Notifications;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -8,11 +10,12 @@ using Microsoft.Extensions.Options;
 
 namespace HhAutoApplier.Infrastructure.Collecting;
 
-// Расписание сбора: сразу при старте (если включено) и дальше раз в интервал. Сам сбор — CollectVacanciesCommandHandler,
-// после него — LLM-оценка новых, ответы на анкеты и письма для очереди (если LLM настроена)
+// Расписание сбора: сразу при старте (если включено) и дальше раз в интервал. Сам сбор — CollectVacanciesCommandHandler;
+// оценку, письма и уведомления о проверке делает LlmPipelineHostedService раз в минуту
 public class CollectorHostedService(
     IServiceScopeFactory scopes,
     IOptions<CollectorOptions> options,
+    TimeProvider clock,
     ILogger<CollectorHostedService> logger
 ) : BackgroundService
 {
@@ -31,20 +34,15 @@ public class CollectorHostedService(
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
-                var collect = scope.ServiceProvider.GetRequiredService<CollectVacanciesCommandHandler>();
-                await collect.Handle(new CollectVacanciesCommand(), stop);
+                var services = scope.ServiceProvider;
+                var notifier = services.GetRequiredService<Notifier>();
+                // Сбои — администраторам, не чаще раза в сутки на вид: сбор повторяется каждый час
+                var day = $"{clock.GetUtcNow():yyyy-MM-dd}";
 
-                if (scope.ServiceProvider.GetRequiredService<ILlmClient>().IsConfigured)
-                {
-                    var evaluate = scope.ServiceProvider.GetRequiredService<EvaluatePendingVacanciesCommandHandler>();
-                    await evaluate.Handle(new EvaluatePendingVacanciesCommand { Limit = 200 }, stop);
-
-                    var answers = scope.ServiceProvider.GetRequiredService<AnswerQuestionnairesCommandHandler>();
-                    await answers.Handle(new AnswerQuestionnairesCommand { Limit = 200 }, stop);
-
-                    var letters = scope.ServiceProvider.GetRequiredService<WriteCoverLettersCommandHandler>();
-                    await letters.Handle(new WriteCoverLettersCommand { Limit = 200 }, stop);
-                }
+                var collect = services.GetRequiredService<CollectVacanciesCommandHandler>();
+                if ((await collect.Handle(new CollectVacanciesCommand(), stop)).Value is SourceUnavailableError blocked)
+                    await notifier.NotifyAdminsAsync(NotificationKind.SourceBlocked, $"source-blocked:{day}",
+                        $"Сбор вакансий остановлен: {blocked.Message}. Следующая попытка — по расписанию.", stop);
             }
             catch (OperationCanceledException) when (stop.IsCancellationRequested)
             {

@@ -1,12 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BackendClient } from "../src/api/client";
 import { ApplyPipeline, type ApplyResult } from "../src/apply/pipeline";
-import { AppState, type Vacancy } from "../src/core/state";
+import type { Vacancy } from "../src/core/state";
 import { getCoverLetterField } from "../src/dom/cover-letter";
 import { Logger } from "../src/infra/logger";
 import { StaticTemplateProvider } from "../src/letters/letter-provider";
 import { fillQuestionnaire, toServerQuestions, type QuestionAnswer } from "../src/questions/fill";
-import { DEFAULT_RESUMES } from "../src/resume/profiles";
 import { ResumeSelector } from "../src/resume/selector";
 import { letterValue, QUESTIONS, renderResponsePage, resetSubmits, submits } from "./fixtures/response-form";
 
@@ -27,21 +26,53 @@ beforeEach(() => {
 });
 
 describe("fillQuestionnaire", () => {
-  it("отмечает варианты по тексту и пишет ответ в текстовое поле", () => {
+  // Клики — с паузой как у человека: таймеры прокручиваются
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  async function fill(answers: QuestionAnswer[]) {
+    const result = fillQuestionnaire(answers);
+    await vi.runAllTimersAsync();
+    return result;
+  }
+
+  it("отмечает варианты по тексту и пишет ответ в текстовое поле", async () => {
     renderResponsePage({ questionnaire: true });
-    expect(fillQuestionnaire(ANSWERS)).toEqual({ ok: true, missing: [] });
+    expect(await fill(ANSWERS)).toEqual({ ok: true, missing: [] });
     expect([checked("11"), checked("12"), checked("21"), checked("22")]).toEqual([false, true, true, false]);
     expect(salary()).toBe("от 250 000 ₽");
   });
 
-  it("сверяет вопрос и вариант без учёта регистра и пробелов; нет ответа или варианта — не ok", () => {
+  it("сверяет вопрос и вариант без учёта регистра и пробелов; нет ответа или варианта — не ok", async () => {
     renderResponsePage({ questionnaire: true });
-    const result = fillQuestionnaire([
+    const result = await fill([
       { question: `  ${QUESTIONS.solid.toUpperCase()} `, answer: ["dependency  inversion principle"] },
       { question: QUESTIONS.agree, answer: ["Возможно"] },
     ]);
     expect(checked("12")).toBe(true);
     expect(result).toEqual({ ok: false, missing: [QUESTIONS.agree, QUESTIONS.salary] });
+  });
+
+  it("заранее отмеченный чекбокс вне ответа снимается, отмеченный в ответе — остаётся", async () => {
+    renderResponsePage({ questionnaire: true });
+    document.querySelector<HTMLInputElement>('input[value="21"]')!.checked = true;
+    document.querySelector<HTMLInputElement>('input[value="22"]')!.checked = true;
+
+    expect((await fill([ANSWERS[0], { question: QUESTIONS.agree, answer: ["Нет"] }, ANSWERS[2]])).ok).toBe(true);
+    expect([checked("21"), checked("22")]).toEqual([false, true]);
+  });
+
+  it("вариант ответа не найден — чекбоксы не трогает", async () => {
+    renderResponsePage({ questionnaire: true });
+    document.querySelector<HTMLInputElement>('input[value="21"]')!.checked = true;
+
+    await fill([ANSWERS[0], { question: QUESTIONS.agree, answer: ["Возможно"] }, ANSWERS[2]]);
+    expect(checked("21")).toBe(true);
+  });
+
+  it("блоков вопросов нет — не ok, даже если ответы есть", async () => {
+    document.body.innerHTML = `<div data-qa="employer-asking-for-test"></div>`;
+    expect(await fill(ANSWERS)).toEqual({ ok: false, missing: [] });
   });
 
   it("поле ответа анкеты не принимается за поле письма", () => {
@@ -65,24 +96,22 @@ describe("ApplyPipeline: анкета с ответами backend", () => {
 
   function pipeline(dryRun: boolean) {
     const logger = new Logger();
-    const onOutline = vi.fn(async () => {});
     const p = new ApplyPipeline({
-      state: new AppState(),
       logger,
       letters: new StaticTemplateProvider(() => "Письмо"),
-      resumes: new ResumeSelector(() => DEFAULT_RESUMES, logger),
-      searchUrl: () => "https://hh.ru/search/vacancy",
+      resumes: new ResumeSelector(logger),
       onApplied: vi.fn(async () => {}),
-      onOutline,
       onChange: vi.fn(async () => {}),
       dryRun: () => dryRun,
-      stayOnOutline: () => true,
+      active: () => true,
+      captchaHit: () => false,
+      onSubmit: async () => {},
     });
-    return { p, onOutline };
+    return { p };
   }
 
   const vacancy = (answers?: QuestionAnswer[]): Vacancy => ({
-    title: "Разработчик C# .NET", company: "Acme", link: "", card: null, applyBtn: null, answers,
+    title: "Разработчик C# .NET", company: "Acme", link: "", resume: ".NET", resumeMatch: "C# .NET", answers,
   });
 
   async function run(promise: Promise<ApplyResult>): Promise<ApplyResult> {
@@ -92,9 +121,8 @@ describe("ApplyPipeline: анкета с ответами backend", () => {
 
   it("без ответов — анкета, как раньше", async () => {
     renderResponsePage({ questionnaire: true });
-    const { p, onOutline } = pipeline(false);
+    const { p } = pipeline(false);
     expect(await run(p.applyOnPage(vacancy()))).toBe("outline");
-    expect(onOutline).toHaveBeenCalled();
     expect(submits).toBe(0);
   });
 
@@ -115,11 +143,18 @@ describe("ApplyPipeline: анкета с ответами backend", () => {
     expect(submits).toBe(1);
   });
 
+  it("анкета только по employer-asking-for-test, без блоков вопросов — старые ответы не отправляет", async () => {
+    renderResponsePage({ questionnaire: true });
+    for (const body of Array.from(document.querySelectorAll('[data-qa="task-body"]'))) body.remove();
+    const { p } = pipeline(false);
+    expect(await run(p.applyOnPage(vacancy(ANSWERS)))).toBe("outline");
+    expect(submits).toBe(0);
+  });
+
   it("анкета на странице не совпала с ответами — не отправляет", async () => {
     renderResponsePage({ questionnaire: true });
-    const { p, onOutline } = pipeline(false);
+    const { p } = pipeline(false);
     expect(await run(p.applyOnPage(vacancy(ANSWERS.slice(0, 2))))).toBe("outline");
-    expect(onOutline).toHaveBeenCalled();
     expect(submits).toBe(0);
   });
 });
@@ -144,5 +179,20 @@ describe("BackendClient: анкеты", () => {
     const questions = [{ question: "Q", type: "Text", options: [] }];
     expect(await client.submitQuestionnaire("5", questions)).toEqual({ ok: true });
     expect(calls[0]).toEqual({ type: "hh-api", path: "/api/vacancies/5/questionnaire", method: "POST", body: { questions } });
+  });
+});
+
+describe("BackendClient: события для Telegram", () => {
+  it("отправляет событие; недоступный сервер — ошибка, а не исключение", async () => {
+    const calls: unknown[] = [];
+    const client = new BackendClient(async (req) => {
+      calls.push(req);
+      return { status: 200, body: '{"notified":true}' };
+    });
+    expect(await client.reportEvent("Captcha", "https://hh.ru/vacancy/1")).toEqual({ ok: true });
+    expect(calls[0]).toEqual({ type: "hh-api", path: "/api/events", method: "POST", body: { kind: "Captcha", message: "https://hh.ru/vacancy/1" } });
+
+    const offline = new BackendClient(async () => { throw new Error("нет фона"); });
+    expect(await offline.reportEvent("DailyLimit")).toEqual({ ok: false, error: "сервер недоступен: нет фона" });
   });
 });

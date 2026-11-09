@@ -16,6 +16,8 @@ public class GetApplicationsReportQueryHandler(
 {
     private const string Header = "Вакансия;Стек;Компания;Оплата;Формат;Ссылка;Дата;Резюме";
 
+    private const string FormulaStart = "=+-@\t\r\n";
+
     public async Task<ApplicationsReportResult> Handle(GetApplicationsReportQuery query, CancellationToken ct = default)
     {
         var scope = OwnerScope.Resolve(current, query.UserId);
@@ -42,5 +44,12 @@ public class GetApplicationsReportQueryHandler(
         return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(string.Join("\r\n", lines))];
     }
 
-    private static string Quote(string? s) => "\"" + (s ?? "").Replace("\"", "\"\"") + "\"";
+    // Название и компания — от работодателя: ячейку, начатую как формула, Excel исполнит и в кавычках. Апостроф делает её текстом
+    private static string Quote(string? s)
+    {
+        var text = s ?? "";
+        if (text.Length > 0 && FormulaStart.Contains(text[0]))
+            text = "'" + text;
+        return "\"" + text.Replace("\"", "\"\"") + "\"";
+    }
 }

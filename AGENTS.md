@@ -7,11 +7,15 @@
 ## Commands
 ```powershell
 npm run typecheck                 # tsc --noEmit
-npm test                          # vitest (96 тестов)
+npm test                          # vitest
 npm run build                     # dist/content.js + dist/background.js (esbuild)
 node scripts/dev-browser.mjs      # Chromium с расширением, профиль .profile, CDP :9222
 node scripts/cdp-queue-dry-run.mjs # пробный проход очереди в запущенном dev-браузере: журнал и снимок формы, без отправки
-cd server; dotnet test            # xunit (95 тестов; нужен запущенный Docker — Postgres для тестов API в Testcontainers)
+node scripts/cdp-inspect.mjs [--form] # read-only: вкладки dev-браузера, флаги очереди/пробного режима, снимок формы
+node scripts/db-query.mjs "select ..." # read-only запрос к базе docker compose
+node scripts/server.mjs inspect   # read-only снимок сервера backend по SSH (Debian 13; хост — псевдоним home-server-root из ~/.ssh/config)
+node scripts/server.mjs ps "..."  # pwsh на сервере по SSH (UTF-8); --windows — Windows PowerShell; изменения на сервере — только по решению владельца
+cd server; dotnet test            # xunit (нужен запущенный Docker — Postgres для тестов API в Testcontainers)
 cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:8080
 ```
 Расширение читается только при старте браузера: после `build` браузер перезапускать (спросить, если у владельца открыта страница).
@@ -20,11 +24,11 @@ cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:808
 - Чистая логика — тесты в `tests/` (vitest + happy-dom), без живого hh.ru; разметка формы отклика hh.ru — `tests/fixtures/response-form.ts` (по живой странице), её же брать для новых тестов конвейера
 - Backend — `server/tests/HhAutoApplier.Tests`
 - Перед «готово»: typecheck + test + build (или `dotnet test`); то же гоняет CI (`.github/workflows/ci.yml`) на каждый push, плюс проверку, что модель EF совпадает с миграциями
-- Живую страницу проверять read-only через CDP; не нажимать «Отправить». Перед открытием вакансии убедиться, что авто-режим выключен (кнопка панели «Авто») — он переживает перезапуск браузера
+- Живую страницу проверять read-only через CDP; не нажимать «Отправить». Перед открытием вакансии убедиться, что очередь выключена и пробный режим включён — режим очереди переживает перезапуск браузера. Перед закрытием или перезапуском dev-браузера проверить вкладки: открыто что-то кроме стартовой страницы — спросить владельца
 
 ## Project Structure
-- `src/content/main.ts` — композиция; `src/core/` — Controller (сборка и выбор шага), settings, config, selectors; `src/pages/*-step.ts` — шаги страниц (выдача, вакансия, очередь, отказы) на `StepContext`
-- `src/{apply,search,filter,resume,report,questions,rejects,letters,captcha,dom,infra,ui}` — модули
+- `src/content/main.ts` — композиция; `src/core/` — Controller (сборка и выбор шага), settings, config, selectors; `src/pages/*-step.ts` — шаги страниц (выдача → сервер, очередь, отказы) на `StepContext`
+- `src/{apply,search,resume,report,questions,rejects,letters,captcha,dom,infra,ui}` — модули
 - `src/api` — клиент backend и транспорт; `src/background/main.ts` — service worker, через который идут все запросы к backend (со страницы hh.ru Chrome блокирует запросы в локальную сеть)
 - `server/src/HhAutoApplier.{Domain,Application,Infrastructure,Api}` — DDD + CQRS: агрегаты, команды/запросы, EF и источники, контроллеры (`docs/adr/0001-backend-ddd-cqrs.md`)
 - `docs/` — для людей; план доработок — `docs/ROADMAP.md`
@@ -44,6 +48,7 @@ qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
 ## Git Workflow
 - Коммит в текущую ветку; в конце сообщения трейлер `Co-authored-by:` агента, который делал изменения
 - Рабочая ветка `develop` (до 2026-10-25 — `kondykov-new-hh-autoapplier-repo`): коммит и `git push` в неё — без отдельного вопроса, после локальных typecheck/test/build (или `dotnet test`)
+- `develop` — актуальная ветка, `master` (релизная) в разработке не участвует: новые ветки, worktree и субагенты ответвляются только от `develop`. Worktree мог создаться от `master` — проверить базу перед началом работы
 - После push дождаться CI; красный CI — чинить сразу, это часть задачи
 - Задачи — GitHub Issues, карта и порядок — `docs/ROADMAP.md`; в коммите `refs #N`; заводить issues под найденные задачи — можно, с метками
 - Статус задачи — поле Status в Project #5 (https://github.com/users/kondykov/projects/5), его ведёт агент:
@@ -54,6 +59,7 @@ qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
   - → **Done** — всё проверено и ничего не ждёт: issue закрыть с комментарием о коммите и о том, что проверено и что нет; поставить «Начало»/«Срок»
   - Варианты поля Status не менять через API: замена списка вариантов стирает статусы всех задач
 - PR, merge в `master` (до 2026-10-25 — `main`), удаление веток и issues — только по просьбе
+- PR от посторонних авторов (не владелец, в том числе из форков) не сливать ни в какую ветку без отдельного подтверждения владельца: сначала показать автора, что меняет PR и что из этого попадёт в код. Общая просьба вроде «закрой PR» подтверждением не считается
 
 ## Boundaries
 - ✅ Править `src/`, `server/`, `tests/`, `docs/`; запускать тесты/сборку; локальный docker compose

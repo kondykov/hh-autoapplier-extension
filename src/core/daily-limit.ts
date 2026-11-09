@@ -7,11 +7,16 @@ interface Counter {
 
 const KEY = "hh_daily_counter";
 
+const MOSCOW_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+// Сутки лимита — московские: сброс в полночь МСК (UTC+3, перевода часов нет)
+export const moscowDate = (now: number = Date.now()) => new Date(now + MOSCOW_OFFSET_MS).toISOString().split("T")[0];
+
 export class DailyLimit {
   constructor(
     private storage: KeyValueStorage,
     public limit: number,
-    private today: () => string = () => new Date().toISOString().split("T")[0],
+    private today: () => string = () => moscowDate(),
   ) {}
 
   async count(): Promise<number> {

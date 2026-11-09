@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SERVER } from "../src/core/config";
-import { EMPTY_RULES } from "../src/filter/rules";
 import { MemoryStorage } from "../src/infra/storage";
 import { Panel, type PanelHandlers } from "../src/ui/panel";
 
@@ -13,22 +12,29 @@ async function mount(onQueueDryRunChange: (enabled: boolean) => void = () => {})
     get: (target, key: string) => target[key as keyof PanelHandlers] ?? (() => {}),
   }) as PanelHandlers;
   const panel = new Panel(new MemoryStorage(), handlers, {
-    url: "",
     limit: 200,
+    queueRunLimit: 0,
     letter: "",
-    presets: [],
-    rules: EMPTY_RULES,
-    resumes: [],
     server: DEFAULT_SERVER,
+    importSearch: "",
     queueDryRun: true,
+    rejectionReply: "Спасибо!",
   });
   await panel.mount();
   return panel;
 }
 
+// Действие человека: у программных click()/dispatchEvent isTrusted === false, подделать его может только тест
+function trusted<T extends Event>(event: T): T {
+  Object.defineProperty(event, "isTrusted", { value: true });
+  return event;
+}
+
+const press = (el: HTMLElement) => el.dispatchEvent(trusted(new MouseEvent("click", { bubbles: true })));
+
 function uncheck(box: HTMLInputElement) {
   box.checked = false;
-  box.dispatchEvent(new Event("change"));
+  box.dispatchEvent(trusted(new Event("change")));
 }
 
 describe("Panel: пробный режим очереди", () => {
@@ -48,7 +54,7 @@ describe("Panel: пробный режим очереди", () => {
     expect($("hh-confirm").hidden).toBe(false);
     expect(change).not.toHaveBeenCalled();
 
-    $("hh-btn-confirm-yes").click();
+    press($("hh-btn-confirm-yes"));
     await tick();
     expect(box.checked).toBe(false);
     expect($("hh-confirm").hidden).toBe(true);
@@ -66,11 +72,55 @@ describe("Panel: пробный режим очереди", () => {
     const box = $<HTMLInputElement>("hh-input-dryrun");
 
     uncheck(box);
-    $("hh-btn-confirm-no").click();
+    press($("hh-btn-confirm-no"));
     await tick();
     expect(box.checked).toBe(true);
     expect($("hh-confirm").hidden).toBe(true);
     expect(change).not.toHaveBeenCalled();
+  });
+
+  it("скрипт страницы не снимает пробный режим: программное change игнорируется", async () => {
+    const change = vi.fn();
+    await mount(change);
+    const box = $<HTMLInputElement>("hh-input-dryrun");
+
+    box.checked = false;
+    box.dispatchEvent(new Event("change"));
+    await tick();
+
+    expect(box.checked).toBe(true);
+    expect($("hh-confirm").hidden).toBe(true);
+    expect(change).not.toHaveBeenCalled();
+  });
+
+  it("скрипт страницы не подтверждает: программный click() по кнопкам не отвечает на вопрос", async () => {
+    const change = vi.fn();
+    await mount(change);
+    const box = $<HTMLInputElement>("hh-input-dryrun");
+
+    uncheck(box);
+    $("hh-btn-confirm-yes").click();
+    $("hh-btn-confirm-no").click();
+    await tick();
+
+    expect($("hh-confirm").hidden).toBe(false);
+    expect(box.checked).toBe(true);
+    expect(change).not.toHaveBeenCalled();
+
+    press($("hh-btn-confirm-yes"));
+    await tick();
+    expect(change).toHaveBeenCalledWith(false);
+  });
+
+  it("включить пробный режим можно и программно: это безопасное направление", async () => {
+    const change = vi.fn();
+    const panel = await mount(change);
+    panel.setSettings({ queueDryRun: false, dailyLimit: 200, queueRunLimit: 0 });
+    const box = $<HTMLInputElement>("hh-input-dryrun");
+
+    box.checked = true;
+    box.dispatchEvent(new Event("change"));
+    expect(change).toHaveBeenCalledWith(true);
   });
 
   it("общий вопрос в панели: ответ, новый вопрос отменяет прежний", async () => {
@@ -81,8 +131,15 @@ describe("Panel: пробный режим очереди", () => {
 
     const second = panel.ask("Перейти на поиск?", "Перейти");
     expect(await first).toBe(false);
-    $("hh-btn-confirm-yes").click();
+    press($("hh-btn-confirm-yes"));
     expect(await second).toBe(true);
     expect($("hh-confirm").hidden).toBe(true);
+  });
+});
+
+describe("Panel: версия", () => {
+  it("в заголовке — версия сборки (в тестах — dev)", async () => {
+    await mount();
+    expect($("hh-version").textContent).toBe("vdev");
   });
 });

@@ -5,6 +5,7 @@
 </p>
 
 <p align="center">
+  <a href="docs/USER_GUIDE.md">Инструкция</a> ·
   <a href="docs/ARCHITECTURE.md">Архитектура</a> ·
   <a href="docs/BACKEND.md">Backend и API</a> ·
   <a href="docs/ROADMAP.md">План</a>
@@ -68,6 +69,7 @@ docker compose up -d --build                   # http://127.0.0.1:8080/health
 
 ## Документация
 
+- [docs/USER_GUIDE.md](docs/USER_GUIDE.md): инструкция пользователя — установка, настройка, ежедневная работа, проблемы
 - [docs/ROADMAP.md](docs/ROADMAP.md): текущее состояние, планы и порядок доработок
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): модули расширения, конфиг, письма, резюме
 - [docs/BACKEND.md](docs/BACKEND.md): backend и API

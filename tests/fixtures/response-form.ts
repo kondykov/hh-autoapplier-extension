@@ -9,9 +9,12 @@ export interface FormOptions {
   current?: string;
   // Поле письма сразу видно; иначе — за кнопкой «Приложить письмо»
   letterVisible?: boolean;
+  // Письма в форме нет вовсе (ни поля, ни кнопки)
+  noLetter?: boolean;
   submitDisabled?: boolean;
-  // Что делает hh.ru после нажатия «Отправить»
-  afterSubmit?: "responded" | "close" | "nothing";
+  // Что делает hh.ru после нажатия «Отправить»; navigate — уходит на страницу вакансии, форма остаётся,
+  // navigate-responded — на страницу вакансии с «Вы откликнулись»
+  afterSubmit?: "responded" | "close" | "nothing" | "navigate" | "navigate-responded";
   // Подзаголовок «Для отклика необходимо ответить на несколько вопросов»: на странице отклика он есть и без анкеты,
   // во всплывающем окне — признак анкеты
   outline?: boolean;
@@ -37,7 +40,7 @@ function body(o: FormOptions): string {
     <h1 data-qa="title">Отклик на вакансию</h1>${outline}
     ${o.questionnaire ? questionnaireBlock : ""}
     ${resumeBlock(o.current ?? PHP, o.resumes ?? [PHP, DOTNET])}
-    ${letterBlock(o.letterVisible ?? true)}
+    ${o.noLetter ? "" : letterBlock(o.letterVisible ?? true)}
     <button id="submit"${o.submitDisabled ? " disabled" : ""}>Откликнуться</button>`;
 }
 
@@ -98,6 +101,11 @@ function wire(o: FormOptions, close: () => void): void {
   submit.onclick = () => {
     submits++;
     if (o.afterSubmit === "nothing") return;
+    if (o.afterSubmit === "navigate" || o.afterSubmit === "navigate-responded") {
+      (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL("https://hh.ru/vacancy/1");
+      if (o.afterSubmit === "navigate-responded") document.body.innerHTML = "<main><div>Вы откликнулись</div></main>";
+      return;
+    }
     if (o.afterSubmit === "close") close();
     else document.body.innerHTML = "<main><div>Вы откликнулись</div></main>";
   };

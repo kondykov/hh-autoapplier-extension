@@ -39,8 +39,9 @@ public static class StackExtractor
         ["CI/CD"] = @"ci/cd|ci\s?cd|jenkins|gitlab",
     });
 
+    // Границы слова — вокруг всех вариантов сразу: без группы «golang|go» находил «go» в «Django», «ts» — в «clients»
     private static (string, Regex)[] Build(Dictionary<string, string> map) =>
-        map.Select(kv => (kv.Key, new Regex($@"(?<![\p{{L}}\d]){kv.Value}(?![\p{{L}}\d])",
+        map.Select(kv => (kv.Key, new Regex($@"(?<![\p{{L}}\d])(?:{kv.Value})(?![\p{{L}}\d])",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200)))).ToArray();
 
     public static string[] Extract(string text, IEnumerable<string>? extra = null)

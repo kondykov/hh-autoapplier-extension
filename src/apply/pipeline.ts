@@ -1,75 +1,48 @@
-import { DELAYS, wait } from "../core/delays";
+import { DELAYS, pause, wait } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
-import type { AppState, Vacancy } from "../core/state";
-import { detectPageType } from "../dom/page-type";
+import type { Vacancy } from "../core/state";
 import { qs } from "../dom/query";
 import type { Logger } from "../infra/logger";
 import type { ResumeSelector } from "../resume/selector";
 import type { LetterProvider } from "../letters/letter-provider";
 import { fillQuestionnaire } from "../questions/fill";
-import { waitForApplyOutcome, type ApplyOutcome } from "./outcome-detector";
+import { isAlreadyRespondedOnPage, isOutlineDetected, waitForApplyOutcome, type ApplyOutcome } from "./outcome-detector";
 import { attachLetterAndSubmit } from "./submit";
+import { humanClick } from "../dom/input";
 
-export type ApplyResult = "success" | "outline" | "skipped" | "disabled" | "unclear" | "failed" | "dry_run";
+// stopped — очередь остановили (или перезапустили с другой вакансией), пока конвейер работал: ничего не отправлено.
+// captcha — посреди отклика появилась капча: дальше без человека не идём, «Отправить» не нажата
+export type ApplyResult = "success" | "outline" | "skipped" | "disabled" | "unclear" | "failed" | "dry_run" | "stopped" | "captcha";
+
+type Halt = "stopped" | "captcha";
 
 export interface PipelineDeps {
-  state: AppState;
   logger: Logger;
   letters: LetterProvider;
   resumes: ResumeSelector;
-  searchUrl: () => string;
   onApplied: (vacancy: Vacancy) => Promise<void>;
-  onOutline: (vacancy: Vacancy) => Promise<void>;
   onChange: () => Promise<void>;
   // Пробный режим: всё, кроме нажатия «Отправить»
   dryRun: () => boolean;
-  // Режим «из очереди» сам решает, куда идти после анкеты, — без редиректа на поиск
-  stayOnOutline: () => boolean;
+  // Очередь всё ещё ведёт эту вакансию: проверяется перед каждым шагом и перед нажатием «Отправить»
+  active: (vacancy: Vacancy) => boolean;
+  // Капча появлялась с прошлой проверки (CaptchaGuard.consumeHit): проверяется там же, где active
+  captchaHit: () => boolean;
+  // Сразу перед нажатием «Отправить»: отметка «отправлено» и лимиты — до клика, страница может смениться сразу после
+  onSubmit: (vacancy: Vacancy) => Promise<void>;
 }
 
-async function handleRelocationWarning(logger: Logger): Promise<void> {
-  for (let i = 0; i < 5; i++) {
-    await wait(400);
-    const btn = qs<HTMLElement>(SELECTORS.relocationConfirmBtn);
-    if (btn) {
-      logger.log('Окно "отклик в другую страну": подтверждаю', "warn");
-      btn.click();
-      await wait(DELAYS.wait);
-      return;
-    }
-    if (qs(SELECTORS.responseModal)) return;
-  }
-}
-
+// Отклик на странице /applicant/vacancy_response (режим «из очереди»): форма уже открыта
 export class ApplyPipeline {
   constructor(private deps: PipelineDeps) {}
 
-  async applyFromSearch(vacancy: Vacancy): Promise<ApplyResult> {
-    const { logger } = this.deps;
-    if (!vacancy.applyBtn) {
-      logger.log("Кнопка отклика не найдена, пропускаю", "warn");
-      this.deps.state.skipped++;
-      return "skipped";
-    }
-    logger.log(`Отклик: "${vacancy.title}"`, "step");
-    vacancy.applyBtn.scrollIntoView({ behavior: "smooth", block: "center" });
-    await wait(DELAYS.click);
-    vacancy.applyBtn.click();
-
-    await handleRelocationWarning(logger);
-    await wait(DELAYS.animation);
-    const outcome = await waitForApplyOutcome(vacancy);
-    return this.resolve(vacancy, outcome, 0);
-  }
-
-  // Для страниц /applicant/vacancy_response и /vacancy/: форма уже открыта
   async applyOnPage(vacancy: Vacancy): Promise<ApplyResult> {
-    const outcome = await waitForApplyOutcome(vacancy);
-    return this.resolve(vacancy, outcome, 0);
+    const outcome = await waitForApplyOutcome();
+    return this.resolve(vacancy, outcome);
   }
 
-  private async resolve(vacancy: Vacancy, outcome: ApplyOutcome, depth: number): Promise<ApplyResult> {
-    const { state, logger } = this.deps;
+  private async resolve(vacancy: Vacancy, outcome: ApplyOutcome): Promise<ApplyResult> {
+    const { logger } = this.deps;
     logger.log(`Исход отклика: ${outcome}`);
 
     // Анкета с ответами backend заполняется ниже, после выбора резюме; без ответов — в «Аутлайн»
@@ -80,30 +53,40 @@ export class ApplyPipeline {
       return "success";
     }
     if (outcome === "none") {
-      logger.log("После клика ничего не появилось, пропускаю", "warn");
-      state.skipped++;
+      logger.log("Форма отклика не появилась, пропускаю", "warn");
       return "skipped";
     }
 
+    let halt = this.halt(vacancy);
+    if (halt) return this.halted(halt);
     const chosen = await this.deps.resumes.choose(vacancy);
     if (chosen.failed) {
-      qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
-      state.skipped++;
+      const close = qs<HTMLElement>(SELECTORS.responseModalClose);
+      if (close) await humanClick(close);
       return "failed";
     }
-    if (chosen.profile) vacancy.resume = chosen.profile.name;
+    halt = this.halt(vacancy);
+    if (halt) return this.halted(halt);
     if (questionnaire) {
-      const filled = fillQuestionnaire(vacancy.answers ?? []);
+      const filled = await fillQuestionnaire(vacancy.answers ?? []);
       if (!filled.ok) {
         // Анкета на странице не совпала с ответами (работодатель её поменял) — не отправляем
-        logger.log(`Анкета: нет ответа на ${filled.missing.length} вопр.: ${filled.missing.join(" | ").slice(0, 200)}`, "warn");
+        logger.log(filled.missing.length ? `Анкета: нет ответа на ${filled.missing.length} вопр.: ${filled.missing.join(" | ").slice(0, 200)}` : "Анкета: блоки вопросов не найдены — не отправляю", "warn");
         return this.saveOutline(vacancy);
       }
       logger.log("Анкета заполнена ответами с сервера", "success");
-      await wait(DELAYS.small);
+      await pause(DELAYS.small);
     }
     const letter = await this.deps.letters.getLetter(vacancy);
-    const result = await attachLetterAndSubmit(vacancy, letter, logger, this.deps.dryRun(), questionnaire);
+    halt = this.halt(vacancy);
+    if (halt) return this.halted(halt);
+    // Перечитывается перед самым кликом: остановка очереди или капча за время паузы — не отправлять
+    const dryRun = () => {
+      halt = this.halt(vacancy);
+      return this.deps.dryRun() || halt !== null;
+    };
+    const result = await attachLetterAndSubmit(letter, logger, dryRun, questionnaire, () => this.deps.onSubmit(vacancy));
+    if (result === "dry_run" && halt) return this.halted(halt);
     switch (result) {
       case "outline":
         return this.saveOutline(vacancy);
@@ -115,36 +98,47 @@ export class ApplyPipeline {
       case "dry_run":
         return "dry_run";
       case "pending_response":
-        if (depth < 2) return this.resolve(vacancy, "response", depth + 1);
-        return "failed";
+        return this.afterPageChange(vacancy);
       case "unclear":
         logger.log('Отклик не подтверждён, добавляю в "Непонятное"', "warn");
-        state.addUnclear(this.item(vacancy));
-        state.skipped++;
         return "unclear";
       default:
-        state.skipped++;
         return "failed";
     }
   }
 
-  private item(vacancy: Vacancy) {
-    return { title: vacancy.title, link: vacancy.link || location.href, company: vacancy.company };
+  // «Отправить» уже нажата, и hh.ru сменил страницу: второй отправки не бывает (#50) — только исход новой страницы.
+  // Анкета — вопросы на сервер; «Вы откликнулись» — отклик; иначе отклик мог уйти — «Непонятное»
+  private async afterPageChange(vacancy: Vacancy, timeoutMs = 8000): Promise<ApplyResult> {
+    this.deps.logger.log("После отправки страница сменилась — жду исход без повторного нажатия");
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (isOutlineDetected()) return this.saveOutline(vacancy);
+      if (isAlreadyRespondedOnPage()) {
+        await this.deps.onApplied(vacancy);
+        return "success";
+      }
+      await wait(300);
+    }
+    this.deps.logger.log('Отклик не подтверждён, добавляю в "Непонятное"', "warn");
+    return "unclear";
   }
 
-  private async saveOutline(vacancy: Vacancy): Promise<ApplyResult> {
-    const { state, logger } = this.deps;
-    if (state.addOutline(this.item(vacancy))) logger.log(`Аутлайн: "${vacancy.title}"`, "warn");
-    await this.deps.onOutline(vacancy);
-    await this.deps.onChange();
+  private halt(vacancy: Vacancy): Halt | null {
+    if (!this.deps.active(vacancy)) return "stopped";
+    if (this.deps.captchaHit()) return "captcha";
+    return null;
+  }
 
-    if (detectPageType() === "search") {
-      qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
-    } else if (!this.deps.stayOnOutline()) {
-      state.resumeAfterRedirect = state.running;
-      await this.deps.onChange();
-      location.href = this.deps.searchUrl();
-    }
+  private halted(halt: Halt): ApplyResult {
+    this.deps.logger.log(halt === "captcha" ? "Капча посреди отклика — «Отправить» не нажата" : "Очередь остановлена — отклик не отправлен", "warn");
+    return halt;
+  }
+
+  // Очередь сама решает, куда идти дальше: вопросы анкеты — на сервер, затем следующая вакансия
+  private async saveOutline(vacancy: Vacancy): Promise<ApplyResult> {
+    this.deps.logger.log(`Анкета без ответов: "${vacancy.title}"`, "warn");
+    await this.deps.onChange();
     return "outline";
   }
 }

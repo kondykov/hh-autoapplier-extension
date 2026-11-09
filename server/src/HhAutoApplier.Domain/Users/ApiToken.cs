@@ -57,7 +57,7 @@ public class ApiToken
         RevokedAt = at;
     }
 
-    // Значение из заголовка — персональный токен, а не общий ключ
+    // Значение из заголовка похоже на персональный токен
     public static bool IsToken(string value) => value.StartsWith(Marker, StringComparison.Ordinal);
 
     public static string HashOf(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));

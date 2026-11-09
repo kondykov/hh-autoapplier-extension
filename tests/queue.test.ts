@@ -4,7 +4,7 @@ import { attachLetterAndSubmit } from "../src/apply/submit";
 import type { Vacancy } from "../src/core/state";
 import { Logger } from "../src/infra/logger";
 import { PreparedLetterProvider, StaticTemplateProvider } from "../src/letters/letter-provider";
-import { isPageOf, pickNext, responseUrl, toStatusReport, type QueueItem } from "../src/queue/queue-mode";
+import { isDryRun, isPageOf, isQueueOn, pickNext, responseUrl, toStatusReport, type QueueItem } from "../src/queue/queue-mode";
 
 const item = (id: string): QueueItem => ({ id, title: `Вакансия ${id}`, company: "Acme", resume: ".NET" });
 
@@ -26,11 +26,29 @@ describe("queue-mode", () => {
 
   it("переводит исход конвейера в статус сервера", () => {
     expect(toStatusReport("success")).toEqual({ status: "Applied", reason: null });
-    expect(toStatusReport("outline")?.status).toBe("Skipped");
+    expect(toStatusReport("outline")).toEqual({ status: "Skipped", reason: "анкета работодателя — вопросы не найдены на странице" });
     for (const r of ["skipped", "failed", "unclear"] as const) expect(toStatusReport(r)?.status).toBe("Failed");
     // Пробный прогон и неактивная кнопка — серверу не сообщаем
     expect(toStatusReport("dry_run")).toBeNull();
     expect(toStatusReport("disabled")).toBeNull();
+    expect(toStatusReport("stopped")).toBeNull();
+  });
+
+  // #49: остановленная очередь не отправляет, даже если пробный режим снят
+  it("пробный режим — fail-closed", () => {
+    expect(isDryRun(true, true)).toBe(true);
+    expect(isDryRun(true, false)).toBe(false);
+    expect(isDryRun(false, true)).toBe(true);
+    expect(isDryRun(false, false)).toBe(true);
+  });
+
+  it("очередь ведёт вакансию страницы, пока не остановлена и не сменила вакансию", () => {
+    const url = responseUrl("1");
+    expect(isQueueOn(true, item("1"), url)).toBe(true);
+    expect(isQueueOn(false, item("1"), url)).toBe(false);
+    expect(isQueueOn(true, null, url)).toBe(false);
+    expect(isQueueOn(true, item("2"), url)).toBe(false);
+    expect(isQueueOn(true, item("1"), "")).toBe(false);
   });
 });
 
@@ -81,7 +99,7 @@ describe("attachLetterAndSubmit: пробный режим", () => {
     const click = vi.fn();
     document.querySelector("button")!.addEventListener("click", click);
 
-    const result = attachLetterAndSubmit(null, "Здравствуйте", new Logger(), true);
+    const result = attachLetterAndSubmit("Здравствуйте", new Logger(), true);
     await vi.runAllTimersAsync();
 
     expect(await result).toBe("dry_run");
@@ -92,7 +110,7 @@ describe("attachLetterAndSubmit: пробный режим", () => {
 
 describe("PreparedLetterProvider", () => {
   const fallback = new StaticTemplateProvider(() => "Шаблон для {{company}}");
-  const vacancy = (letter?: string): Vacancy => ({ title: "C#", company: "Acme", link: "", card: null, applyBtn: null, letter });
+  const vacancy = (letter?: string): Vacancy => ({ title: "C#", company: "Acme", link: "", letter });
 
   it("письмо от backend приоритетнее шаблона, пустое — шаблон", async () => {
     const letters = new PreparedLetterProvider(fallback);

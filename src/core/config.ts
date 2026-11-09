@@ -1,13 +1,4 @@
-import { DEFAULT_RESUMES, type ResumeProfile } from "../resume/profiles";
-import { EMPTY_RULES, type FilterRules } from "../filter/rules";
 import type { KeyValueStorage } from "../infra/storage";
-
-export interface SearchPreset {
-  name: string;
-  url: string;
-  letter?: string;
-  rules?: FilterRules;
-}
 
 // Backend: адрес и ключ X-Api-Key. Запросы к нему делает фоновый service worker расширения
 export interface ServerSettings {
@@ -17,16 +8,20 @@ export interface ServerSettings {
 
 export const DEFAULT_SERVER: ServerSettings = { url: "http://127.0.0.1:8080", apiKey: "" };
 
+// Отбор вакансий, резюме и письма под вакансию — на backend (#27); здесь только исполнение и запасные значения
 export interface AppConfig {
+  // Письмо, если backend не прислал своего (LLM выключена или не успела)
   coverLetterTemplate: string;
-  searchRedirectUrl: string;
   dailyLimit: number;
-  presets: SearchPreset[];
-  rules: FilterRules;
-  resumes: ResumeProfile[];
+  // Откликов за один запуск очереди: после стольких отправленных очередь останавливается сама; 0 — без ограничения
+  queueRunLimit: number;
   server: ServerSettings;
+  // Поиск на сервере, в который уходит выдача со страницы (POST /api/import)
+  importSearch: string;
   // Режим «из очереди» без нажатия «Отправить»: по умолчанию включён, выключается только явно в панели
   queueDryRun: boolean;
+  // Автоответ на новый отказ работодателя (решение владельца 2026-10-26); отправляется, только где hh.ru разрешает писать
+  rejectionReply: string;
 }
 
 declare const __DEFAULT_LETTER__: string | undefined;
@@ -35,28 +30,38 @@ const LOCAL_LETTER = typeof __DEFAULT_LETTER__ === "string" ? __DEFAULT_LETTER__
 // Личные данные (имя, контакты) задаются пользователем в настройках, а не хранятся в коде
 export const DEFAULT_CONFIG: AppConfig = {
   coverLetterTemplate: LOCAL_LETTER || "Здравствуйте.\nМеня заинтересовала ваша вакансия.\n\nС уважением,",
-  searchRedirectUrl: "https://hh.ru/search/vacancy?text=QA",
   dailyLimit: 150,
-  presets: [],
-  rules: EMPTY_RULES,
-  resumes: DEFAULT_RESUMES,
+  queueRunLimit: 0,
   server: DEFAULT_SERVER,
+  importSearch: "",
   queueDryRun: true,
+  rejectionReply: "Спасибо за ответ и удачи в поиске!",
 };
 
 const KEY = "hh_autoapply_config";
 
+// Только известные поля: настройки прежнего локального отбора (presets, rules, resumes, searchRedirectUrl) отбрасываются
 export async function loadConfig(storage: KeyValueStorage): Promise<AppConfig> {
-  const saved = await storage.get<Partial<AppConfig>>(KEY, {});
+  return fromSaved(await storage.get<Partial<AppConfig>>(KEY, {}));
+}
+
+// Настройки, сохранённые другой вкладкой (#51): пробный режим и лимиты действуют сразу, а не со следующей страницы
+export function watchConfig(storage: KeyValueStorage, onChange: (config: AppConfig) => void): void {
+  storage.watch(KEY, (value) => onChange(fromSaved((value ?? {}) as Partial<AppConfig>)));
+}
+
+function fromSaved(saved: Partial<AppConfig>): AppConfig {
   return {
-    ...DEFAULT_CONFIG,
-    ...saved,
-    rules: { ...EMPTY_RULES, ...saved.rules },
+    coverLetterTemplate: saved.coverLetterTemplate ?? DEFAULT_CONFIG.coverLetterTemplate,
+    dailyLimit: saved.dailyLimit ?? DEFAULT_CONFIG.dailyLimit,
+    queueRunLimit: saved.queueRunLimit ?? DEFAULT_CONFIG.queueRunLimit,
     server: { ...DEFAULT_SERVER, ...saved.server },
+    importSearch: saved.importSearch ?? DEFAULT_CONFIG.importSearch,
+    queueDryRun: saved.queueDryRun ?? DEFAULT_CONFIG.queueDryRun,
+    rejectionReply: saved.rejectionReply ?? DEFAULT_CONFIG.rejectionReply,
   };
 }
 
 export function saveConfig(storage: KeyValueStorage, config: AppConfig): Promise<void> {
   return storage.set(KEY, config);
 }
-

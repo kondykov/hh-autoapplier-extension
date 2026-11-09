@@ -1,8 +1,10 @@
 using System.Net.Http.Json;
 using HhAutoApplier.Application.Abstractions;
+using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Vacancies;
 using HhAutoApplier.Infrastructure.Identity;
+using HhAutoApplier.Infrastructure.Llm;
 using HhAutoApplier.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
@@ -20,7 +22,6 @@ namespace HhAutoApplier.Tests.Api;
 // hh.ru не используется: источник вакансий подменён, фоновый сбор не стартует
 public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    public const string ApiKey = "test-key";
 
     public const string AdminEmail = "admin@test.local";
 
@@ -31,6 +32,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public FakeVacancySource Source { get; } = new();
 
     public FakeLlmClient Llm { get; } = new();
+
+    public FakeTelegramBot Telegram { get; } = new();
 
     public async Task InitializeAsync() => await _db.StartAsync();
 
@@ -43,7 +46,6 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("ConnectionStrings:Default", _db.GetConnectionString());
-        builder.UseSetting("Api:Key", ApiKey);
         builder.UseSetting("Admin:Email", AdminEmail);
         builder.UseSetting("Admin:Password", AdminPassword);
         builder.UseSetting("Hh:Enabled", "false");
@@ -58,6 +60,10 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             services.AddSingleton<IVacancySource>(Source);
             services.RemoveAll<ILlmClient>();
             services.AddSingleton<ILlmClient>(Llm);
+            services.RemoveAll<ITelegramBot>();
+            services.AddSingleton<ITelegramBot>(Telegram);
+            // LLM-проходы тесты вызывают явно: фоновый проход раз в минуту забирал бы ответы FakeLlm
+            services.Remove(services.Single(d => d.ImplementationType == typeof(LlmPipelineHostedService)));
             // Блокировка и смена пароля обрывают сессию сразу, а не через минуту
             services.Configure<SecurityStampValidatorOptions>(o => o.ValidationInterval = TimeSpan.Zero);
         });
@@ -70,13 +76,10 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public HttpClient CreateLoggedInClient(string email, string password) =>
         CreateDefaultClient(new Uri("http://localhost"), new LoginHandler(email, password), new CookieContainerHandler());
 
-    // Клиент по общему ключу API (X-Api-Key): действует от имени администратора из Admin:Email, но с ролью User
-    public HttpClient CreateKeyClient()
-    {
-        var client = CreateClient();
-        client.DefaultRequestHeaders.Add("X-Api-Key", ApiKey);
-        return client;
-    }
+    // Клиент как у расширения: персональный токен администратора в X-Api-Key (роль User). Токен выпускается при первом
+    // запросе — уже после ResetAsync, когда учётка пересоздана
+    public HttpClient CreateTokenClient() =>
+        CreateDefaultClient(new Uri("http://localhost"), new TokenHandler(CreateApiClient()));
 
     // Чистая база перед каждым тестом: начальные резюме — как после первого старта
     public async Task ResetAsync()
@@ -88,6 +91,20 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         await IdentitySeeder.SeedAsync(scope.ServiceProvider);
         Source.Reset();
         Llm.Reset();
+        Telegram.Configured = false;
+    }
+
+    // Импорт ждёт подтверждения карточки (#55). Для тестов оценки, писем и очереди источник подтверждает ждущие карточки
+    // как есть, по лимиту за проход — столько сборов, сколько нужно; само подтверждение проверяет ImportConfirmationTests
+    public async Task ConfirmImportedAsync()
+    {
+        var waiting = await WithDbAsync(db => db.JobApplications.AsNoTracking()
+            .Where(a => a.Status == VacancyStatus.New && a.Vacancy.Imported).Select(a => a.Vacancy).Distinct().ToListAsync());
+        Source.ConfirmAsIs(waiting);
+
+        var admin = CreateApiClient();
+        for (var pass = 0; pass <= waiting.Count / 20; pass++)
+            (await admin.PostAsync("/api/collect", null)).EnsureSuccessStatusCode();
     }
 
     public async Task<T> WithDbAsync<T>(Func<AppDbContext, Task<T>> action)
@@ -121,55 +138,113 @@ public sealed class LoginHandler(string email, string password) : DelegatingHand
     }
 }
 
+// Перед первым запросом выпускает токен через клиент с входом по паролю и дальше шлёт его в X-Api-Key
+public sealed class TokenHandler(HttpClient issuer) : DelegatingHandler
+{
+    private string? _token;
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        if (_token is null)
+        {
+            var response = await issuer.PostAsJsonAsync("/api/tokens", new { name = "тест" }, ct);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException($"Токен не выпущен: {(int)response.StatusCode} {await response.Content.ReadAsStringAsync(ct)}");
+
+            _token = (await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct)).GetProperty("value").GetString();
+        }
+
+        request.Headers.Add("X-Api-Key", _token);
+        return await base.SendAsync(request, ct);
+    }
+}
+
 // Источник вакансий для тестов сбора: отдаёт заданные карточки или «блокируется», как hh.ru при капче
 public sealed class FakeVacancySource : IVacancySource
 {
-    private readonly List<(string Id, string Title, string Description, bool Listed)> _cards = [];
+    private readonly List<(string Id, string Title, string Description, bool Listed, int Page, int? SalaryFrom)> _cards = [];
+
+    private readonly Dictionary<string, Vacancy> _asIs = [];
 
     // Страница вакансии не открывается (404, архив): LoadDetailsAsync — false
     public HashSet<string> NoDetails { get; } = [];
 
     public bool Blocked { get; set; }
 
+    // Страница этой вакансии отвечает капчей: LoadDetailsAsync — SourceBlockedException
+    public HashSet<string> BlockedDetails { get; } = [];
+
+    // Пока грузится страница вакансии: действие пользователя в это время
+    public Func<string, Task>? WhileLoadingDetails { get; set; }
+
+    // Задан — поиск ждёт, пока тест его не отпустит: проход сбора остаётся «идущим»
+    public TaskCompletionSource? Hold { get; set; }
+
     public int DetailsLoaded { get; private set; }
 
     public string Name => "fake";
 
-    public void Add(string id, string title, string description) => _cards.Add((id, title, description, true));
+    public void Add(string id, string title, string description, int page = 0) => _cards.Add((id, title, description, true, page, null));
 
     // Вакансия есть на hh.ru, но в выдачу поисков не попадает: доступна только по странице вакансии
-    public void AddUnlisted(string id, string title, string description) => _cards.Add((id, title, description, false));
+    public void AddUnlisted(string id, string title, string description, int? salaryFrom = null) =>
+        _cards.Add((id, title, description, false, 0, salaryFrom));
+
+    // Страница вакансии отдаёт те же данные, что уже в карточке; DetailsLoaded не считается — это подготовка теста
+    public void ConfirmAsIs(IEnumerable<Vacancy> vacancies)
+    {
+        foreach (var vacancy in vacancies)
+            _asIs[vacancy.Id] = vacancy;
+    }
 
     public void Reset()
     {
         _cards.Clear();
+        _asIs.Clear();
         NoDetails.Clear();
+        BlockedDetails.Clear();
+        WhileLoadingDetails = null;
         Blocked = false;
+        Hold = null;
         DetailsLoaded = 0;
     }
 
-    public Task<IReadOnlyList<Vacancy>> SearchAsync(SearchProfile search, int page, CancellationToken ct)
+    public async Task<IReadOnlyList<Vacancy>> SearchAsync(SearchProfile search, int page, CancellationToken ct)
     {
+        if (Hold is { } hold)
+            await hold.Task.WaitAsync(ct);
+
         if (Blocked)
             throw new SourceBlockedException(Name, "капча");
 
-        IReadOnlyList<Vacancy> found = page > 0
-            ? []
-            : _cards.Where(c => c.Listed)
-                .Select(c => Vacancy.Create(c.Id, c.Title, $"https://hh.ru/vacancy/{c.Id}", search.Name, DateTimeOffset.UtcNow)).ToList();
-        return Task.FromResult(found);
+        return _cards.Where(c => c.Listed && c.Page == page)
+            .Select(c => Vacancy.Create(c.Id, c.Title, $"https://hh.ru/vacancy/{c.Id}", search.Name, DateTimeOffset.UtcNow)).ToList();
     }
 
-    // Как HhWebSource: страница вакансии даёт и название, и описание
-    public Task<bool> LoadDetailsAsync(Vacancy vacancy, CancellationToken ct)
+    // Как HhWebSource: страница вакансии даёт и название, и описание, и зарплату
+    public async Task<bool> LoadDetailsAsync(Vacancy vacancy, CancellationToken ct)
     {
+        if (_asIs.TryGetValue(vacancy.Id, out var same))
+        {
+            vacancy.UpdateCard(same.Company, same.Area, same.Salary, same.WorkFormat, same.HasTest, same.PublishedAt);
+            vacancy.UpdateDetails(same.Title, same.Description, same.Stack);
+            return true;
+        }
+
         DetailsLoaded++;
+        if (BlockedDetails.Contains(vacancy.Id))
+            throw new SourceBlockedException(Name, "капча");
+
+        if (WhileLoadingDetails is { } action)
+            await action(vacancy.Id);
+
         var card = _cards.FirstOrDefault(c => c.Id == vacancy.Id);
         if (card.Id is null || NoDetails.Contains(vacancy.Id))
-            return Task.FromResult(false);
+            return false;
 
+        vacancy.UpdateCard(null, null, Salary.From(card.SalaryFrom, null, card.SalaryFrom is null ? null : "RUR"), null, null, null);
         vacancy.UpdateDetails(card.Title, card.Description, []);
-        return Task.FromResult(true);
+        return true;
     }
 }
 
@@ -182,25 +257,36 @@ public sealed class FakeLlmClient : ILlmClient
 
     public int Calls { get; private set; }
 
+    // Запросы к LLM по порядку: что попало в промпт
+    public List<LlmRequest> Requests { get; } = [];
+
     public bool IsConfigured => Configured;
+
+    // Пока «LLM думает»: действие пользователя или второй проход в это время (#54)
+    public Func<Task>? WhileThinking { get; set; }
 
     public void Reset()
     {
         Answers.Clear();
+        WhileThinking = null;
         Configured = false;
         Calls = 0;
+        Requests.Clear();
     }
 
-    public Task<LlmResult> CompleteAsync(LlmRequest request, CancellationToken ct = default)
+    public async Task<LlmResult> CompleteAsync(LlmRequest request, CancellationToken ct = default)
     {
         if (!Configured)
             throw new LlmUnavailableException("LLM не настроена: задайте LLM_API_KEY");
 
         Calls++;
+        Requests.Add(request);
         if (!Answers.TryDequeue(out var answer))
             throw new LlmUnavailableException("дневной лимит запросов исчерпан");
 
-        return Task.FromResult(new LlmResult(answer, "fake-model", 100, 20));
+        if (WhileThinking is { } action)
+            await action();
+        return new LlmResult(answer, "fake-model", 100, 20);
     }
 }
 
@@ -208,4 +294,14 @@ public sealed class FakeLlmClient : ILlmClient
 public sealed class ApiCollection : ICollectionFixture<ApiFactory>
 {
     public const string Name = "api";
+}
+
+// Бот для тестов: по умолчанию не настроен, как без TELEGRAM_BOT_TOKEN. Транспорт (опрос и отправка) в тестах не запускается
+public sealed class FakeTelegramBot : ITelegramBot
+{
+    public bool Configured { get; set; }
+
+    public bool IsConfigured => Configured;
+
+    public Task<string?> GetUsernameAsync(CancellationToken ct = default) => Task.FromResult<string?>("test_bot");
 }

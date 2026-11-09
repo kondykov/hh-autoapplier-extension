@@ -1,4 +1,6 @@
+import type { DialogChat } from "../dialogs/chats";
 import type { QuestionAnswer, ServerQuestion } from "../questions/fill";
+import type { ImportCard } from "../search/vacancy-collector";
 import type { QueueItem, StatusReport } from "../queue/queue-mode";
 import type { ApiRequest, ApiResponse } from "./transport";
 
@@ -16,6 +18,46 @@ export type QueueResult = { ok: true; items: QueueItem[] } | { ok: false; error:
 
 export type ReportResult = { ok: true } | { ok: false; error: string };
 
+export type ExtensionEvent = "Captcha" | "DailyLimit";
+
+// Ответ импорта: waiting — карточки ждут подтверждения сбором сервера
+export interface ImportCounts {
+  received: number;
+  added: number;
+  queued: number;
+  skipped: number;
+  waiting: number;
+}
+
+export type ImportResult = { ok: true; result: ImportCounts } | { ok: false; error: string };
+
+export interface ResumeMatch {
+  name: string;
+  match: string;
+}
+
+// Чат, где ждёт автоответ на отказ
+export interface AutoReply {
+  chatId: number;
+  vacancyId: string | null;
+  title: string;
+  company: string;
+}
+
+export interface DialogsCounts {
+  received: number;
+  newMessages: number;
+  rejected: number;
+  invited: number;
+  // Отклики, чей статус потерялся, найденные по чатам: на сервере стали Applied
+  recovered?: number;
+  autoReplies: AutoReply[];
+}
+
+export type DialogsResult = { ok: true; result: DialogsCounts } | { ok: false; error: string };
+
+export type ResumesResult = { ok: true; resumes: ResumeMatch[] } | { ok: false; error: string };
+
 interface VacancyDto {
   id: string;
   title: string;
@@ -29,17 +71,18 @@ interface VacancyDto {
 export class BackendClient {
   constructor(private send: ApiSender) {}
 
-  // /health открыт без ключа — проверяет адрес; /api/stats требует ключ — проверяет ключ
+  // /health открыт без токена — проверяет адрес; /api/stats требует токен — проверяет токен
   async check(): Promise<CheckResult> {
     const health = await this.call({ type: "hh-api", path: "/health" });
     if (health.status === 0) return { ok: false, message: `Сервер недоступен: ${health.error ?? "нет ответа"}` };
     if (health.status !== 200) return { ok: false, message: `Сервер ответил ${health.status} на /health — это точно backend?` };
 
     const stats = await this.call({ type: "hh-api", path: "/api/stats" });
-    if (stats.status === 401) return { ok: false, message: "Сервер доступен, но ключ API неверный" };
+    if (stats.status === 401) return { ok: false, message: "Сервер доступен, но токен неверный — выпустите новый (POST /api/tokens)" };
     if (stats.status !== 200) return { ok: false, message: `Сервер доступен, но /api/stats ответил ${stats.status}` };
 
-    const counts = JSON.parse(stats.body) as Record<string, number>;
+    const counts = parse<Record<string, number>>(stats);
+    if (!counts) return { ok: false, message: notJson(stats) };
     const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
     return { ok: true, message: `Связь есть: вакансий на сервере ${total}, в очереди ${counts.Queued ?? 0}` };
   }
@@ -49,7 +92,9 @@ export class BackendClient {
     const res = await this.call({ type: "hh-api", path: `/api/queue?limit=${limit}` });
     if (res.status !== 200) return { ok: false, error: describe(res) };
 
-    const items = (JSON.parse(res.body) as VacancyDto[]).map((v) => ({
+    const dtos = parse<VacancyDto[]>(res);
+    if (!Array.isArray(dtos)) return { ok: false, error: notJson(res) };
+    const items = dtos.map((v) => ({
       id: v.id,
       title: v.title,
       company: v.company,
@@ -81,6 +126,42 @@ export class BackendClient {
     return res.status === 200 ? { ok: true } : { ok: false, error: describe(res) };
   }
 
+  // Выдача в свой поиск на сервере (#27): отбор и оценка — там. 400 — поиска с таким именем нет
+  async importVacancies(search: string, vacancies: ImportCard[]): Promise<ImportResult> {
+    const res = await this.call({ type: "hh-api", path: "/api/import", method: "POST", body: { search, vacancies } });
+    if (res.status !== 200) return { ok: false, error: describe(res) };
+    const result = parse<ImportCounts>(res);
+    return result ? { ok: true, result } : { ok: false, error: notJson(res) };
+  }
+
+  // Профили резюме с сервера: по match резюме находится в списке на hh.ru
+  async getResumes(): Promise<ResumesResult> {
+    const res = await this.call({ type: "hh-api", path: "/api/resumes" });
+    if (res.status !== 200) return { ok: false, error: describe(res) };
+    const resumes = parse<ResumeMatch[]>(res);
+    if (!Array.isArray(resumes)) return { ok: false, error: notJson(res) };
+    return { ok: true, resumes: resumes.map(({ name, match }) => ({ name, match })) };
+  }
+
+  // Чаты откликов (#26): статусы и сообщения работодателей; разбор LLM — на сервере, в ответе — чаты для автоответа на отказ
+  async importDialogs(chats: DialogChat[]): Promise<DialogsResult> {
+    const res = await this.call({ type: "hh-api", path: "/api/dialogs", method: "POST", body: { chats } });
+    if (res.status !== 200) return { ok: false, error: describe(res) };
+    const result = parse<DialogsCounts>(res);
+    return result ? { ok: true, result } : { ok: false, error: notJson(res) };
+  }
+
+  async reportAutoReply(chatId: number, sent: boolean, error?: string): Promise<ReportResult> {
+    const res = await this.call({ type: "hh-api", path: `/api/dialogs/${chatId}/auto-reply`, method: "POST", body: { sent, error } });
+    return res.status === 200 ? { ok: true } : { ok: false, error: describe(res) };
+  }
+
+  // Событие для Telegram владельца (#28): сервер сам гасит повторы и молчит, если чат не привязан
+  async reportEvent(kind: ExtensionEvent, message?: string): Promise<ReportResult> {
+    const res = await this.call({ type: "hh-api", path: "/api/events", method: "POST", body: { kind, message } });
+    return res.status === 200 ? { ok: true } : { ok: false, error: describe(res) };
+  }
+
   private async call(request: ApiRequest): Promise<ApiResponse> {
     try {
       return await this.send(request);
@@ -97,8 +178,19 @@ function answered(questions: VacancyDto["questions"]): QuestionAnswer[] | undefi
   return questions.map((q) => ({ question: q.question, answer: q.answer }));
 }
 
+// Ответ 200 не JSON (прокси, страница ошибки) — ошибка запроса, а не исключение посреди очереди (#52)
+function parse<T>(res: ApiResponse): T | undefined {
+  try {
+    return JSON.parse(res.body) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+const notJson = (res: ApiResponse) => `ответ сервера — не JSON: ${res.body.slice(0, 100)}`;
+
 function describe(res: ApiResponse): string {
   if (res.status === 0) return `сервер недоступен: ${res.error ?? "нет ответа"}`;
-  if (res.status === 401) return "неверный ключ API";
+  if (res.status === 401) return "неверный токен";
   return `сервер ответил ${res.status}: ${res.body.slice(0, 200)}`;
 }

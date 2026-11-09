@@ -50,6 +50,16 @@ public class HhSourceTests
     }
 
     [Fact]
+    public void Search_WithZeroResults_IgnoresFillerVacancies()
+    {
+        using var state = HhPageParser.ExtractState(Page("""
+            {"vacancySearchResult":{"totalResults":0,"vacancies":[{"vacancyId":201,"name":"Ведущий менеджер маркетплейса"}]}}
+            """))!;
+
+        Assert.Empty(HhPageParser.ParseSearch(state.RootElement, "dotnet", DateTimeOffset.UtcNow)!);
+    }
+
+    [Fact]
     public void Vacancy_AddsDescriptionStackAndDate()
     {
         var v = Card("101", "C# разработчик");
@@ -109,4 +119,9 @@ public class HhSourceTests
     [Fact]
     public async Task Source_PageWithoutResults_IsBlocked() =>
         await Assert.ThrowsAsync<SourceBlockedException>(() => Source(HttpStatusCode.OK, "<html></html>").SearchAsync(Search, 0, default));
+
+    // Страница без данных ничего не говорит о вакансии: отклик нельзя закрыть как «вакансия недоступна» (#59)
+    [Fact]
+    public async Task Source_VacancyPageWithoutState_IsBlocked_NotUnavailable() =>
+        await Assert.ThrowsAsync<SourceBlockedException>(() => Source(HttpStatusCode.OK, "<html></html>").LoadDetailsAsync(Card("1", "x"), default));
 }

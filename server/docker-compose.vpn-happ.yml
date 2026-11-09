@@ -1,0 +1,26 @@
+# Исходящий VPN через Happ на рабочем столе сервера (#5): для подписки, привязанной к устройству, когда параметры
+# VLESS нельзя перенести в отдельный клиент. Маршруты те же, что в docker-compose.vpn.yml: через VPN только домены
+# из xray/base.json, hh.ru напрямую. Xray работает в сети хоста, потому что Happ слушает только 127.0.0.1:10808;
+# слушает адрес docker0 (172.17.0.1), из домашней сети недоступен.
+#
+# Включить: Happ подключён; ufw allow in from 172.16.0.0/12 to 172.17.0.1 port 10810 proto tcp;
+# в .env COMPOSE_FILE=docker-compose.yml:docker-compose.vpn-happ.yml; docker compose up -d.
+# Happ работает только после входа в KDE: без него запросы к этим доменам падают, напрямую не уходят, hh.ru работает.
+services:
+  xray:
+    # v26.10.31
+    image: ghcr.io/xtls/xray-core@sha256:ceabeac03a89d991d2a247361825c1d1d2e9c91cd5dc010f298c7dc0c2f325c9
+    restart: unless-stopped
+    network_mode: host
+    command: ["run", "-confdir", "/etc/hh-xray"]
+    volumes:
+      - ./xray/base.json:/etc/hh-xray/00-base.json:ro
+      - ./xray/happ.json:/etc/hh-xray/10-happ.json:ro
+
+  api:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      HTTPS_PROXY: http://host.docker.internal:10810
+      HTTP_PROXY: http://host.docker.internal:10810
+      NO_PROXY: hh.ru,.hh.ru,db,api,localhost,127.0.0.1
