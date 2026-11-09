@@ -23,6 +23,7 @@ public class VacancyExtractor : IExtractor<JobApplication, VacancyDto>
             SalaryCurrency = vacancy.SalaryCurrency,
             WorkFormat = vacancy.WorkFormat,
             Stack = vacancy.Stack,
+            WorkExperience = vacancy.WorkExperienceText,
             HasTest = vacancy.HasTest,
             PublishedAt = vacancy.PublishedAt,
             CollectedAt = vacancy.CollectedAt,

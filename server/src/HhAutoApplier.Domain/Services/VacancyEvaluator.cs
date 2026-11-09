@@ -20,6 +20,11 @@ public class VacancyEvaluator
         var exclude = rules.ExcludeKeywords.FirstOrDefault(k => text.Contains(TextNormalizer.Normalize(k)));
         if (exclude is not null) return Rejected($"стоп-слово «{exclude}»");
 
+        // «Junior» в названии часто значит 1–3 года опыта: без явного признака решает LLM (#72)
+        var title = TextNormalizer.Normalize(v.Title);
+        var level = rules.LevelKeywords.FirstOrDefault(k => !string.IsNullOrWhiteSpace(k) && title.Contains(TextNormalizer.Normalize(k)));
+        if (level is not null && v.EntryLevel) return Rejected($"слово уровня «{level}»: {v.WorkExperienceText}");
+
         var included = rules.IncludeKeywords.Where(k => text.Contains(TextNormalizer.Normalize(k))).ToList();
         if (rules.IncludeKeywords.Count > 0 && included.Count == 0) return Rejected("нет ни одного нужного слова");
 

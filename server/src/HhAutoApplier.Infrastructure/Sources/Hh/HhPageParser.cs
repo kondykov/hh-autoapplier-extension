@@ -74,7 +74,8 @@ public static partial class HhPageParser
             ? ks.EnumerateArray().Select(k => k.ValueKind == JsonValueKind.String ? k.GetString() ?? "" : Str(k, "name"))
                 .Where(s => s != "").ToList()
             : [];
-        vacancy.UpdateDetails(Str(v, "name"), HtmlToText(Str(v, "description")), skills);
+        var internship = v.TryGetProperty("internship", out var i) && i.ValueKind == JsonValueKind.True;
+        vacancy.UpdateDetails(Str(v, "name"), HtmlToText(Str(v, "description")), skills, internship ? Vacancy.Internship : Str(v, "workExperience"));
         return true;
     }
 

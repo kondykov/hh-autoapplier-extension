@@ -174,6 +174,9 @@ public sealed class FakeVacancySource : IVacancySource
     // Страница этой вакансии отвечает капчей: LoadDetailsAsync — SourceBlockedException
     public HashSet<string> BlockedDetails { get; } = [];
 
+    // Требуемый опыт со страницы вакансии (#72)
+    public Dictionary<string, string> WorkExperience { get; } = [];
+
     // Пока грузится страница вакансии: действие пользователя в это время
     public Func<string, Task>? WhileLoadingDetails { get; set; }
 
@@ -203,6 +206,7 @@ public sealed class FakeVacancySource : IVacancySource
         _asIs.Clear();
         NoDetails.Clear();
         BlockedDetails.Clear();
+        WorkExperience.Clear();
         WhileLoadingDetails = null;
         Blocked = false;
         Hold = null;
@@ -243,7 +247,7 @@ public sealed class FakeVacancySource : IVacancySource
             return false;
 
         vacancy.UpdateCard(null, null, Salary.From(card.SalaryFrom, null, card.SalaryFrom is null ? null : "RUR"), null, null, null);
-        vacancy.UpdateDetails(card.Title, card.Description, []);
+        vacancy.UpdateDetails(card.Title, card.Description, [], WorkExperience.GetValueOrDefault(vacancy.Id));
         return true;
     }
 }

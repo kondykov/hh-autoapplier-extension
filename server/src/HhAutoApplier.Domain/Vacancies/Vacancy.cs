@@ -32,6 +32,10 @@ public class Vacancy
 
     public string[] Stack { get; private set; } = [];
 
+    // Требуемый опыт кодом источника (noExperience, between1And3, between3And6, moreThan6) или Internship;
+    // null — неизвестен: старые и импортные карточки
+    public string? WorkExperience { get; private set; }
+
     public bool HasTest { get; private set; }
 
     public DateTimeOffset PublishedAt { get; private set; }
@@ -46,6 +50,25 @@ public class Vacancy
 
     // Хранится тремя колонками, наружу — одним значением
     public Salary? Salary => Salary.From(SalaryFrom, SalaryTo, SalaryCurrency);
+
+    public const string NoExperience = "noExperience";
+
+    // На странице hh.ru стажировка — отдельный флаг; важнее указанного опыта и хранится в том же поле
+    public const string Internship = "internship";
+
+    // Явный признак начального уровня: неизвестный опыт им не считается
+    public bool EntryLevel => WorkExperience is NoExperience or Internship;
+
+    // Для причины на карточке и промпта; неизвестный код показывается как есть
+    public string? WorkExperienceText => WorkExperience switch
+    {
+        NoExperience => "без опыта",
+        Internship => "стажировка",
+        "between1And3" => "1–3 года",
+        "between3And6" => "3–6 лет",
+        "moreThan6" => "более 6 лет",
+        var other => other,
+    };
 
     public static Vacancy Create(string id, string title, string url, string searchName, DateTimeOffset collectedAt, bool imported = false)
     {
@@ -73,7 +96,7 @@ public class Vacancy
         (Title, Url, Company, Area, WorkFormat, HasTest, PublishedAt) =
             (card.Title, card.Url, card.Company, card.Area, card.WorkFormat, card.HasTest, card.PublishedAt);
         (SalaryFrom, SalaryTo, SalaryCurrency) = (card.SalaryFrom, card.SalaryTo, card.SalaryCurrency);
-        (Description, Stack) = (card.Description, card.Stack);
+        (Description, Stack, WorkExperience) = (card.Description, card.Stack, card.WorkExperience);
         Imported = false;
     }
 
@@ -109,11 +132,12 @@ public class Vacancy
     }
 
     // Подробности со страницы вакансии; стек вычисляется по названию, описанию и навыкам
-    public void UpdateDetails(string? title, string description, IEnumerable<string> skills)
+    public void UpdateDetails(string? title, string description, IEnumerable<string> skills, string? workExperience = null)
     {
         if (!string.IsNullOrWhiteSpace(title))
             Title = title.Trim();
 
+        WorkExperience = string.IsNullOrWhiteSpace(workExperience) ? null : workExperience.Trim();
         Description = description.Length > MaxDescriptionLength ? description[..MaxDescriptionLength] : description;
         Stack = StackExtractor.Extract($"{Title} {Description}", skills);
     }

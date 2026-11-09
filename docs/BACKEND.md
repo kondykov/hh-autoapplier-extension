@@ -194,7 +194,11 @@ ASP.NET Core Identity (таблицы `AspNet*` в той же БД, мигра�
 | GET | `/api/stats?userId=` | счётчики по статусам |
 | GET | `/api/report?format=csv&userId=` | отчёт по откликам |
 
-Пример поиска: `PUT /api/searches` с `{"name":"dotnet","query":"C# .NET","area":"113","extraParams":"work_format=REMOTE","rules":{"excludeKeywords":["junior"],"minSalaryRub":200000}}`.
+Пример поиска: `PUT /api/searches` с `{"name":"dotnet","query":"C# .NET","area":"113","extraParams":"work_format=REMOTE","rules":{"excludeKeywords":["1С"],"levelKeywords":["junior"],"minSalaryRub":200000}}`.
+
+**Стоп-слова и слова уровня (#72).** `excludeKeywords` ищутся в названии, описании и стеке и сразу дают `Skipped`. `levelKeywords` ищутся только в названии и отсеивают лишь при явном признаке — `workExperience` равен `noExperience` или стоит флаг `internship` (причина «слово уровня «junior»: без опыта»). Опыт 1–3 года или неизвестный опыт — вакансия идёт дальше, и решает LLM. Слова уровня не попадают в пожелания кандидата (`не интересно: …`), даже если остались и в стоп-словах; модель получает «Требуемый опыт» и указание считать расхождение названия с требованиями поводом для `doubtful`, а не для `reject`, и называть его в причине.
+
+Требуемый опыт — `Vacancy.WorkExperience`, код со страницы вакансии (`vacancyView.vacancyFull.vacancy.workExperience`: `noExperience`, `between1And3`, `between3And6`, `moreThan6`). Флаг `internship` на той же странице важнее опыта и хранится в том же поле значением `internship`. У старых и неподтверждённых импортных карточек — `null`. В ответах API — необязательное поле `workExperience` текстом («1–3 года»), на карточке веб-интерфейса — «опыт: …». Без настроенной LLM вакансия со словом уровня и без явного признака идёт сразу в очередь, как любая прошедшая правила. Старые `Skipped` с причиной «стоп-слово» сами не меняются: их возвращает «Оценить заново».
 
 ## Ограничения (#60)
 

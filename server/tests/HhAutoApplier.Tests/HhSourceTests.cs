@@ -77,6 +77,39 @@ public class HhSourceTests
         Assert.Equal(TimeSpan.Zero, v.PublishedAt.Offset);
     }
 
+    // Структура живых страниц 138757991 и 139198060 (2026-11-09), только нужные поля
+    private const string JuniorJson = """
+        {"vacancyView":{"vacancyFull":{"vacancy":{
+          "vacancyId":138757991,"name":"Junior C#/.Net Developer","description":"<p>ASP.NET Core</p>",
+          "workExperience":"between1And3","internship":false}}}}
+        """;
+
+    private const string InternJson = """
+        {"vacancyView":{"vacancyFull":{"vacancy":{
+          "vacancyId":139198060,"name":"Java разработчик/Java Developer (стажер)","description":"<p>Java</p>",
+          "workExperience":"noExperience","internship":true}}}}
+        """;
+
+    private const string NoExperienceJson = """
+        {"vacancyView":{"vacancyFull":{"vacancy":{
+          "vacancyId":1,"name":"Junior","description":"","workExperience":"noExperience","internship":false}}}}
+        """;
+
+    [Theory]
+    [InlineData(JuniorJson, "between1And3", false)]
+    [InlineData(InternJson, Vacancy.Internship, true)]
+    [InlineData(NoExperienceJson, Vacancy.NoExperience, true)]
+    [InlineData(VacancyJson, null, false)]
+    public void Vacancy_ReadsWorkExperienceAndInternship(string json, string? experience, bool entryLevel)
+    {
+        var v = Card("1", "x");
+        using var state = HhPageParser.ExtractState(Page(json))!;
+
+        Assert.True(HhPageParser.ParseVacancy(state.RootElement, v));
+
+        Assert.Equal((experience, entryLevel), (v.WorkExperience, v.EntryLevel));
+    }
+
     [Fact]
     public void PageWithoutState_OrWithoutResults_IsNotParsed()
     {
