@@ -103,6 +103,42 @@ public class LlmChecksApiTests(ApiFactory factory) : IAsyncLifetime
         Assert.Equal(2, factory.Llm.Calls);
     }
 
+    // #80: неразобранный ответ не запрашивается на каждом проходе конвейера
+    [Fact]
+    public async Task Letter_UnparsedTwice_IsNotRequestedForADay()
+    {
+        await WriteLetters("не письмо");
+        await WriteLetters("{}");
+        Assert.Equal(2, factory.Llm.Calls);
+
+        var result = await WriteLetters(Good);
+
+        Assert.Equal(2, factory.Llm.Calls);
+        Assert.Equal(0, result.GetProperty("written").GetInt32());
+        Assert.Single(factory.Llm.Answers);
+        Assert.Equal(JsonValueKind.Null, (await Single("Queued")).GetProperty("coverLetter").ValueKind);
+    }
+
+    // Один неразобранный ответ — ещё не повод отказаться от письма
+    [Fact]
+    public async Task Letter_UnparsedOnce_IsRequestedAgain()
+    {
+        await WriteLetters("не письмо");
+
+        Assert.Equal(1, (await WriteLetters(Good)).GetProperty("written").GetInt32());
+    }
+
+    // Сбой провайдера: ответа не было, письмо пишется после восстановления
+    [Fact]
+    public async Task Letter_ProviderFailures_DoNotBlock()
+    {
+        for (var i = 0; i < 3; i++)
+            Assert.Equal(JsonValueKind.String, (await WriteLetters()).GetProperty("stoppedBy").ValueKind);
+
+        Assert.Equal(3, await factory.WithDbAsync(db => db.LlmCalls.CountAsync(c => c.Model == "" && c.Error != null)));
+        Assert.Equal(1, (await WriteLetters(Good)).GetProperty("written").GetInt32());
+    }
+
     [Fact]
     public async Task Letter_InventedYearsInWords_GoesToReview_EvenIfVacancyAsksForThem()
     {

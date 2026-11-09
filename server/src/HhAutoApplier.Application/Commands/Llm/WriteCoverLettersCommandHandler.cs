@@ -30,8 +30,9 @@ public class WriteCoverLettersCommandHandler(
 
         using var pass = await gate.EnterAsync(ct);
 
-        // Письма, которые дважды подряд вышли с цифрами не из фактов, сутки не переписываются: конвейер идёт раз в минуту,
-        // без паузы это цикл запросов к LLM. Без письма расширение возьмёт свой шаблон. Считается по отклику — вакансия
+        // Письма, которые дважды вышли с цифрами не из фактов, с заглушками или не разобраны (#80), сутки не переписываются:
+        // конвейер идёт раз в минуту, без паузы это цикл запросов к LLM. Сбой провайдера не считается: ответа не было, письма
+        // должны написаться после восстановления. Без письма расширение возьмёт свой шаблон. Считается по отклику — вакансия
         // и её владелец (#57): неудачи с профилем одного пользователя не лишают писем другого
         var since = clock.GetUtcNow().AddDays(-1);
         var usage = await quota.LoadAsync(ct);
@@ -39,7 +40,7 @@ public class WriteCoverLettersCommandHandler(
         var queued = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct))
             .Where(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter == null && !exhausted.Contains(a.UserId))
             .Where(a => db.LlmCalls.Count(c => c.Purpose == CoverLetterWriting.Purpose && c.Error != null
-                                               && (c.Error.StartsWith(CoverLetterWriting.FiguresError) || c.Error.StartsWith(CoverLetterWriting.PlaceholdersError))
+                                               && (c.Error == LlmCall.Unparsed || c.Error.StartsWith(CoverLetterWriting.FiguresError) || c.Error.StartsWith(CoverLetterWriting.PlaceholdersError))
                                                && c.CreatedAt > since && c.VacancyId == a.VacancyId && c.UserId == a.UserId) < MaxAttempts)
             .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
         if (queued.Count == 0)
