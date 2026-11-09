@@ -1,0 +1,8 @@
+<Project>
+
+  <PropertyGroup>
+    <!-- Версия backend, своя, не связана с версией расширения. Как поднимать — AGENTS.md, «Версии» -->
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+</Project>

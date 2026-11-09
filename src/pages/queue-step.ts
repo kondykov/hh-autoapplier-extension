@@ -1,3 +1,4 @@
+import { describeServer, incompatibleMessage, UNKNOWN_VERSION_MESSAGE } from "../api/version";
 import type { ApplyResult } from "../apply/pipeline";
 import { isAlreadyRespondedOnPage } from "../apply/outcome-detector";
 import { pauseBetween, RANGES, wait } from "../core/delays";
@@ -75,7 +76,32 @@ export class QueueStep implements PageStep {
       config.queueDryRun ? "warn" : "step",
     );
     await this.ctx.persist();
-    await this.openNext();
+    if (await this.serverCompatible()) await this.openNext();
+  }
+
+  // Несовместимый backend мог бы принять статусы иначе, чем думает расширение (#77): откликаться с ним нельзя.
+  // Сборка без версии — только предупреждение: проверить нечем, а обновляется backend отдельно
+  private async serverCompatible(): Promise<boolean> {
+    const { state, backend, logger } = this.ctx;
+    const version = await backend.getServerVersion();
+    if (!state.queueRunning) return false;
+
+    switch (version.state) {
+      case "compatible":
+        logger.log(`Сервер ${describeServer(version.server)}`, "step");
+        return true;
+      case "unknown":
+        logger.log(UNKNOWN_VERSION_MESSAGE, "warn");
+        return true;
+      case "incompatible":
+        stopQueue(this.ctx, incompatibleMessage(version.server));
+        break;
+      case "error":
+        stopQueue(this.ctx, `Версия сервера недоступна: ${version.error}`);
+        break;
+    }
+    await this.ctx.persist();
+    return false;
   }
 
   private async doResume(): Promise<void> {

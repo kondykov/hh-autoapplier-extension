@@ -20,6 +20,14 @@ cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:808
 ```
 Расширение читается только при старте браузера: после `build` браузер перезапускать (спросить, если у владельца открыта страница).
 
+## Версии
+У расширения и backend версии свои, совместимость между ними — номер контракта API (#77).
+- Расширение: `manifest.json`, `package.json`, `package-lock.json` — поднимать вместе при изменении `src/`
+- Backend: `server/Directory.Build.props` — поднимать при изменении `server/src` (SemVer); `GET /api/version` отдаёт версию, коммит и контракт
+- Контракт: `ApiContract.Version` и `API_VERSION` в `src/api/version.ts` — поднимать вместе и только при несовместимом изменении (удалили или переименовали поле или эндпоинт, поменяли смысл статуса); новое необязательное поле контракт не меняет. Расхождение ловит `npm test`
+- Известное расхождение контракта не даёт запустить очередь; сборка без `/api/version` — предупреждение
+- Сборка образа с коммитом: `GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build`
+
 ## Testing
 - Чистая логика — тесты в `tests/` (vitest + happy-dom), без живого hh.ru; разметка формы отклика hh.ru — `tests/fixtures/response-form.ts` (по живой странице), её же брать для новых тестов конвейера
 - Backend — `server/tests/HhAutoApplier.Tests`

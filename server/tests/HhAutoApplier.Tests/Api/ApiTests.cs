@@ -42,6 +42,26 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
     private Task<HttpResponseMessage> SetStatus(string id, string status, string? reason = null) =>
         _api.PostAsJsonAsync($"/api/vacancies/{id}/status", new { status, reason });
 
+    // Расширение сверяет контракт API перед запуском очереди (#77)
+    [Fact]
+    public async Task Version_ReturnsBuildAndContract()
+    {
+        var version = await Json(await _api.GetAsync("/api/version"));
+
+        Assert.Matches(@"^\d+\.\d+\.\d+$", version.GetProperty("version").GetString()!);
+        Assert.False(string.IsNullOrWhiteSpace(version.GetProperty("commit").GetString()));
+        Assert.True(version.GetProperty("commit").GetString()!.Length <= 7);
+        Assert.Equal(HhAutoApplier.Application.ApiContract.Version, version.GetProperty("apiVersion").GetInt32());
+    }
+
+    [Fact]
+    public async Task Version_WithoutLogin_Unauthorized()
+    {
+        var response = await factory.CreateClient().GetAsync("/api/version");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
     // CORS выключен по умолчанию (#20): чужой сайт не получает разрешения ни на preflight, ни на обычный запрос
     [Fact]
     public async Task Cors_ForeignOrigin_NotAllowedByDefault()

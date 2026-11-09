@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AutoReply } from "../src/api/client";
+import { API_VERSION, type ServerVersionResult } from "../src/api/version";
 import type { ApplyResult } from "../src/apply/pipeline";
 import { DEFAULT_CONFIG, type AppConfig } from "../src/core/config";
 import { DailyLimit } from "../src/core/daily-limit";
@@ -38,6 +39,7 @@ function context(opts: { url?: string; queue?: QueueItem[]; result?: ApplyResult
       setRejectActive: vi.fn(),
     },
     backend: {
+      getServerVersion: vi.fn(async (): Promise<ServerVersionResult> => ({ state: "compatible", server: { version: "0.1.0", commit: "abc1234", apiVersion: API_VERSION } })),
       getQueue: vi.fn(async () => ({ ok: true as const, items: opts.queue ?? [] })),
       getResumes: vi.fn(async () => ({ ok: true as const, resumes: [{ name: ".NET", match: "C# .NET" }] })),
       importVacancies: vi.fn(async (_search: string, _cards: ImportCard[]) => ({ ok: true as const, result: { received: 2, added: 2, queued: 1, skipped: 1, waiting: 0 } })),
@@ -97,6 +99,45 @@ describe("QueueStep", () => {
     expect(ctx.state.queueRunning).toBe(true);
     expect(ctx.state.queueCurrent).toMatchObject({ id: "1", resume: ".NET", resumeMatch: "C# .NET" });
     expect(visited).toEqual([RESPONSE("1")]);
+  });
+
+  it.each<[string, ServerVersionResult, string]>([
+    ["другой контракт API", { state: "incompatible", server: { version: "9.0.0", commit: "def5678", apiVersion: API_VERSION + 1 } }, "несовместим"],
+    ["версию получить не удалось", { state: "error", error: "сервер ответил 500" }, "Версия сервера недоступна"],
+  ])("%s — очередь не запускается, вакансия не открывается (#77)", async (_name, version, text) => {
+    const { ctx, visited, messages } = context({ queue: [item("1")] });
+    ctx.backend.getServerVersion.mockResolvedValue(version);
+
+    await run(new QueueStep(ctx).toggle());
+
+    expect(ctx.state.queueRunning).toBe(false);
+    expect(ctx.backend.getQueue).not.toHaveBeenCalled();
+    expect(visited).toEqual([]);
+    expect(messages.at(-1)).toContain(text);
+  });
+
+  it("сервер старой сборки без версии — предупреждение, очередь идёт (#77)", async () => {
+    const { ctx, visited, messages } = context({ queue: [item("1")] });
+    ctx.backend.getServerVersion.mockResolvedValue({ state: "unknown" });
+
+    await run(new QueueStep(ctx).toggle());
+
+    expect(ctx.state.queueRunning).toBe(true);
+    expect(visited).toEqual([RESPONSE("1")]);
+    expect(messages.some((m) => m.includes("Версия сервера неизвестна"))).toBe(true);
+  });
+
+  it("очередь остановили, пока ждали версию сервера, — вакансия не открывается (#77)", async () => {
+    const { ctx, visited } = context({ queue: [item("1")] });
+    ctx.backend.getServerVersion.mockImplementation(async () => {
+      ctx.state.queueRunning = false;
+      return { state: "compatible", server: { version: "0.1.0", commit: "abc1234", apiVersion: API_VERSION } };
+    });
+
+    await run(new QueueStep(ctx).toggle());
+
+    expect(ctx.backend.getQueue).not.toHaveBeenCalled();
+    expect(visited).toEqual([]);
   });
 
   it("резюме с сервера недоступны — очередь останавливается, вакансия не открывается", async () => {
