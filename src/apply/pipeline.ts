@@ -11,7 +11,7 @@ import { attachLetterAndSubmit } from "./submit";
 import { humanClick } from "../dom/input";
 
 // stopped — очередь остановили (или перезапустили с другой вакансией), пока конвейер работал: ничего не отправлено.
-// captcha — посреди отклика появилась капча: дальше без человека не идём, «Отправить» не нажата
+// captcha — посреди отклика появилась капча: дальше без человека не идём. «Отправить» не нажата, либо капча появилась сразу после нажатия и отклик мог уйти
 export type ApplyResult = "success" | "outline" | "skipped" | "disabled" | "unclear" | "failed" | "dry_run" | "stopped" | "captcha";
 
 type Halt = "stopped" | "captcha";
@@ -85,9 +85,11 @@ export class ApplyPipeline {
       halt = this.halt(vacancy);
       return this.deps.dryRun() || halt !== null;
     };
-    const result = await attachLetterAndSubmit(letter, logger, dryRun, questionnaire, () => this.deps.onSubmit(vacancy));
+    const result = await attachLetterAndSubmit(letter, logger, dryRun, questionnaire, () => this.deps.onSubmit(vacancy), () => this.deps.captchaHit());
     if (result === "dry_run" && halt) return this.halted(halt);
     switch (result) {
+      case "captcha":
+        return this.captchaAfterSubmit();
       case "outline":
         return this.saveOutline(vacancy);
       case "success":
@@ -113,6 +115,7 @@ export class ApplyPipeline {
     this.deps.logger.log("После отправки страница сменилась — жду исход без повторного нажатия");
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
+      if (this.deps.captchaHit()) return this.captchaAfterSubmit();
       if (isOutlineDetected()) return this.saveOutline(vacancy);
       if (isAlreadyRespondedOnPage()) {
         await this.deps.onApplied(vacancy);
@@ -120,8 +123,14 @@ export class ApplyPipeline {
       }
       await wait(300);
     }
+    if (this.deps.captchaHit()) return this.captchaAfterSubmit();
     this.deps.logger.log('Отклик не подтверждён, добавляю в "Непонятное"', "warn");
     return "unclear";
+  }
+
+  private captchaAfterSubmit(): ApplyResult {
+    this.deps.logger.log("Капча после нажатия «Отправить» — отклик мог уйти, повторно не отправляю", "warn");
+    return "captcha";
   }
 
   private halt(vacancy: Vacancy): Halt | null {
