@@ -101,6 +101,57 @@ public class LlmClientTests
         Assert.Single(keyHttp.Requests); // 4xx не повторяем
     }
 
+    // #81: вариант без текста — ответ модели на этот запрос, а не сбой провайдера
+    [Theory]
+    [InlineData("""{"message":{"role":"assistant","content":null},"finish_reason":"length"}""")]
+    [InlineData("""{"message":{"role":"assistant"}}""")]
+    [InlineData("""{"message":null}""")]
+    [InlineData("{}")]
+    public async Task ChoiceWithoutText_ReturnsEmptyResult_WithModelAndTokens(string choice)
+    {
+        var budget = new LlmBudget(TimeProvider.System);
+        var body = $$$"""{"model":"reasoning-model","choices":[{{{choice}}}],"usage":{"prompt_tokens":120,"completion_tokens":800}}""";
+        var (client, http, pauses) = Create(new Script((HttpStatusCode.OK, body, null)), budget: budget);
+
+        var result = await client.CompleteAsync(Ask, default);
+
+        Assert.Equal(new LlmResult("", "reasoning-model", 120, 800), result);
+        Assert.Single(http.Requests);
+        Assert.Empty(pauses);
+        Assert.Equal(1, budget.Used);
+    }
+
+    // Модель не пустая: по ней доля пользователя отличает ответ от сбоя провайдера
+    [Theory]
+    [InlineData("""{"model":"","choices":[{"message":{"content":null}}]}""")]
+    [InlineData("""{"choices":[{"message":{"content":null}}]}""")]
+    public async Task ChoiceWithoutModel_UsesConfiguredModel(string body)
+    {
+        var (client, _, _) = Create(new Script((HttpStatusCode.OK, body, null)));
+
+        Assert.Equal(new LlmResult("", "openai/gpt-oss-120b", 0, 0), await client.CompleteAsync(Ask, default));
+    }
+
+    // Нет тела или ни одного варианта: модель не отвечала, это сбой провайдера
+    [Theory]
+    [InlineData("")]
+    [InlineData("null")]
+    [InlineData("<html>502</html>")]
+    [InlineData("{}")]
+    [InlineData("""{"error":{"message":"overloaded"}}""")]
+    [InlineData("""{"choices":null}""")]
+    [InlineData("""{"choices":[]}""")]
+    [InlineData("""{"choices":[null]}""")]
+    public async Task NoBodyOrChoices_IsProviderFailure(string body)
+    {
+        var (client, http, _) = Create(new Script((HttpStatusCode.OK, body, null)));
+
+        var e = await Assert.ThrowsAsync<LlmUnavailableException>(() => client.CompleteAsync(Ask, default));
+
+        Assert.Contains("нет текста", e.Message);
+        Assert.Single(http.Requests);
+    }
+
     [Fact]
     public async Task WithoutKey_NotConfigured_AndNoRequest()
     {

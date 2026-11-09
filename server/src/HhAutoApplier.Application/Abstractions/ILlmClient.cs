@@ -6,7 +6,8 @@ public interface ILlmClient
     // Ключ и модель заданы; без них вызывать бессмысленно
     bool IsConfigured { get; }
 
-    // LlmUnavailableException — не настроен, исчерпан дневной лимит или провайдер не ответил после повторов
+    // LlmUnavailableException — не настроен, исчерпан дневной лимит, провайдер не ответил после повторов или в ответе нет ни
+    // одного варианта. Вариант без текста — не сбой: LlmResult с пустым Content, вызывающий считает его неразобранным (#81)
     Task<LlmResult> CompleteAsync(LlmRequest request, CancellationToken ct);
 }
 
