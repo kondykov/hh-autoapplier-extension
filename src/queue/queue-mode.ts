@@ -48,6 +48,11 @@ export function isQueueOn(queueRunning: boolean, current: QueueItem | null, link
 export const pickNext = (queue: QueueItem[], tried: string[]): QueueItem | null =>
   queue.find((v) => !tried.includes(v.id)) ?? null;
 
+// Сколько неудач подряд очередь терпит, прежде чем остановиться (#75)
+export const QUEUE_FAIL_LIMIT = 3;
+
+export const isQueueFailure = (result: ApplyResult): boolean => result === "skipped" || result === "failed" || result === "unclear";
+
 // Исход конвейера → статус на сервере. null — серверу ничего не сообщаем (пробный прогон, ручное вмешательство)
 export function toStatusReport(result: ApplyResult): StatusReport | null {
   switch (result) {

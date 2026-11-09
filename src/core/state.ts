@@ -28,6 +28,7 @@ interface PersistedState {
   queueCurrent: QueueItem | null;
   queueTried: string[];
   queueRunApplied: number;
+  queueFailStreak: number;
   queueOpened: boolean;
   queueSubmitted: string | null;
   queueTab: number | null;
@@ -44,6 +45,8 @@ export class AppState {
   queueTried: string[] = [];
   // Откликов, ушедших на hh.ru в этом запуске очереди: для лимита за запуск
   queueRunApplied = 0;
+  // Неудачных вакансий подряд в этом запуске: при QUEUE_FAIL_LIMIT очередь останавливается (#75)
+  queueFailStreak = 0;
   // Переход к форме queueCurrent уже начат. hh.ru после «Отправить» сам загружает новую страницу — она может прийти
   // раньше нашего перехода и не должна считать, что форма следующей вакансии не открылась
   queueOpened = false;
@@ -64,6 +67,7 @@ export class AppState {
       queueCurrent: this.queueCurrent,
       queueTried: this.queueTried,
       queueRunApplied: this.queueRunApplied,
+      queueFailStreak: this.queueFailStreak,
       queueOpened: this.queueOpened,
       queueSubmitted: this.queueSubmitted,
       queueTab: this.queueTab,
@@ -100,6 +104,7 @@ function fromSaved(saved: Partial<PersistedState>): AppState {
   state.queueCurrent = saved.queueCurrent ?? null;
   state.queueTried = saved.queueTried ?? [];
   state.queueRunApplied = saved.queueRunApplied ?? 0;
+  state.queueFailStreak = saved.queueFailStreak ?? 0;
   state.queueOpened = saved.queueOpened ?? false;
   state.queueSubmitted = saved.queueSubmitted ?? null;
   state.queueTab = saved.queueTab ?? null;

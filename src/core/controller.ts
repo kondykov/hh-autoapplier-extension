@@ -148,6 +148,7 @@ export class Controller {
     state.queueCurrent = saved.queueCurrent;
     state.queueTried = saved.queueTried;
     state.queueRunApplied = saved.queueRunApplied;
+    state.queueFailStreak = saved.queueFailStreak;
     state.queueOpened = saved.queueOpened;
     state.queueSubmitted = saved.queueSubmitted;
     state.queueTab = saved.queueTab;

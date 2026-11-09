@@ -171,7 +171,7 @@ ASP.NET Core Identity (таблицы `AspNet*` в той же БД, мигра�
 | GET | `/api/collect/status` | идущий проход сбора и итог последнего (только `Admin`) |
 | POST | `/api/llm/check` | проверить ключ и модель LLM (только `Admin`; 503 — не настроена, лимит, провайдер не отвечает) |
 | POST | `/api/llm/evaluate` | `{limit}`: оценить LLM вакансии `Pending` всех пользователей (только `Admin`; 503 — LLM не настроена) |
-| POST | `/api/vacancies/{id}/review` | `{approve, coverLetter?, reason?}`: ручная проверка своего отклика `Review` |
+| POST | `/api/vacancies/{id}/review` | `{approve, coverLetter?, answers?, reason?}`: ручная проверка своего отклика `Review` (`answers` — поправленные ответы анкеты, все по порядку вопросов) |
 | POST | `/api/vacancies/{id}/questionnaire` | `{questions[]}`: анкета от расширения → `Questionnaire` |
 | POST | `/api/llm/answers` | `{limit}`: ответить LLM на анкеты `Questionnaire` (только `Admin`; 503 — LLM не настроена) |
 | POST | `/api/llm/letters` | `{limit}`: написать LLM письма для очереди без письма (только `Admin`; 503 — LLM не настроена) |

@@ -7,7 +7,7 @@
 ## Commands
 ```powershell
 npm run typecheck                 # tsc --noEmit
-npm test                          # vitest (130 тестов)
+npm test                          # vitest
 npm run build                     # dist/content.js + dist/background.js (esbuild)
 node scripts/dev-browser.mjs      # Chromium с расширением, профиль .profile, CDP :9222
 node scripts/cdp-queue-dry-run.mjs # пробный проход очереди в запущенном dev-браузере: журнал и снимок формы, без отправки
@@ -15,7 +15,7 @@ node scripts/cdp-inspect.mjs [--form] # read-only: вкладки dev-брауз
 node scripts/db-query.mjs "select ..." # read-only запрос к базе docker compose
 node scripts/server.mjs inspect   # read-only снимок сервера backend по SSH (Debian 13; хост — псевдоним home-server-root из ~/.ssh/config)
 node scripts/server.mjs ps "..."  # pwsh на сервере по SSH (UTF-8); --windows — Windows PowerShell; изменения на сервере — только по решению владельца
-cd server; dotnet test            # xunit (161 тест; нужен запущенный Docker — Postgres для тестов API в Testcontainers)
+cd server; dotnet test            # xunit (нужен запущенный Docker — Postgres для тестов API в Testcontainers)
 cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:8080
 ```
 Расширение читается только при старте браузера: после `build` браузер перезапускать (спросить, если у владельца открыта страница).

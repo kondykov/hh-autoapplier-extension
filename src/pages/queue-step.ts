@@ -4,7 +4,7 @@ import { pauseBetween, RANGES, wait } from "../core/delays";
 import type { AppState, Vacancy } from "../core/state";
 import type { PageType } from "../dom/page-type";
 import { toServerQuestions } from "../questions/fill";
-import { isPageOf, pickNext, responseUrl, toStatusReport, type QueueItem } from "../queue/queue-mode";
+import { isPageOf, isQueueFailure, pickNext, QUEUE_FAIL_LIMIT, responseUrl, toStatusReport, type QueueItem } from "../queue/queue-mode";
 import { extractVacancyInfo } from "./vacancy-info";
 import { reportDailyLimit, stopQueue, type PageStep, type StepContext } from "./step-context";
 
@@ -68,6 +68,7 @@ export class QueueStep implements PageStep {
     state.queueSubmitted = null;
     state.queueTried = [];
     state.queueRunApplied = 0;
+    state.queueFailStreak = 0;
     panel.setQueueActive(true);
     logger.log(
       config.queueDryRun ? "Очередь: пробный режим — «Отправить» не нажимается, статусы на сервер не уходят" : "Очередь: отклики отправляются",
@@ -102,9 +103,10 @@ export class QueueStep implements PageStep {
       return;
     }
     if (!isPageOf(nav.url(), current.id)) {
-      // hh.ru не открыл форму отклика (вакансия в архиве, перенаправил на другую страницу) — идём дальше
-      logger.log(`Форма отклика для "${current.title}" не открылась`, "warn");
-      await this.finish(current, "skipped");
+      // Слетел вход (hh.ru ведёт на регистрацию), блокировка или другой сбой: о вакансии это ничего не говорит, а следующие
+      // получили бы то же самое (#75). Статус не трогаем — отклик остаётся в очереди
+      stopQueue(this.ctx, `Вместо формы отклика "${current.title}" открылась страница ${new URL(nav.url()).pathname} — очередь остановлена, статус не менялся. Проверьте вход на hh.ru`);
+      await this.ctx.persist();
       return;
     }
 
@@ -148,6 +150,7 @@ export class QueueStep implements PageStep {
       const sent = await this.sendQuestionnaire(current);
       if (sent === "stopped") return;
       if (sent === "sent") {
+        state.queueFailStreak = 0;
         await this.advance();
         return;
       }
@@ -243,6 +246,13 @@ export class QueueStep implements PageStep {
         return;
       }
       logger.log(`Сервер: "${item.title}" → ${report.status}`, report.status === "Applied" ? "success" : "warn");
+    }
+    // Неудачи подряд — скорее сбой на стороне hh.ru (страница блокировки на адресе формы), чем плохие вакансии (#75)
+    state.queueFailStreak = isQueueFailure(result) ? state.queueFailStreak + 1 : 0;
+    if (state.queueRunning && state.queueFailStreak >= QUEUE_FAIL_LIMIT) {
+      stopQueue(this.ctx, `Очередь остановлена: ${state.queueFailStreak} неудачи подряд — проверьте вход на hh.ru и страницу вакансии`);
+      await this.ctx.persist();
+      return;
     }
     await this.advance();
   }

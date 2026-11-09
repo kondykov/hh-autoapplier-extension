@@ -3,7 +3,7 @@ import type { AutoReply } from "../src/api/client";
 import type { ApplyResult } from "../src/apply/pipeline";
 import { DEFAULT_CONFIG, type AppConfig } from "../src/core/config";
 import { DailyLimit } from "../src/core/daily-limit";
-import { AppState, type Vacancy } from "../src/core/state";
+import { AppState, StateRepository, type Vacancy } from "../src/core/state";
 import type { DialogChat } from "../src/dialogs/chats";
 import { Logger } from "../src/infra/logger";
 import { MemoryStorage } from "../src/infra/storage";
@@ -277,15 +277,85 @@ describe("QueueStep", () => {
     expect(ctx.pipeline.applyOnPage).not.toHaveBeenCalled();
   });
 
-  it("hh.ru не открыл форму: Failed без запуска конвейера", async () => {
-    const { ctx } = context({ url: "https://hh.ru/vacancy/999", queue: [item("1")], config: { queueDryRun: false } });
+  // #75: без входа hh.ru ведёт сюда (проверено 2026-11-09)
+  const SIGNUP = "https://hh.ru/account/signup?postponed=&backurl=%2Fsearch%2Fvacancy&hhtmFrom=vacancy_response";
+
+  it.each([
+    ["регистрацию", SIGNUP, "/account/signup"],
+    ["другую вакансию", "https://hh.ru/vacancy/999", "/vacancy/999"],
+  ])("hh.ru увёл с формы на %s: очередь остановлена, статус не меняется (#75)", async (_name, url, path) => {
+    const { ctx, visited, messages } = context({ url, queue: [item("1"), item("2")], config: { queueDryRun: false } });
     Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"], queueOpened: true });
 
     await run(new QueueStep(ctx).resume());
 
     expect(ctx.pipeline.applyOnPage).not.toHaveBeenCalled();
-    expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", expect.objectContaining({ status: "Failed" }), ".NET");
-    expect(ctx.state.queueRunning).toBe(false); // других вакансий нет
+    expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
+    expect(visited).toEqual([]);
+    expect(ctx.state.queueRunning).toBe(false);
+    expect(ctx.panel.setQueueActive).toHaveBeenLastCalledWith(false);
+    expect(messages.at(-1)).toContain(path);
+    expect(messages.at(-1)).not.toContain("backurl");
+    expect(ctx.persist).toHaveBeenCalled();
+  });
+
+  // Прогон по адресам очереди: после каждого resume подменный nav уже стоит на следующей форме
+  const queueRun = (results: ApplyResult[], config: Partial<AppConfig> = { queueDryRun: false }) => {
+    const queue = ["1", "2", "3", "4", "5", "6"].map(item);
+    const env = context({ url: RESPONSE("1"), queue, config });
+    Object.assign(env.ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"], queueOpened: true });
+    for (const result of results) env.ctx.pipeline.applyOnPage.mockResolvedValueOnce(result);
+    return { ...env, step: new QueueStep(env.ctx) };
+  };
+
+  it("три неудачи подряд — очередь останавливается, четвёртая вакансия не открывается (#75)", async () => {
+    const { ctx, step, visited, messages } = queueRun(["skipped", "failed", "unclear"]);
+
+    for (let i = 0; i < 3; i++) await run(step.resume());
+
+    expect(ctx.backend.reportStatus).toHaveBeenCalledTimes(3);
+    expect(visited).toEqual([RESPONSE("2"), RESPONSE("3")]);
+    expect(ctx.state.queueRunning).toBe(false);
+    expect(ctx.state.queueCurrent).toBeNull();
+    expect(messages.at(-1)).toContain("3 неудачи подряд");
+  });
+
+  it("удача сбрасывает счётчик неудач (#75)", async () => {
+    const { ctx, step, visited } = queueRun(["skipped", "failed", "success", "skipped", "failed"]);
+
+    for (let i = 0; i < 5; i++) await run(step.resume());
+
+    expect(ctx.state.queueRunning).toBe(true);
+    expect(visited.at(-1)).toBe(RESPONSE("6"));
+  });
+
+  it("пробный режим: три неудачи подряд тоже останавливают, статусы не уходят (#75)", async () => {
+    const { ctx, step, visited } = queueRun(["skipped", "skipped", "skipped"], { queueDryRun: true });
+
+    for (let i = 0; i < 3; i++) await run(step.resume());
+
+    expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
+    expect(visited).toEqual([RESPONSE("2"), RESPONSE("3")]);
+    expect(ctx.state.queueRunning).toBe(false);
+  });
+
+  it("новый запуск очереди начинает счёт неудач заново (#75)", async () => {
+    const { ctx } = context({ queue: [item("1")] });
+    ctx.state.queueFailStreak = 2;
+
+    await run(new QueueStep(ctx).toggle());
+
+    expect(ctx.state.queueFailStreak).toBe(0);
+  });
+
+  it("счётчик неудач переживает переход между страницами (#75)", async () => {
+    const repository = new StateRepository(new MemoryStorage());
+    const state = new AppState();
+    state.queueFailStreak = 2;
+
+    await repository.save(state);
+
+    expect((await repository.load()).queueFailStreak).toBe(2);
   });
 
   it("статус не дошёл до сервера или кнопка неактивна — остановка без перехода", async () => {
