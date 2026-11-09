@@ -65,4 +65,10 @@ public record VacancyDto
 
     // История статусов отклика (#8); новое поле — прежние клиенты его не читают
     public List<ApplicationEventDto> History { get; init; } = [];
+
+    // Скрыта из списка (#71)
+    public DateTimeOffset? HiddenAt { get; init; }
+
+    // Отсеяна человеком, LLM или правилами: можно оценить заново и скрыть (#71)
+    public bool Dismissed { get; init; }
 }

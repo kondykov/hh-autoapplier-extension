@@ -45,6 +45,9 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTimeOffset?>("HiddenAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset?>("LlmEvaluatedAt")
                         .HasColumnType("timestamp with time zone");
 

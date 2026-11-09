@@ -64,6 +64,9 @@ public class JobApplication
     // Переходы между статусами, по порядку
     public List<ApplicationEvent> History { get; private set; } = [];
 
+    // Скрыт из списка: меняется только показ, статус и история остаются (#71). Скрытым может быть только отсеянный отклик
+    public DateTimeOffset? HiddenAt { get; private set; }
+
     public static JobApplication Create(Vacancy vacancy, Guid? userId, DateTimeOffset at, int? searchId = null) => new()
     {
         Vacancy = vacancy,
@@ -306,12 +309,51 @@ public class JobApplication
         MoveTo(VacancyStatus.Queued, null, at);
     }
 
-    // Смена статуса с записью в историю; без смены статуса меняется только причина.
+    // Отсеян до отклика — человеком, LLM или правилами: такой отклик можно оценить заново и скрыть (#71).
+    // Failed не входит: отклик «не подтверждён» мог уйти на hh.ru, для него есть «В очередь»
+    public bool Dismissed => Status == VacancyStatus.Skipped;
+
+    // Оценить заново: письмо LLM и ответы анкеты привязаны к прежнему резюме и сбрасываются, письмо человека остаётся.
+    // Импортная карточка ждёт в New, её подтвердит и оценит сбор; остальные — сразу правилами и затем в Pending на LLM.
+    // Без настроенной LLM сценарий не запускается: это проверяет обработчик
+    public void Reevaluate(VacancyEvaluator evaluator, FilterRules rules, IEnumerable<ResumeProfile> resumes, DateTimeOffset at)
+    {
+        if (!Dismissed)
+            throw new DomainException($"Из статуса {Status} оценить заново нельзя");
+
+        if (CoverLetterModel != ManualLetter)
+            ResetCoverLetter();
+        Questions = [];
+        (LlmVerdict, LlmScore, LlmReason, LlmModel, LlmEvaluatedAt) = (null, null, null, null, null);
+
+        // Через New: правила могут снова отсеять, и без этого шага в истории не осталось бы записи
+        MoveTo(VacancyStatus.New, Reevaluation, at);
+        if (!Vacancy.Imported)
+            Evaluate(evaluator, rules, resumes, at, awaitLlm: true);
+    }
+
+    // Повторное скрытие оставляет дату первого
+    public void Hide(DateTimeOffset at)
+    {
+        if (!Dismissed)
+            throw new DomainException($"Скрыть можно только отсеянный отклик, сейчас {Status}");
+
+        HiddenAt ??= at;
+    }
+
+    public void Unhide() => HiddenAt = null;
+
+    // Смена статуса с записью в историю; без смены статуса меняется только причина. Новый статус снимает скрытие:
+    // иначе отклик в очереди или отправленный остался бы скрыт.
     // Список пересобирается, а не дополняется: так EF видит изменение JSON-колонки
     private void MoveTo(VacancyStatus status, string? reason, DateTimeOffset at)
     {
         if (status != Status)
+        {
             History = [.. History, new ApplicationEvent { At = at, From = Status, To = status, Reason = reason }];
+            HiddenAt = null;
+        }
+
         (Status, StatusReason) = (status, reason);
     }
 
@@ -323,6 +365,9 @@ public class JobApplication
 
     // Причина пропуска, когда страница вакансии не открылась при подтверждении импортной карточки
     public const string VacancyUnavailable = "вакансия недоступна";
+
+    // Причина в истории, когда человек вернул отклик на оценку
+    public const string Reevaluation = "повторная оценка";
 
     private const string LetterReviewPrefix = "письмо: проверить";
 
