@@ -142,5 +142,6 @@ public class Vacancy
         Stack = StackExtractor.Extract($"{Title} {Description}", skills);
     }
 
-    private const int MaxDescriptionLength = 4000;
+    // Просьба работодателя часто в самом конце описания (#72); промпты всё равно берут только начало
+    private const int MaxDescriptionLength = 20_000;
 }

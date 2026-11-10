@@ -27,12 +27,21 @@ public class JobApplicationConfiguration : IEntityTypeConfiguration<JobApplicati
         builder.Property<uint>("Version").IsRowVersion();
         builder.Ignore(x => x.Rules);
         builder.Ignore(x => x.Sent);
+        builder.Ignore(x => x.AwaitsClosingLetter);
+        builder.Property(x => x.LetterRequestsState).HasConversion<string>().HasMaxLength(16);
 
-        // Анкета с ответами и история переходов — колонками jsonb
+        // Анкета с ответами, просьбы к письму и история переходов — колонками jsonb
         builder.OwnsMany(x => x.Questions, o =>
         {
             o.ToJson();
             o.Property(q => q.Type).HasConversion<string>();
+        });
+        builder.OwnsMany(x => x.LetterRequests, o =>
+        {
+            o.ToJson();
+            o.Property(r => r.Type).HasConversion<string>();
+            o.Ignore(r => r.CanClose);
+            o.Ignore(r => r.Problem);
         });
         builder.OwnsMany(x => x.History, o =>
         {

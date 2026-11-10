@@ -1,3 +1,4 @@
+using HhAutoApplier.Domain.Candidates;
 using HhAutoApplier.Domain.Resumes;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Services;
@@ -67,6 +68,15 @@ public class JobApplication
     // Скрыт из списка: меняется только показ, статус и история остаются (#71). Скрытым может быть только отсеянный отклик
     public DateTimeOffset? HiddenAt { get; private set; }
 
+    // Просьбы работодателя к письму (#72): извлекаются при LLM-оценке, закрываются проверенными значениями или человеком
+    public LetterRequestsState LetterRequestsState { get; private set; }
+
+    public List<LetterRequest> LetterRequests { get; private set; } = [];
+
+    // Без закрывающего письма отклик не выдаётся расширению: при пустом письме оно возьмёт шаблон, и просьба останется без ответа.
+    // Failed — просьбы неизвестны, это не «просьб нет»
+    public bool AwaitsClosingLetter => LetterRequestsState is LetterRequestsState.Found or LetterRequestsState.Failed;
+
     public static JobApplication Create(Vacancy vacancy, Guid? userId, DateTimeOffset at, int? searchId = null) => new()
     {
         Vacancy = vacancy,
@@ -119,7 +129,107 @@ public class JobApplication
         }
 
         var doubtful = verdict == Vacancies.LlmVerdict.Doubtful;
-        MoveTo(doubtful && reviewDoubtful ? VacancyStatus.Review : VacancyStatus.Queued, doubtful ? $"LLM сомневается: {reason}" : null, at);
+        var requests = LetterRequestsReviewReason(reviewDoubtful);
+        var why = string.Join("; ", new[] { doubtful ? $"LLM сомневается: {reason}" : null, requests }.Where(r => r is not null));
+        MoveTo((doubtful && reviewDoubtful) || requests is not null ? VacancyStatus.Review : VacancyStatus.Queued, why == "" ? null : why, at);
+    }
+
+    // Итог извлечения — до вердикта и смены статуса, иначе расширение заберёт отклик раньше
+    public void RecordLetterRequests(IReadOnlyCollection<LetterRequest> requests, CandidateProfile? profile)
+    {
+        if (Status != VacancyStatus.Pending)
+            throw new DomainException($"Просьбы к письму извлекаются только при оценке, сейчас {Status}");
+
+        LetterRequests = requests.Select(r => r.WithProfile(profile)).ToList();
+        LetterRequestsState = LetterRequests.Count == 0 ? LetterRequestsState.None : LetterRequestsState.Found;
+    }
+
+    // Ответ модели не разобран: просьбы неизвестны, отклик пойдёт на проверку
+    public void MarkLetterRequestsFailed()
+    {
+        if (Status != VacancyStatus.Pending)
+            throw new DomainException($"Просьбы к письму извлекаются только при оценке, сейчас {Status}");
+
+        (LetterRequests, LetterRequestsState) = ([], LetterRequestsState.Failed);
+    }
+
+    // После проверок письма (#82): сервер дописывает проверенные значения. Незакрытая просьба ведёт на проверку
+    public void CloseLetterRequests(CandidateProfile? profile, string? template, DateTimeOffset at)
+    {
+        if (LetterRequestsState == LetterRequestsState.Failed && Status == VacancyStatus.Queued)
+            MoveTo(VacancyStatus.Review, LetterRequestsFailed, at);
+
+        if (LetterRequestsState == LetterRequestsState.Found)
+            AnswerLetterRequests(LetterRequests.Select(r => r.WithProfile(profile)).ToList(), template, at);
+    }
+
+    // Человек на проверке: подтвердил кодовые слова и/или заполнил профиль. Статус не меняется — решение остаётся за «Одобрить»
+    public void ResolveLetterRequests(IReadOnlyCollection<int> confirmCodeWords, CandidateProfile? profile, string? template, DateTimeOffset at)
+    {
+        if (Status != VacancyStatus.Review)
+            throw new DomainException($"Просьбы к письму решаются только на проверке, сейчас {Status}");
+
+        if (LetterRequestsState != LetterRequestsState.Found)
+            throw new DomainException("Незакрытых просьб к письму нет");
+
+        if (confirmCodeWords.Any(i => i < 0 || i >= LetterRequests.Count))
+            throw new DomainException("Такой просьбы к письму нет");
+
+        var requests = LetterRequests.Select((r, i) => (confirmCodeWords.Contains(i) ? r.ConfirmCodeWord() : r).WithProfile(profile)).ToList();
+        AnswerLetterRequests(requests, template, at);
+    }
+
+    // Новые значения заменяют прежний блок в письме. Закрыта только просьба, значение которой действительно попало в письмо
+    private void AnswerLetterRequests(List<LetterRequest> requests, string? template, DateTimeOffset at)
+    {
+        var previous = LetterAnswers.Block(LetterRequests.Where(r => r.Closed));
+        if (CoverLetter is null)
+        {
+            LetterRequests = requests;
+            return;
+        }
+
+        var letter = LetterAnswers.Compose(LetterAnswers.Strip(CoverLetter, previous), LetterAnswers.Block(requests), template);
+        if (letter.Length > MaxCoverLetterLength)
+        {
+            LetterRequests = requests.Select(r => r.WithClosed(false)).ToList();
+            ReviewLetterRequests($"{LetterRequestsPrefix}: письмо с ответами длиннее {MaxCoverLetterLength} знаков", at);
+            return;
+        }
+
+        CoverLetter = letter;
+        LetterRequests = requests.Select(r => r.WithClosed(r.CanClose)).ToList();
+        if (LetterRequests.All(r => r.Closed))
+            LetterRequestsState = LetterRequestsState.Closed;
+        else
+            ReviewLetterRequests(LetterRequestsReviewReason(true), at);
+    }
+
+    // Отклик уже на проверке остаётся со своей причиной: сомнение LLM видно человеку и после письма
+    private void ReviewLetterRequests(string? reason, DateTimeOffset at)
+    {
+        if (Status == VacancyStatus.Queued)
+            MoveTo(VacancyStatus.Review, reason, at);
+    }
+
+    // Почему отклик с просьбами идёт на проверку; null — может идти в очередь. Незакрываемые и сбой — всегда, как ошибки анкеты;
+    // закрываемые сервером — как текстовые ответы анкет (#58): кроме поиска «без проверки» (reviewClosable = false)
+    private string? LetterRequestsReviewReason(bool reviewClosable)
+    {
+        if (LetterRequestsState == LetterRequestsState.Failed)
+            return LetterRequestsFailed;
+
+        if (LetterRequestsState != LetterRequestsState.Found)
+            return null;
+
+        var problems = LetterRequests.Select(r => r.Problem).OfType<string>().Distinct().ToList();
+        if (problems.Count > 0)
+            return $"{LetterRequestsPrefix}: {string.Join("; ", problems)}";
+
+        // Письмо человека после «Оценить заново»: сервер его не пишет, значит, и блок сам не появится
+        if (reviewClosable || CoverLetter is not null)
+            return $"{LetterRequestsPrefix}: проверить ответы";
+        return null;
     }
 
     // Ручная проверка: одобрить — в очередь; coverLetter — письмо, поправленное человеком (null — оставить письмо LLM);
@@ -129,12 +239,18 @@ public class JobApplication
         if (Status != VacancyStatus.Review)
             throw new DomainException($"Одобрить можно только отклик на проверке, сейчас {Status}");
 
+        // Просьбы к письму закрывает решение человека, но письмо нужно: иначе расширение возьмёт шаблон
+        if (AwaitsClosingLetter && string.IsNullOrWhiteSpace(coverLetter) && CoverLetter is null)
+            throw new DomainException("Просьбы работодателя к письму не закрыты: напишите письмо");
+
         // Ответы — до письма: при ошибке в ответах письмо не меняется
         var answered = answers is null ? null : Answered(answers);
         if (!string.IsNullOrWhiteSpace(coverLetter))
             SetCoverLetter(coverLetter, ManualLetter, at);
         if (answered is not null)
             Questions = answered;
+        if (AwaitsClosingLetter)
+            (LetterRequests, LetterRequestsState) = (LetterRequests.Select(r => r.WithClosed(true)).ToList(), LetterRequestsState.Closed);
         MoveTo(VacancyStatus.Queued, "одобрено вручную", at);
     }
 
@@ -168,6 +284,10 @@ public class JobApplication
             throw new DomainException("Отклик уже отправлен — письмо не переписать");
 
         (CoverLetter, CoverLetterModel, CoverLetterAt) = (null, null, null);
+        // Блок ушёл вместе с письмом: просьбы снова ждут закрытия. Закрытый без просьб — это одобренный человеком сбой извлечения
+        if (LetterRequestsState is LetterRequestsState.Found or LetterRequestsState.Closed)
+            (LetterRequests, LetterRequestsState) = (LetterRequests.Select(r => r.WithClosed(false)).ToList(),
+                LetterRequests.Count == 0 ? LetterRequestsState.Failed : LetterRequestsState.Found);
     }
 
     // Расширение встретило анкету: вопросы ждут ответов LLM, отклик уходит из очереди.
@@ -300,13 +420,16 @@ public class JobApplication
     // Отклик уже у работодателя: письмо, анкету и статус до отклика не поменять
     public bool Sent => Status is VacancyStatus.Applied or VacancyStatus.Invited or VacancyStatus.Rejected;
 
-    // Вернуть в очередь пропущенный или упавший отклик
+    // Вернуть в очередь пропущенный или упавший отклик. С незакрытыми просьбами — на проверку: из очереди он бы не вышел
     public void Requeue(DateTimeOffset at)
     {
         if (Status is not (VacancyStatus.Skipped or VacancyStatus.Failed))
             throw new DomainException($"Из статуса {Status} в очередь вернуть нельзя");
 
-        MoveTo(VacancyStatus.Queued, null, at);
+        if (AwaitsClosingLetter)
+            MoveTo(VacancyStatus.Review, LetterRequestsReviewReason(true), at);
+        else
+            MoveTo(VacancyStatus.Queued, null, at);
     }
 
     // Отсеян до отклика — человеком, LLM или правилами: такой отклик можно оценить заново и скрыть (#71).
@@ -324,6 +447,7 @@ public class JobApplication
         if (CoverLetterModel != ManualLetter)
             ResetCoverLetter();
         Questions = [];
+        (LetterRequests, LetterRequestsState) = ([], LetterRequestsState.NotExtracted);
         (LlmVerdict, LlmScore, LlmReason, LlmModel, LlmEvaluatedAt) = (null, null, null, null, null);
 
         // Через New: правила могут снова отсеять, и без этого шага в истории не осталось бы записи
@@ -370,6 +494,10 @@ public class JobApplication
     public const string Reevaluation = "повторная оценка";
 
     private const string LetterReviewPrefix = "письмо: проверить";
+
+    private const string LetterRequestsPrefix = "просьбы к письму";
+
+    private const string LetterRequestsFailed = $"{LetterRequestsPrefix}: не удалось разобрать, проверить вручную";
 
     // С запасом под лимит поля письма на hh.ru
     private const int MaxCoverLetterLength = 4000;

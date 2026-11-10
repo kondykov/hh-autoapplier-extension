@@ -92,6 +92,9 @@ public class WriteCoverLettersCommandHandler(
                 {
                     db.LlmCalls.Add(LlmCall.Rejected(CoverLetterWriting.Purpose, application.VacancyId, result.Model, prompt, result.Content,
                         LlmCall.Unparsed, result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(application.UserId));
+                    // С открытыми просьбами шаблон расширения не подходит: письмо пишет человек, иначе отклик завис бы вне очереди
+                    if (application.AwaitsClosingLetter)
+                        rejected = LlmCall.Unparsed;
                     break;
                 }
 
@@ -112,6 +115,8 @@ public class WriteCoverLettersCommandHandler(
                 db.LlmCalls.Add(LlmCall.Succeeded(CoverLetterWriting.Purpose, application.VacancyId, result.Model, prompt, result.Content,
                     result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(application.UserId));
                 application.SetCoverLetter(letter, result.Model, clock.GetUtcNow());
+                // Просьбы к письму (#72): проверки выше видели письмо модели, значения дописывает сервер
+                application.CloseLetterRequests(profile, resume?.LetterTemplate, clock.GetUtcNow());
                 done = true;
             }
 

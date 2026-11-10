@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using HhAutoApplier.Domain.Services;
 
@@ -16,6 +17,8 @@ public class CandidateProfile
 
     public const int MaxSkills = 60;
 
+    public const int MaxDesiredSalaryRub = 100_000_000;
+
     // Для EF
     private CandidateProfile()
     {
@@ -31,15 +34,35 @@ public class CandidateProfile
 
     public List<SkillFact> Skills { get; private set; } = [];
 
+    // Ответы работодателю в письме (#72, В12): в промпты LLM не идут, сервер дописывает их к письму сам. null — не указано
+    public int? DesiredSalaryRub { get; private set; }
+
+    public bool? ReadyForTestTask { get; private set; }
+
+    // LLM-контекст: зарплата и готовность к тестовому в него не входят
     public bool IsEmpty => General is null && Skills.Count == 0;
+
+    public string? DesiredSalaryText => DesiredSalaryRub is { } salary
+        ? $"{salary.ToString("#,0", CultureInfo.InvariantCulture).Replace(',', ' ')} ₽"
+        : null;
+
+    public string? TestTaskText => ReadyForTestTask switch
+    {
+        true => "Готов выполнить тестовое задание",
+        false => "Выполнять тестовое задание не готов",
+        null => null,
+    };
 
     public static CandidateProfile Create(Guid? userId) => new() { UserId = userId };
 
-    public void Update(string? general, IEnumerable<SkillFact> skills)
+    public void Update(string? general, IEnumerable<SkillFact> skills, int? desiredSalaryRub = null, bool? readyForTestTask = null)
     {
         var text = string.IsNullOrWhiteSpace(general) ? null : general.Trim();
         if (text?.Length > MaxGeneral)
             throw new DomainException($"Общая часть профиля длиннее {MaxGeneral} знаков");
+
+        if (desiredSalaryRub is <= 0 or > MaxDesiredSalaryRub)
+            throw new DomainException($"Желаемая зарплата — от 1 до {MaxDesiredSalaryRub} ₽");
 
         var list = new List<SkillFact>();
         foreach (var s in skills)
@@ -63,7 +86,7 @@ public class CandidateProfile
             throw new DomainException($"Навыков больше {MaxSkills}");
 
         // Список пересобирается: так EF видит изменение JSON-колонки
-        (General, Skills) = (text, list);
+        (General, Skills, DesiredSalaryRub, ReadyForTestTask) = (text, list, desiredSalaryRub, readyForTestTask);
     }
 
     // Навыки, относящиеся к вакансии: стек навыка (словарь StackExtractor) пересекается со стеком вакансии,

@@ -45,6 +45,7 @@ public class LlmQualityMonitor(IAppDbContext db, Notifier notifier, TimeProvider
         VacancyAssessment.Purpose => "оценка вакансий",
         CoverLetterWriting.Purpose => "письма",
         QuestionnaireAnswering.Purpose => "анкеты",
+        LetterRequestExtraction.Purpose => "просьбы к письму",
         DialogAnalysis.Purpose => "разбор сообщений",
         _ => purpose,
     };
