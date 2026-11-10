@@ -145,6 +145,26 @@ public class VacanciesController : ApiController
     }
 
     /// <summary>
+    /// Отклик на проверке с просьбами работодателя к письму: подтвердить кодовые слова (confirmCodeWords — номера просьб)
+    /// и подставить значения из профиля. Блок значений в письме обновляется, статус не меняется.
+    /// </summary>
+    /// <response code="404">Вакансия не найдена.</response>
+    /// <response code="409">Вакансия не на проверке, просьб нет или такую просьбу подтвердить нельзя.</response>
+    [HttpPost("vacancies/{id}/letter-requests/resolve")]
+    [ProducesResponseType(typeof(VacancyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(NotFoundError), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ConflictError), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ResolveLetterRequests(
+        string id,
+        [FromBody] ResolveLetterRequestsRequest request,
+        [FromServices] ResolveLetterRequestsCommandHandler handler,
+        CancellationToken ct
+    )
+    {
+        return FromResult((await handler.Handle(new ResolveLetterRequestsCommand { VacancyId = id, ConfirmCodeWords = request.ConfirmCodeWords ?? [] }, ct)).Value);
+    }
+
+    /// <summary>
     /// Анкета работодателя от расширения: вопросы ждут ответов LLM (статус Questionnaire), затем вакансия вернётся в очередь с ответами.
     /// Прежние ответы сбрасываются — анкета могла поменяться.
     /// </summary>
@@ -199,6 +219,8 @@ public class VacanciesController : ApiController
 }
 
 public record SetVacancyStatusRequest(VacancyStatus Status, string? Reason, string? Resume);
+
+public record ResolveLetterRequestsRequest([MaxLength(10)] List<int>? ConfirmCodeWords = null);
 
 public record SubmitQuestionnaireRequest([Required, MinLength(1), MaxLength(50)] List<QuestionInput> Questions);
 
