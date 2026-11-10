@@ -220,12 +220,26 @@ function vacancyActions(v, pill) {
   return null;
 }
 
+// Просьбы работодателя к письму (#72). Цитата — только для чтения: в письмо идёт лишь проверенное значение
+const LETTER_REQUESTS = { Arithmetic: "Пример", Salary: "Зарплата", TestTask: "Тестовое", CodeWord: "Кодовое слово", Other: "Прочее" };
+
+function letterRequestLine(r) {
+  const state = r.closed ? (r.answer ? `закрыта: ${r.answer}` : "решено человеком") : (r.problem ?? `ответ: ${r.answer} — допишется к письму`);
+  return el("div", { className: "reason" }, el("b", { textContent: LETTER_REQUESTS[r.type] ?? r.type }), r.text ? ` — ${r.text}` : "", el("br"), state);
+}
+
+function letterRequestsBlock(v) {
+  if (v.letterRequestsState === "Failed") return el("div", { className: "reason", textContent: "Просьбы работодателя к письму разобрать не удалось: прочитайте вакансию и напишите письмо сами." });
+  return v.letterRequests?.length ? el("details", { open: v.letterRequestsState === "Found" }, el("summary", { textContent: `Просьбы к письму (${v.letterRequests.length})` }), v.letterRequests.map(letterRequestLine)) : null;
+}
+
 function vacancyCard(v) {
   const pill = el("span", { className: "pill", textContent: STATUSES[v.status] ?? v.status });
   return el("article", { className: "card" },
     el("div", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title }), " ", pill, v.hiddenAt ? " " : null, v.hiddenAt ? el("span", { className: "pill", textContent: "скрыта" }) : null),
     el("div", { className: "meta", textContent: [v.company, v.area, salary(v), v.workFormat, v.workExperience && `опыт: ${v.workExperience}`, `балл ${v.llmScore ?? v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.searchName && `поиск ${v.searchName}`, v.appliedAt && `отклик ${date(v.appliedAt)}`].filter(Boolean).join(" · ") }),
     v.statusReason || v.llmReason ? el("div", { className: "reason", textContent: v.statusReason ?? v.llmReason }) : null,
+    letterRequestsBlock(v),
     v.coverLetter ? el("details", {}, el("summary", { textContent: "Письмо" }), el("div", { className: "pre", textContent: v.coverLetter })) : null,
     v.history?.length ? el("details", {}, el("summary", { textContent: `История (${v.history.length})` }),
       el("table", {}, v.history.map((h) => el("tr", {}, el("td", { textContent: date(h.at) }), el("td", { textContent: STATUSES[h.to] ?? h.to }), el("td", { textContent: h.reason ?? "" }))))) : null,
@@ -245,8 +259,9 @@ async function review() {
 }
 
 function reviewCard(v) {
+  const awaitsLetter = v.letterRequestsState === "Found" || v.letterRequestsState === "Failed";
   const letter = el("textarea", { value: v.coverLetter ?? "", id: `letter-${v.id}`, disabled: readOnly(),
-    placeholder: "LLM ещё не написала письмо. Напишите своё или одобрите без письма — расширение возьмёт шаблон." });
+    placeholder: awaitsLetter ? "LLM ещё не написала письмо. Без письма одобрить нельзя: шаблон расширения не ответит на просьбы работодателя." : "LLM ещё не написала письмо. Напишите своё или одобрите без письма — расширение возьмёт шаблон." });
   const reason = el("input", { placeholder: "Причина отказа (необязательно)", "aria-label": "Причина отказа" });
   const approve = el("button", { className: "approve", textContent: "Одобрить" });
   const decline = el("button", { className: "danger", textContent: "Отклонить" });
@@ -259,6 +274,19 @@ function reviewCard(v) {
     : null);
   const fields = () => [letter, ...answerFields.filter(Boolean)];
 
+  // Кодовое слово вставляется только по подтверждению, значения из профиля — по кнопке после его заполнения. Ссылки и контакты не выполняются
+  const resolveRequests = (button, confirmCodeWords) => run(button, () => post(`/api/vacancies/${encodeURIComponent(v.id)}/letter-requests/resolve`, { confirmCodeWords }),
+    (updated) => { node.replaceWith(reviewCard(updated)); return `«${v.title}»: письмо обновлено`; });
+  const requestRows = (v.letterRequests ?? []).map((r, i) => {
+    if (readOnly() || r.closed || r.type !== "CodeWord" || !r.value) return letterRequestLine(r);
+    const confirm = el("button", { type: "button", textContent: `Вставить слово «${r.value}»` });
+    confirm.onclick = () => resolveRequests(confirm, [i]);
+    return el("div", {}, letterRequestLine(r), el("div", { className: "actions" }, confirm));
+  });
+  const needsProfile = (v.letterRequests ?? []).some((r) => !r.closed && (r.type === "Salary" || r.type === "TestTask"));
+  const refresh = needsProfile && !readOnly() && v.letterRequestsState === "Found" ? el("button", { type: "button", textContent: "Подставить из профиля" }) : null;
+  if (refresh) refresh.onclick = () => resolveRequests(refresh, []);
+
   const node = el("article", { className: "card" },
     el("h2", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title })),
     el("div", { className: "meta", textContent: [v.company, v.area, salary(v) ?? "зарплата не указана", v.workFormat, v.workExperience && `опыт: ${v.workExperience}`, `балл ${v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.hasTest && "есть тест"].filter(Boolean).join(" · ") }),
@@ -269,6 +297,8 @@ function reviewCard(v) {
       questions.map((q, i) => answerFields[i]
         ? el("div", { className: "reason" }, el("label", { className: "field", for: answerFields[i].id, textContent: q.question }), answerFields[i])
         : el("div", { className: "reason" }, el("b", { textContent: q.question }), el("br"), q.answer.length ? q.answer.join("; ") : "ответа нет"))) : null,
+    v.letterRequestsState === "Failed" ? letterRequestsBlock(v) : null,
+    requestRows.length ? el("details", { open: true }, el("summary", { textContent: `Просьбы к письму (${requestRows.length})` }), requestRows, refresh ? el("div", { className: "actions" }, refresh) : null) : null,
     el("label", { className: "field", for: letter.id, textContent: v.coverLetterModel ? `Письмо (${v.coverLetterModel === "manual" ? "ваше" : v.coverLetterModel})` : "Письмо" }),
     letter,
     readOnly() ? null : el("div", { className: "actions" }, approve, reason, decline, result));
@@ -452,6 +482,11 @@ async function resumes() {
 function candidateForm(profile) {
   const general = el("textarea", { value: profile.general ?? "", disabled: readOnly(),
     placeholder: "Уровень, стаж, формат работы, город, языки, пожелания" });
+  // Для ответов на просьбы работодателя (#72): LLM их не получает, в письмо дописывает сервер
+  const desiredSalary = el("input", { type: "number", min: "1", step: "1", value: profile.desiredSalaryRub ?? "", disabled: readOnly(), placeholder: "Например, 150000", "aria-label": "Желаемая зарплата на руки, ₽" });
+  const readyForTest = el("select", { disabled: readOnly(), "aria-label": "Готовность к тестовому заданию" },
+    el("option", { value: "", textContent: "не указано" }), el("option", { value: "true", textContent: "да" }), el("option", { value: "false", textContent: "нет" }));
+  readyForTest.value = profile.readyForTestTask == null ? "" : String(profile.readyForTestTask);
   const rows = el("div");
 
   function skillRow(s = { skill: "", facts: "" }) {
@@ -477,12 +512,17 @@ function candidateForm(profile) {
     el("h2", { textContent: "Профиль кандидата" }),
     el("p", { className: "muted", textContent: "Общий для всех резюме. В письмо, оценку, ответы анкет и разбор ответов LLM получает общую часть и факты только по навыкам вакансии. Пишите только то, что было: это уходит работодателю от вашего имени." }),
     el("label", { className: "field", textContent: "Общая часть" }), general,
+    el("label", { className: "field", textContent: "Желаемая зарплата на руки, ₽" }), desiredSalary,
+    el("label", { className: "field", textContent: "Готов к тестовому заданию" }), readyForTest,
+    el("p", { className: "muted", textContent: "Эти два поля LLM не получает: сервер дописывает их к письму, только если работодатель просит. Пусто — отклик с такой просьбой уйдёт на проверку." }),
     el("label", { className: "field", textContent: `Факты по навыкам (${profile.skills.length})` }), rows,
     readOnly() ? null : el("div", { className: "actions" }, add, save));
 
   form.onsubmit = (e) => {
     e.preventDefault();
-    run(save, () => put("/api/profile", { general: general.value.trim() || null, skills: [...rows.children].map((r) => r.read()) }),
+    run(save, () => put("/api/profile", { general: general.value.trim() || null, skills: [...rows.children].map((r) => r.read()),
+      desiredSalaryRub: desiredSalary.value ? Number(desiredSalary.value) : null,
+      readyForTestTask: readyForTest.value === "" ? null : readyForTest.value === "true" }),
       (saved) => { render(); return `Профиль кандидата сохранён: навыков ${saved.skills.length}`; });
   };
   return form;
