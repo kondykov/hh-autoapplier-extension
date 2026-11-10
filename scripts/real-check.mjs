@@ -410,6 +410,12 @@ function buildReport({ failure, collect, pipeline, check, vacancies, calls, desc
   out.push("", "## Блок данных работодателя в промптах", "", row("назначение", "записей", "блок один и в порядке", "описание внутри блока", "описание вне блока", "описание неизвестно"), "|---|---|---|---|---|---|");
   for (const [purpose, s] of promptChecks(calls, descriptions)) out.push(row(purpose, s.total, s.block, s.inside, s.outside, s.unknown));
 
+  out.push("", "## Просьбы работодателя к письму", "", row("id", "состояние", "тип", "значение", "ответ", "закрыта", "цитата"), "|---|---|---|---|---|---|---|");
+  for (const v of vacancies) {
+    if (!v.letterRequests?.length) { out.push(row(v.id, v.letterRequestsState, "", "", "", "", "")); continue; }
+    for (const r of v.letterRequests) out.push(row(v.id, v.letterRequestsState, r.type, r.value, r.answer, r.closed, r.quote));
+  }
+
   out.push("", "## Признаки в письмах", "");
   const flags = [];
   for (const v of vacancies.filter((x) => x.coverLetter))
@@ -481,6 +487,8 @@ async function main() {
 
   try {
     await api("PUT", "/api/resumes", RESUME);
+    // Вымышленные значения: просьбы работодателя (#72) закрываются только из профиля
+    await api("PUT", "/api/profile", { general: "", skills: [], desiredSalaryRub: 150000, readyForTestTask: true });
     await api("PUT", "/api/searches", { name: SEARCH, query: args.query, enabled: true, rules: { levelKeywords: LEVEL_KEYWORDS } });
     if (ids.length) {
       const imported = await api("POST", "/api/import", { search: SEARCH, vacancies: ids.map((id) => ({ id, title: `Вакансия ${id}`, url: `https://hh.ru/vacancy/${id}` })) });
