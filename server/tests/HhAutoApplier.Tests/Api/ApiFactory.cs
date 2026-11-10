@@ -166,8 +166,14 @@ public sealed class FakeVacancySource : IVacancySource
 
     private readonly Dictionary<string, Vacancy> _asIs = [];
 
-    // Страница вакансии не открывается (404, архив): LoadDetailsAsync — false
+    // Страницы вакансии нет (404)
     public HashSet<string> NoDetails { get; } = [];
+
+    // Вакансия в архиве: страница открывается как обычно
+    public HashSet<string> ArchivedPages { get; } = [];
+
+    // Страница отвечает 5xx
+    public HashSet<string> ErrorPages { get; } = [];
 
     public bool Blocked { get; set; }
 
@@ -205,6 +211,8 @@ public sealed class FakeVacancySource : IVacancySource
         _cards.Clear();
         _asIs.Clear();
         NoDetails.Clear();
+        ArchivedPages.Clear();
+        ErrorPages.Clear();
         BlockedDetails.Clear();
         WorkExperience.Clear();
         WhileLoadingDetails = null;
@@ -212,6 +220,8 @@ public sealed class FakeVacancySource : IVacancySource
         Hold = null;
         DetailsLoaded = 0;
     }
+
+    public void ResetCounters() => DetailsLoaded = 0;
 
     public async Task<IReadOnlyList<Vacancy>> SearchAsync(SearchProfile search, int page, CancellationToken ct)
     {
@@ -226,13 +236,13 @@ public sealed class FakeVacancySource : IVacancySource
     }
 
     // Как HhWebSource: страница вакансии даёт и название, и описание, и зарплату
-    public async Task<bool> LoadDetailsAsync(Vacancy vacancy, CancellationToken ct)
+    public async Task<VacancyPageState> LoadDetailsAsync(Vacancy vacancy, CancellationToken ct)
     {
         if (_asIs.TryGetValue(vacancy.Id, out var same))
         {
             vacancy.UpdateCard(same.Company, same.Area, same.Salary, same.WorkFormat, same.HasTest, same.PublishedAt);
             vacancy.UpdateDetails(same.Title, same.Description, same.Stack);
-            return true;
+            return VacancyPageState.Available;
         }
 
         DetailsLoaded++;
@@ -242,13 +252,16 @@ public sealed class FakeVacancySource : IVacancySource
         if (WhileLoadingDetails is { } action)
             await action(vacancy.Id);
 
+        if (ErrorPages.Contains(vacancy.Id))
+            return VacancyPageState.TemporaryError;
+
         var card = _cards.FirstOrDefault(c => c.Id == vacancy.Id);
         if (card.Id is null || NoDetails.Contains(vacancy.Id))
-            return false;
+            return VacancyPageState.Unavailable;
 
         vacancy.UpdateCard(null, null, Salary.From(card.SalaryFrom, null, card.SalaryFrom is null ? null : "RUR"), null, null, null);
         vacancy.UpdateDetails(card.Title, card.Description, [], WorkExperience.GetValueOrDefault(vacancy.Id));
-        return true;
+        return ArchivedPages.Contains(vacancy.Id) ? VacancyPageState.Archived : VacancyPageState.Available;
     }
 }
 

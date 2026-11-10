@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AutoReply } from "../src/api/client";
 import { API_VERSION, type ServerVersionResult } from "../src/api/version";
+import type { ArchiveCheck } from "../src/apply/archive-check";
 import type { ApplyResult } from "../src/apply/pipeline";
 import { DEFAULT_CONFIG, type AppConfig } from "../src/core/config";
 import { DailyLimit } from "../src/core/daily-limit";
@@ -56,6 +57,7 @@ function context(opts: { url?: string; queue?: QueueItem[]; result?: ApplyResult
       applyOnPage: vi.fn(async (_v: Vacancy) => opts.result ?? "success"),
     },
     captcha: { waitUntilClear: vi.fn(async () => false), consumeHit: vi.fn(() => false) },
+    archive: { check: vi.fn(async (_id: string): Promise<ArchiveCheck> => ({ state: "open" })) },
     nav: {
       url: () => url,
       go: vi.fn((to: string) => {
@@ -530,6 +532,93 @@ describe("QueueStep", () => {
     await run(new QueueStep(disabled.ctx).resume());
     expect(disabled.ctx.state.queueRunning).toBe(false);
     expect(disabled.ctx.backend.reportStatus).not.toHaveBeenCalled();
+  });
+
+  describe("вакансия в архиве (#70)", () => {
+    const archived = (config: Partial<AppConfig> = { queueDryRun: false }) => {
+      const env = queueRun([], config);
+      env.ctx.archive.check.mockResolvedValue({ state: "archived" });
+      return env;
+    };
+
+    it("Skipped с причиной, «Отправить» не нажимается, очередь идёт дальше, неудачей не считается", async () => {
+      const { ctx, step, visited, messages } = archived();
+      ctx.state.queueFailStreak = 2;
+
+      await run(step.resume());
+
+      expect(ctx.archive.check).toHaveBeenCalledWith("1");
+      expect(ctx.pipeline.applyOnPage).not.toHaveBeenCalled();
+      expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", { status: "Skipped", reason: "вакансия в архиве" }, ".NET");
+      expect(ctx.state.queueFailStreak).toBe(0);
+      expect(ctx.state.queueRunning).toBe(true);
+      expect(visited).toEqual([RESPONSE("2")]);
+      expect(messages.some((m) => m.includes("в архиве"))).toBe(true);
+    });
+
+    it("архивные подряд очередь не останавливают", async () => {
+      const { ctx, step, visited } = archived();
+
+      for (let i = 0; i < 4; i++) await run(step.resume());
+
+      expect(ctx.state.queueRunning).toBe(true);
+      expect(ctx.backend.reportStatus).toHaveBeenCalledTimes(4);
+      expect(visited.at(-1)).toBe(RESPONSE("5"));
+    });
+
+    it("пробный режим: статус не уходит, только журнал, очередь идёт дальше", async () => {
+      const { ctx, step, visited, messages } = archived({ queueDryRun: true });
+
+      await run(step.resume());
+
+      expect(ctx.pipeline.applyOnPage).not.toHaveBeenCalled();
+      expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
+      expect(visited).toEqual([RESPONSE("2")]);
+      expect(messages.some((m) => m.includes("в архиве") && m.includes("пробный режим"))).toBe(true);
+    });
+
+    it("проверка не удалась — отклик как обычно, причина в журнале", async () => {
+      const { ctx, step, messages } = queueRun(["success"]);
+      ctx.archive.check.mockResolvedValue({ state: "unknown", error: "ответ 500" });
+
+      await run(step.resume());
+
+      expect(ctx.pipeline.applyOnPage).toHaveBeenCalledTimes(1);
+      expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", { status: "Applied", reason: null }, ".NET");
+      expect(messages.some((m) => m.includes("Проверка архива") && m.includes("ответ 500"))).toBe(true);
+    });
+
+    it("открытая вакансия — конвейер как раньше", async () => {
+      const { ctx, step } = queueRun(["success"]);
+
+      await run(step.resume());
+
+      expect(ctx.archive.check).toHaveBeenCalledTimes(1);
+      expect(ctx.pipeline.applyOnPage).toHaveBeenCalledTimes(1);
+    });
+
+    it("очередь остановили, пока шла проверка, — статус не уходит, дальше не идёт", async () => {
+      const { ctx, step, visited } = archived();
+      ctx.archive.check.mockImplementation(async () => {
+        ctx.state.queueRunning = false;
+        return { state: "archived" };
+      });
+
+      await run(step.resume());
+
+      expect(ctx.backend.reportStatus).not.toHaveBeenCalled();
+      expect(visited).toEqual([]);
+    });
+
+    it("чужая страница вместо формы — проверки нет, очередь остановлена как раньше (#75)", async () => {
+      const { ctx } = context({ url: "https://hh.ru/account/signup", queue: [item("1")], config: { queueDryRun: false } });
+      Object.assign(ctx.state, { queueRunning: true, queueCurrent: item("1"), queueTried: ["1"], queueOpened: true });
+
+      await run(new QueueStep(ctx).resume());
+
+      expect(ctx.archive.check).not.toHaveBeenCalled();
+      expect(ctx.state.queueRunning).toBe(false);
+    });
   });
 
   it("дневной лимит исчерпан — очередь не открывает вакансии", async () => {

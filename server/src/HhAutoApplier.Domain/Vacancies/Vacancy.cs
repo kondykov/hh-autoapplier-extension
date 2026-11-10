@@ -42,6 +42,14 @@ public class Vacancy
 
     public DateTimeOffset CollectedAt { get; private set; }
 
+    // Когда вакансия встретилась в последний раз (сбор, импорт). Сбор листает не всю выдачу всех поисков,
+    // поэтому старая дата сама по себе не значит архив (#70)
+    public DateTimeOffset LastSeenAt { get; private set; }
+
+    // Когда сбор проверял страницу на архив: отклик в ожидании статуса не меняет, без этой отметки
+    // одни и те же вакансии проверялись бы каждый проход (#70). null — ещё не проверяли
+    public DateTimeOffset? ArchiveCheckedAt { get; private set; }
+
     public string SearchName { get; private set; } = "";
 
     // Карточка пришла от клиента (импорт), а не от источника: карточка общая, поэтому первый же сбор,
@@ -81,6 +89,7 @@ public class Vacancy
             Url = SafeUrl(id, url),
             SearchName = searchName,
             CollectedAt = collectedAt,
+            LastSeenAt = collectedAt,
             PublishedAt = collectedAt,
             Imported = imported,
         };
@@ -99,6 +108,15 @@ public class Vacancy
         (Description, Stack, WorkExperience) = (card.Description, card.Stack, card.WorkExperience);
         Imported = false;
     }
+
+    // Дата не откатывается: сбор и импорт могут идти одновременно
+    public void MarkSeen(DateTimeOffset at)
+    {
+        if (at > LastSeenAt)
+            LastSeenAt = at;
+    }
+
+    public void MarkArchiveChecked(DateTimeOffset at) => ArchiveCheckedAt = at;
 
     // Ссылка открывается на страницах backend и в расширении: только https на hh.ru, иначе — стандартная страница вакансии
     // (javascript: и чужие сайты из импорта не проходят)

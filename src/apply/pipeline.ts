@@ -11,8 +11,9 @@ import { attachLetterAndSubmit } from "./submit";
 import { humanClick } from "../dom/input";
 
 // stopped — очередь остановили (или перезапустили с другой вакансией), пока конвейер работал: ничего не отправлено.
-// captcha — посреди отклика появилась капча: дальше без человека не идём. «Отправить» не нажата, либо капча появилась сразу после нажатия и отклик мог уйти
-export type ApplyResult = "success" | "outline" | "skipped" | "disabled" | "unclear" | "failed" | "dry_run" | "stopped" | "captcha";
+// captcha — посреди отклика появилась капча: дальше без человека не идём. «Отправить» не нажата, либо капча появилась сразу после нажатия и отклик мог уйти.
+// archived — вакансия в архиве (#70): определяет очередь до конвейера, «Отправить» не нажимается
+export type ApplyResult = "success" | "outline" | "skipped" | "disabled" | "unclear" | "failed" | "dry_run" | "stopped" | "captcha" | "archived";
 
 type Halt = "stopped" | "captcha";
 

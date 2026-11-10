@@ -29,6 +29,13 @@ public class CollectVacanciesCommandHandler(
     // Сколько новых откликов может пропасть при сбое: загрузка страницы выдачи занимает минуты
     private const int SaveEvery = 10;
 
+    // Сколько вакансия должна не встречаться, чтобы её проверить, и как часто проверять снова (#70)
+    private static readonly TimeSpan ArchiveCheckAfter = TimeSpan.FromHours(24);
+
+    // Незавершённые отклики, которые может закрыть уход вакансии в архив; New закрывает подтверждение карточки
+    private static readonly VacancyStatus[] AwaitingStatuses =
+        [VacancyStatus.Pending, VacancyStatus.Review, VacancyStatus.Questionnaire, VacancyStatus.Queued];
+
     private readonly CollectorOptions _opt = options.Value;
 
     public async Task<CollectVacanciesResult> Handle(CollectVacanciesCommand command, CancellationToken ct = default)
@@ -72,6 +79,8 @@ public class CollectVacanciesCommandHandler(
         var confirmations = _opt.MaxConfirmations;
         // Страница вакансии не открылась в этом проходе: второй запрос не поможет, отклики на неё закроет EvaluateConfirmedAsync
         var unavailable = new HashSet<string>();
+        // Страница показала архив: карточка принята, отклики закрываются без оценки и запросов к LLM
+        var archived = new HashSet<string>();
 
         try
         {
@@ -97,6 +106,11 @@ public class CollectVacanciesCommandHandler(
                     var ids = found.Select(v => v.Id).ToList();
                     var known = await db.Vacancies.Where(v => ids.Contains(v.Id)).ToDictionaryAsync(v => v.Id, ct);
 
+                    // Запросов к источнику нет: карточка уже загружена. Отклик есть или нет — вакансия встретилась
+                    var seenAt = clock.GetUtcNow();
+                    foreach (var vacancy in known.Values)
+                        vacancy.MarkSeen(seenAt);
+
                     // Карточки из импорта источник подтверждает сам: данные клиента не идут дальше в чужие отклики и промпты.
                     // Подробности не загрузились — карточка остаётся импортной; лимит исчерпан — подтвердится в следующих проходах
                     var unconfirmed = found.DistinctBy(v => v.Id)
@@ -106,9 +120,13 @@ public class CollectVacanciesCommandHandler(
                     {
                         confirmations--;
                         await PauseAsync(ct);
-                        if (await source.LoadDetailsAsync(card, ct))
+                        // Временная ошибка: карточка остаётся импортной, отклик ждёт
+                        var state = await source.LoadDetailsAsync(card, ct);
+                        if (state is VacancyPageState.Available or VacancyPageState.Archived)
                             known[card.Id].AcceptSourceCard(card);
-                        else
+                        if (state == VacancyPageState.Archived)
+                            archived.Add(card.Id);
+                        else if (state == VacancyPageState.Unavailable)
                             unavailable.Add(card.Id);
                     }
 
@@ -132,8 +150,12 @@ public class CollectVacanciesCommandHandler(
                         if (!known.TryGetValue(card.Id, out var vacancy))
                         {
                             await PauseAsync(ct);
-                            if (!await source.LoadDetailsAsync(card, ct))
+                            var state = await source.LoadDetailsAsync(card, ct);
+                            if (state is VacancyPageState.Unavailable or VacancyPageState.TemporaryError)
                                 continue;
+
+                            if (state == VacancyPageState.Archived)
+                                archived.Add(card.Id);
 
                             vacancy = card;
                             db.Vacancies.Add(vacancy);
@@ -143,6 +165,14 @@ public class CollectVacanciesCommandHandler(
                         var application = JobApplication.Create(vacancy, search.UserId, now, search.Id);
                         db.JobApplications.Add(application);
                         added++;
+
+                        // Запись остаётся: иначе архивная карточка запрашивалась бы каждый проход
+                        if (archived.Contains(vacancy.Id))
+                        {
+                            application.CloseVacancyArchived(now);
+                            skipped++;
+                            continue;
+                        }
 
                         // Карточка из импорта не подтвердилась: отклик ждёт в New, его оценит EvaluateConfirmedAsync
                         if (vacancy.Imported)
@@ -164,7 +194,8 @@ public class CollectVacanciesCommandHandler(
                 }
             }
 
-            await EvaluateConfirmedAsync(blocked, resumes, confirmations, unavailable, ct);
+            await EvaluateConfirmedAsync(blocked, resumes, confirmations, unavailable, archived, ct);
+            await CheckArchiveAsync(blocked, ct);
         }
         catch (SourceBlockedException e)
         {
@@ -189,30 +220,39 @@ public class CollectVacanciesCommandHandler(
     }
 
     // Отклики на неподтверждённую импортную карточку ждут в New (ImportVacanciesCommandHandler). Источник подтверждает карточку
-    // по странице вакансии — и только тогда отклик оценивается правилами своего поиска; страница недоступна — отклик в Skipped.
+    // по странице вакансии — и только тогда отклик оценивается правилами своего поиска; страница недоступна или вакансия в архиве — отклик в Skipped.
     // Самые старые — первыми: и подтверждённые, и закрытые уходят из New, поэтому очередь двигается и при лимите за проход
     private async Task EvaluateConfirmedAsync(IReadOnlyList<Guid> blocked, ILookup<Guid?, ResumeProfile> resumes, int confirmations,
-        HashSet<string> unavailable, CancellationToken ct)
+        HashSet<string> unavailable, HashSet<string> archived, CancellationToken ct)
     {
         var waiting = await db.ActiveApplications(blocked).Where(a => a.Status == VacancyStatus.New).ToListAsync(ct);
         foreach (var group in waiting.GroupBy(a => a.Vacancy).OrderBy(g => g.Min(a => a.CreatedAt)).ThenBy(g => g.Min(a => a.Id)))
         {
             var vacancy = group.Key;
-            var gone = vacancy.Imported && unavailable.Contains(vacancy.Id);
-            if (vacancy.Imported && !gone)
+            var state = archived.Contains(vacancy.Id) ? VacancyPageState.Archived
+                : vacancy.Imported && unavailable.Contains(vacancy.Id) ? VacancyPageState.Unavailable
+                : VacancyPageState.Available;
+            if (vacancy.Imported && state == VacancyPageState.Available)
             {
                 // Источников нет (Hh:Enabled = false) — проверить нечем, это не недоступность вакансии
                 if (confirmations <= 0 || !sources.Any())
                     continue;
 
                 confirmations--;
-                gone = !await TryConfirmAsync(vacancy, ct);
+                state = await ConfirmAsync(vacancy, ct);
+                if (state == VacancyPageState.TemporaryError)
+                {
+                    logger.LogWarning("Сбор: страница вакансии {Vacancy} временно недоступна, отклик ждёт", vacancy.Id);
+                    continue;
+                }
             }
 
             var now = clock.GetUtcNow();
             foreach (var application in group)
             {
-                if (gone)
+                if (state == VacancyPageState.Archived)
+                    application.CloseVacancyArchived(now);
+                else if (state == VacancyPageState.Unavailable)
                     application.MarkVacancyUnavailable(now);
                 else
                     application.Evaluate(evaluator, application.Rules, resumes[application.UserId], now, awaitLlm: llm.IsConfigured);
@@ -233,22 +273,86 @@ public class CollectVacanciesCommandHandler(
         }
     }
 
-    // Карточка подтверждается первым источником, у которого открылась страница вакансии. false — ни у одного;
-    // капча и отказы — SourceBlockedException: проход останавливается, отклик ждёт следующего
-    private async Task<bool> TryConfirmAsync(Vacancy vacancy, CancellationToken ct)
+    // Вакансия могла уйти в архив, пока отклик ждал (#70). Кандидаты — только не встречавшиеся в выдаче дольше порога и не проверенные
+    // за это время: сначала непроверенные, потом самые давние, поэтому следующий проход берёт другие вакансии.
+    // Вакансия общая — один запрос на всех пользователей
+    private async Task CheckArchiveAsync(IReadOnlyList<Guid> blocked, CancellationToken ct)
     {
+        // Источников нет — проверить нечем, это не недоступность вакансии
+        if (_opt.MaxArchiveChecks <= 0 || !sources.Any())
+            return;
+
+        var due = clock.GetUtcNow() - ArchiveCheckAfter;
+        var awaiting = db.ActiveApplications(blocked).Where(a => AwaitingStatuses.Contains(a.Status));
+        var ids = await db.Vacancies.AsNoTracking()
+            .Where(v => v.LastSeenAt < due && (v.ArchiveCheckedAt == null || v.ArchiveCheckedAt < due) && awaiting.Any(a => a.VacancyId == v.Id))
+            .OrderBy(v => v.ArchiveCheckedAt != null).ThenBy(v => v.ArchiveCheckedAt).ThenBy(v => v.LastSeenAt).ThenBy(v => v.Id)
+            .Take(_opt.MaxArchiveChecks).Select(v => v.Id).ToListAsync(ct);
+        if (ids.Count == 0)
+            return;
+
+        var applications = await awaiting.Where(a => ids.Contains(a.VacancyId)).ToListAsync(ct);
+        foreach (var group in applications.GroupBy(a => a.Vacancy).OrderBy(g => ids.IndexOf(g.Key.Id)))
+        {
+            var vacancy = group.Key;
+            var (state, _) = await LoadPageAsync(vacancy, ct);
+            // Отметки нет: о вакансии ничего не узнали, проверка повторится в следующем проходе
+            if (state == VacancyPageState.TemporaryError)
+            {
+                logger.LogWarning("Сбор: страница вакансии {Vacancy} временно недоступна, проверка архива отложена", vacancy.Id);
+                continue;
+            }
+
+            var now = clock.GetUtcNow();
+            vacancy.MarkArchiveChecked(now);
+            foreach (var application in group)
+            {
+                if (state == VacancyPageState.Archived)
+                    application.CloseVacancyArchived(now);
+                else if (state == VacancyPageState.Unavailable)
+                    application.CloseVacancyUnavailable(now);
+            }
+
+            // По одной вакансии, как при подтверждении: отправленный за время запроса отклик конфликтует по xmin и остаётся как есть
+            try
+            {
+                await db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateException e)
+            {
+                db.ChangeTracker.Clear();
+                logger.LogWarning(e, "Сбор: проверка архива вакансии {Vacancy} не сохранена", vacancy.Id);
+                return;
+            }
+        }
+    }
+
+    // Импортная карточка заменяется данными источника и у архивной вакансии: страница у неё та же, а текст клиента дальше идти не должен
+    private async Task<VacancyPageState> ConfirmAsync(Vacancy vacancy, CancellationToken ct)
+    {
+        var (state, card) = await LoadPageAsync(vacancy, ct);
+        if (card is not null)
+            vacancy.AcceptSourceCard(card);
+        return state;
+    }
+
+    // Первый источник, у которого открылась страница вакансии; ни у одного — Unavailable, а если кто-то ответил ошибкой — TemporaryError.
+    // Капча и отказы — SourceBlockedException: проход останавливается, отклик ждёт следующего
+    private async Task<(VacancyPageState State, Vacancy? Card)> LoadPageAsync(Vacancy vacancy, CancellationToken ct)
+    {
+        var missing = VacancyPageState.Unavailable;
         foreach (var source in sources)
         {
             var card = Vacancy.Create(vacancy.Id, "", "", vacancy.SearchName, clock.GetUtcNow());
             await PauseAsync(ct);
-            if (await source.LoadDetailsAsync(card, ct))
-            {
-                vacancy.AcceptSourceCard(card);
-                return true;
-            }
+            var state = await source.LoadDetailsAsync(card, ct);
+            if (state is VacancyPageState.Available or VacancyPageState.Archived)
+                return (state, card);
+            if (state == VacancyPageState.TemporaryError)
+                missing = state;
         }
 
-        return false;
+        return (missing, null);
     }
 
     private async Task<bool> TrySaveAsync(int searchId, int page, CancellationToken ct)

@@ -29,6 +29,7 @@ describe("queue-mode", () => {
     expect(toStatusReport("outline")).toEqual({ status: "Skipped", reason: "анкета работодателя — вопросы не найдены на странице" });
     for (const r of ["skipped", "failed", "unclear"] as const) expect(toStatusReport(r)?.status).toBe("Failed");
     // Пробный прогон и неактивная кнопка — серверу не сообщаем
+    expect(toStatusReport("archived")).toEqual({ status: "Skipped", reason: "вакансия в архиве" });
     expect(toStatusReport("dry_run")).toBeNull();
     expect(toStatusReport("disabled")).toBeNull();
     expect(toStatusReport("stopped")).toBeNull();

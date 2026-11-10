@@ -236,8 +236,12 @@ function letterRequestsBlock(v) {
 function vacancyCard(v) {
   const pill = el("span", { className: "pill", textContent: STATUSES[v.status] ?? v.status });
   return el("article", { className: "card" },
-    el("div", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title }), " ", pill, v.hiddenAt ? " " : null, v.hiddenAt ? el("span", { className: "pill", textContent: "скрыта" }) : null),
+    el("div", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title }), " ", pill,
+      v.hiddenAt ? " " : null, v.hiddenAt ? el("span", { className: "pill", textContent: "скрыта" }) : null,
+      v.vacancyArchived ? " " : null, v.vacancyArchived ? el("span", { className: "pill", textContent: "в архиве" }) : null),
     el("div", { className: "meta", textContent: [v.company, v.area, salary(v), v.workFormat, v.workExperience && `опыт: ${v.workExperience}`, `балл ${v.llmScore ?? v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.searchName && `поиск ${v.searchName}`, v.appliedAt && `отклик ${date(v.appliedAt)}`].filter(Boolean).join(" · ") }),
+    // Вакансия общая: даты — когда её нашли впервые и когда она встретилась в сборе или импорте последний раз (#70)
+    el("div", { className: "meta", textContent: [v.collectedAt && `найдена ${date(v.collectedAt)}`, v.lastSeenAt && `встречалась ${date(v.lastSeenAt)}`].filter(Boolean).join(" · ") }),
     v.statusReason || v.llmReason ? el("div", { className: "reason", textContent: v.statusReason ?? v.llmReason }) : null,
     letterRequestsBlock(v),
     v.coverLetter ? el("details", {}, el("summary", { textContent: "Письмо" }), el("div", { className: "pre", textContent: v.coverLetter })) : null,

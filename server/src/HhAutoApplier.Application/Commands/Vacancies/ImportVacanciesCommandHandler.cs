@@ -31,6 +31,10 @@ public class ImportVacanciesCommandHandler(
             .Select(a => a.VacancyId).ToListAsync(ct)).ToHashSet();
 
         var now = clock.GetUtcNow();
+        // Вакансия встретилась и тогда, когда отклик на неё уже есть
+        foreach (var vacancy in known.Values)
+            vacancy.MarkSeen(now);
+
         int added = 0, queued = 0, waiting = 0;
         foreach (var item in command.Vacancies.DistinctBy(v => v.Id).Where(v => !applied.Contains(v.Id)))
         {

@@ -109,6 +109,24 @@ public class JobApplication
         MoveTo(VacancyStatus.Skipped, VacancyUnavailable, at);
     }
 
+    // Вакансия ушла в архив, пока отклик ждал (#70): отправлять некуда, человек видит причину и может вернуть «В очередь»
+    public void CloseVacancyArchived(DateTimeOffset at) => CloseWaiting(VacancyArchived, at);
+
+    // Страницы вакансии больше нет: шире MarkVacancyUnavailable, закрывает и уже оценённые отклики (#70)
+    public void CloseVacancyUnavailable(DateTimeOffset at) => CloseWaiting(VacancyUnavailable, at);
+
+    // Только незавершённые: отправленные остаются как есть, а Skipped и Failed уже решены
+    private void CloseWaiting(string reason, DateTimeOffset at)
+    {
+        if (Status is not (VacancyStatus.New or VacancyStatus.Pending or VacancyStatus.Review or VacancyStatus.Questionnaire or VacancyStatus.Queued))
+            throw new DomainException($"Отклик в статусе {Status} не ждёт: закрыть по вакансии нельзя");
+
+        MoveTo(VacancyStatus.Skipped, reason, at);
+    }
+
+    // Закрыт, потому что вакансия в архиве: и сбором, и расширением (оно шлёт ту же причину)
+    public bool ClosedAsArchived => Status == VacancyStatus.Skipped && StatusReason == VacancyArchived;
+
     // LLM-оценка под резюме: подходящие — в очередь, сомнительные — на ручную проверку (Review; reviewDoubtful = false —
     // правило поиска «без проверки», сразу в очередь), неподходящие — пропуск с причиной.
     // resume — имя профиля, выбранное LLM; null — оставить выбор правил
@@ -489,6 +507,9 @@ public class JobApplication
 
     // Причина пропуска, когда страница вакансии не открылась при подтверждении импортной карточки
     public const string VacancyUnavailable = "вакансия недоступна";
+
+    // Причина пропуска архивной вакансии: такую же шлёт расширение (src/queue/queue-mode.ts)
+    public const string VacancyArchived = "вакансия в архиве";
 
     // Причина в истории, когда человек вернул отклик на оценку
     public const string Reevaluation = "повторная оценка";

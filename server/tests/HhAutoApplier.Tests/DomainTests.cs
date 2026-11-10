@@ -257,6 +257,127 @@ public class DomainTests
         Assert.Equal(VacancyStatus.Queued, queued.Status);
     }
 
+    // Отправленный отклик: письмо уже у работодателя (#70)
+    private static JobApplication Sent(VacancyStatus status)
+    {
+        var a = Queued();
+        a.MarkApplied(null, Now);
+        if (status == VacancyStatus.Invited)
+            a.Invite(null, Now);
+        else if (status == VacancyStatus.Rejected)
+            a.Reject(null, Now);
+        return a;
+    }
+
+    [Theory]
+    [InlineData(VacancyStatus.New)]
+    [InlineData(VacancyStatus.Pending)]
+    [InlineData(VacancyStatus.Review)]
+    [InlineData(VacancyStatus.Questionnaire)]
+    [InlineData(VacancyStatus.Queued)]
+    public void CloseVacancyArchived_FromEveryWaitingStatus_WithReasonAndHistory(VacancyStatus status)
+    {
+        var a = InStatus(status);
+
+        a.CloseVacancyArchived(Now);
+
+        Assert.Equal((VacancyStatus.Skipped, "вакансия в архиве"), (a.Status, a.StatusReason));
+        Assert.True(a.ClosedAsArchived);
+        var last = a.History[^1];
+        Assert.Equal((status, VacancyStatus.Skipped, "вакансия в архиве"), (last.From!.Value, last.To, last.Reason));
+    }
+
+    [Theory]
+    [InlineData(VacancyStatus.Pending)]
+    [InlineData(VacancyStatus.Review)]
+    [InlineData(VacancyStatus.Questionnaire)]
+    [InlineData(VacancyStatus.Queued)]
+    public void CloseVacancyUnavailable_FromEveryWaitingStatus(VacancyStatus status)
+    {
+        var a = InStatus(status);
+
+        a.CloseVacancyUnavailable(Now);
+
+        Assert.Equal((VacancyStatus.Skipped, "вакансия недоступна"), (a.Status, a.StatusReason));
+        Assert.False(a.ClosedAsArchived);
+    }
+
+    [Theory]
+    [InlineData(VacancyStatus.Applied)]
+    [InlineData(VacancyStatus.Invited)]
+    [InlineData(VacancyStatus.Rejected)]
+    public void CloseVacancy_SentApplications_NotTouched(VacancyStatus status)
+    {
+        var a = Sent(status);
+        var reason = a.StatusReason;
+
+        Assert.Throws<DomainException>(() => a.CloseVacancyArchived(Now));
+        Assert.Throws<DomainException>(() => a.CloseVacancyUnavailable(Now));
+
+        Assert.Equal((status, reason), (a.Status, a.StatusReason));
+    }
+
+    // Уже решённый отклик остаётся со своей причиной
+    [Theory]
+    [InlineData(VacancyStatus.Skipped)]
+    [InlineData(VacancyStatus.Failed)]
+    public void CloseVacancy_DecidedApplications_NotTouched(VacancyStatus status)
+    {
+        var a = InStatus(status);
+        var reason = a.StatusReason;
+
+        Assert.Throws<DomainException>(() => a.CloseVacancyArchived(Now));
+
+        Assert.Equal((status, reason), (a.Status, a.StatusReason));
+    }
+
+    [Fact]
+    public void ArchivedApplication_CanBeRequeued()
+    {
+        var a = Queued();
+        a.CloseVacancyArchived(Now);
+
+        a.Requeue(Now);
+
+        Assert.Equal((VacancyStatus.Queued, false), (a.Status, a.ClosedAsArchived));
+    }
+
+    // Причина от расширения приходит обычным статусом: признак тот же
+    [Fact]
+    public void ArchivedReasonFromExtension_SetsFlag()
+    {
+        var a = Queued();
+
+        a.Skip("вакансия в архиве", Now);
+
+        Assert.True(a.ClosedAsArchived);
+    }
+
+    [Fact]
+    public void Vacancy_LastSeen_StartsAtCollected_AndOnlyMovesForward()
+    {
+        var v = Vacancy.Create("1", "x", "", "dotnet", Now);
+        Assert.Equal(Now, v.LastSeenAt);
+        Assert.Null(v.ArchiveCheckedAt);
+
+        v.MarkSeen(Now.AddHours(2));
+        v.MarkSeen(Now.AddHours(1));
+
+        Assert.Equal(Now.AddHours(2), v.LastSeenAt);
+        Assert.Equal(Now, v.CollectedAt);
+    }
+
+    [Fact]
+    public void Vacancy_AcceptSourceCard_KeepsLastSeen()
+    {
+        var v = Vacancy.Create("1", "x", "", "dotnet", Now, imported: true);
+        v.MarkSeen(Now.AddHours(3));
+
+        v.AcceptSourceCard(Vacancy.Create("1", "y", "", "dotnet", Now.AddHours(9)));
+
+        Assert.Equal(Now.AddHours(3), v.LastSeenAt);
+    }
+
     [Fact]
     public void Vacancy_AcceptSourceCard_ReplacesClientCard()
     {
