@@ -507,6 +507,9 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("ArchiveCheckedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Area")
                         .IsRequired()
                         .HasColumnType("text");
@@ -527,6 +530,9 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("Imported")
                         .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset>("PublishedAt")
                         .HasColumnType("timestamp with time zone");

@@ -37,6 +37,11 @@ public record VacancyDto
 
     public DateTimeOffset CollectedAt { get; init; }
 
+    // Когда вакансия встретилась в последний раз (#70); новые поля — прежние клиенты их не читают
+    public DateTimeOffset LastSeenAt { get; init; }
+
+    public bool VacancyArchived { get; init; }
+
     public required string SearchName { get; init; }
 
     public VacancyStatus Status { get; init; }
