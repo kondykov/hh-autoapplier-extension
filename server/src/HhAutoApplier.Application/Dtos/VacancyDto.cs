@@ -1,3 +1,4 @@
+using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Vacancies;
 
 namespace HhAutoApplier.Application.Dtos;
@@ -74,4 +75,12 @@ public record VacancyDto
 
     // Отсеяна человеком, LLM или правилами: можно оценить заново и скрыть (#71)
     public bool Dismissed { get; init; }
+
+    // Просьбы работодателя к письму (#72); новые поля — прежние клиенты их не читают
+    public LetterRequestsState LetterRequestsState { get; init; }
+
+    public List<LetterRequestDto> LetterRequests { get; init; } = [];
 }
+
+// Text — цитата работодателя для показа; Value — выражение или кодовое слово; Answer — проверенное значение; Problem — почему не закрывается сама
+public record LetterRequestDto(LetterRequestType Type, string Text, string? Value, string? Answer, bool Closed, string? Problem);
