@@ -113,13 +113,14 @@ async function overview() {
 async function vacancies(statusFilter) {
   const take = 50;
   const searches = await api(scoped("/api/searches"));
-  const state = { status: statusFilter ?? "", search: "", skip: 0 };
+  const state = { status: statusFilter ?? "", search: "", hidden: false, skip: 0 };
 
   const statusSelect = el("select", { "aria-label": "Статус" }, el("option", { value: "", textContent: "Все статусы" }),
     Object.entries(STATUSES).map(([value, text]) => el("option", { value, textContent: text })));
   statusSelect.value = state.status;
   const searchSelect = el("select", { "aria-label": "Поиск" }, el("option", { value: "", textContent: "Все поиски" }),
     searches.map((s) => el("option", { value: s.name, textContent: s.name })));
+  const hidden = el("input", { type: "checkbox" });
   const prev = el("button", { textContent: "← Назад" });
   const next = el("button", { textContent: "Дальше →" });
   const page = el("span", { className: "muted" });
@@ -129,6 +130,7 @@ async function vacancies(statusFilter) {
     const query = new URLSearchParams({ skip: state.skip, take });
     if (state.status) query.set("status", state.status);
     if (state.search) query.set("search", state.search);
+    if (state.hidden) query.set("includeHidden", "true");
     try {
       const items = await api(scoped(`/api/vacancies?${query}`));
       list.replaceChildren(...(items.length ? items.map(vacancyCard) : [el("p", { className: "empty", textContent: "Ничего нет." })]));
@@ -142,11 +144,12 @@ async function vacancies(statusFilter) {
 
   statusSelect.onchange = () => { state.status = statusSelect.value; state.skip = 0; load(); };
   searchSelect.onchange = () => { state.search = searchSelect.value; state.skip = 0; load(); };
+  hidden.onchange = () => { state.hidden = hidden.checked; state.skip = 0; load(); };
   prev.onclick = () => { state.skip = Math.max(0, state.skip - take); load(); };
   next.onclick = () => { state.skip += take; load(); };
   await load();
 
-  return [el("h1", { textContent: "Вакансии" }), el("div", { className: "bar" }, statusSelect, searchSelect, prev, next, page), list];
+  return [el("h1", { textContent: "Вакансии" }), el("div", { className: "bar" }, statusSelect, searchSelect, el("label", {}, hidden, " Показать скрытые"), prev, next, page), list];
 }
 
 function salary(v) {
@@ -170,11 +173,40 @@ function vacancyActions(v, pill) {
     return `«${v.title}»: ${STATUSES[status]}`;
   };
 
+  if (v.hiddenAt) {
+    const unhide = el("button", { textContent: "Вернуть" });
+    unhide.onclick = () => run(unhide, () => post(`/api/vacancies/${encodeURIComponent(v.id)}/unhide`), () => {
+      unhide.remove();
+      result.textContent = "возвращена в список";
+      result.closest("article").classList.add("decided");
+      return `«${v.title}»: возвращена в список`;
+    });
+    return el("div", { className: "actions" }, unhide, result);
+  }
+
   if (REQUEUE.includes(v.status)) {
     const requeue = el("button", { className: "primary", textContent: "В очередь" });
+    // Оценить заново и скрыть — только отсеянные: у Failed отклик мог уйти на hh.ru
+    const reevaluate = v.dismissed ? el("button", { textContent: "Оценить заново" }) : null;
+    const hide = v.dismissed ? el("button", { textContent: "Скрыть" }) : null;
+    const clear = () => [requeue, reevaluate, hide].forEach((b) => b?.remove());
+
     requeue.onclick = () => run(requeue, () => post(`/api/vacancies/${encodeURIComponent(v.id)}/status`, { status: "Queued" }),
-      () => { requeue.remove(); result.textContent = "в очереди"; return done(result, "Queued"); });
-    return el("div", { className: "actions" }, requeue, result);
+      () => { clear(); result.textContent = "в очереди"; return done(result, "Queued"); });
+    if (v.dismissed) {
+      reevaluate.onclick = () => run(reevaluate, () => post(`/api/vacancies/${encodeURIComponent(v.id)}/reevaluate`), (r) => {
+        clear();
+        result.textContent = r.status === "Skipped" ? `снова отсеяна: ${r.statusReason ?? ""}` : STATUSES[r.status];
+        return done(result, r.status);
+      });
+      hide.onclick = () => run(hide, () => post(`/api/vacancies/${encodeURIComponent(v.id)}/hide`), () => {
+        clear();
+        result.textContent = "скрыта";
+        result.closest("article").classList.add("decided");
+        return `«${v.title}»: скрыта`;
+      });
+    }
+    return el("div", { className: "actions" }, requeue, reevaluate, hide, result);
   }
 
   if (SKIPPABLE.includes(v.status)) {
@@ -188,12 +220,30 @@ function vacancyActions(v, pill) {
   return null;
 }
 
+// Просьбы работодателя к письму (#72). Цитата — только для чтения: в письмо идёт лишь проверенное значение
+const LETTER_REQUESTS = { Arithmetic: "Пример", Salary: "Зарплата", TestTask: "Тестовое", CodeWord: "Кодовое слово", Other: "Прочее" };
+
+function letterRequestLine(r) {
+  const state = r.closed ? (r.answer ? `закрыта: ${r.answer}` : "решено человеком") : (r.problem ?? `ответ: ${r.answer} — допишется к письму`);
+  return el("div", { className: "reason" }, el("b", { textContent: LETTER_REQUESTS[r.type] ?? r.type }), r.text ? ` — ${r.text}` : "", el("br"), state);
+}
+
+function letterRequestsBlock(v) {
+  if (v.letterRequestsState === "Failed") return el("div", { className: "reason", textContent: "Просьбы работодателя к письму разобрать не удалось: прочитайте вакансию и напишите письмо сами." });
+  return v.letterRequests?.length ? el("details", { open: v.letterRequestsState === "Found" }, el("summary", { textContent: `Просьбы к письму (${v.letterRequests.length})` }), v.letterRequests.map(letterRequestLine)) : null;
+}
+
 function vacancyCard(v) {
   const pill = el("span", { className: "pill", textContent: STATUSES[v.status] ?? v.status });
   return el("article", { className: "card" },
-    el("div", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title }), " ", pill),
-    el("div", { className: "meta", textContent: [v.company, v.area, salary(v), v.workFormat, `балл ${v.llmScore ?? v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.searchName && `поиск ${v.searchName}`, v.appliedAt && `отклик ${date(v.appliedAt)}`].filter(Boolean).join(" · ") }),
+    el("div", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title }), " ", pill,
+      v.hiddenAt ? " " : null, v.hiddenAt ? el("span", { className: "pill", textContent: "скрыта" }) : null,
+      v.vacancyArchived ? " " : null, v.vacancyArchived ? el("span", { className: "pill", textContent: "в архиве" }) : null),
+    el("div", { className: "meta", textContent: [v.company, v.area, salary(v), v.workFormat, v.workExperience && `опыт: ${v.workExperience}`, `балл ${v.llmScore ?? v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.searchName && `поиск ${v.searchName}`, v.appliedAt && `отклик ${date(v.appliedAt)}`].filter(Boolean).join(" · ") }),
+    // Вакансия общая: даты — когда её нашли впервые и когда она встретилась в сборе или импорте последний раз (#70)
+    el("div", { className: "meta", textContent: [v.collectedAt && `найдена ${date(v.collectedAt)}`, v.lastSeenAt && `встречалась ${date(v.lastSeenAt)}`].filter(Boolean).join(" · ") }),
     v.statusReason || v.llmReason ? el("div", { className: "reason", textContent: v.statusReason ?? v.llmReason }) : null,
+    letterRequestsBlock(v),
     v.coverLetter ? el("details", {}, el("summary", { textContent: "Письмо" }), el("div", { className: "pre", textContent: v.coverLetter })) : null,
     v.history?.length ? el("details", {}, el("summary", { textContent: `История (${v.history.length})` }),
       el("table", {}, v.history.map((h) => el("tr", {}, el("td", { textContent: date(h.at) }), el("td", { textContent: STATUSES[h.to] ?? h.to }), el("td", { textContent: h.reason ?? "" }))))) : null,
@@ -213,8 +263,9 @@ async function review() {
 }
 
 function reviewCard(v) {
+  const awaitsLetter = v.letterRequestsState === "Found" || v.letterRequestsState === "Failed";
   const letter = el("textarea", { value: v.coverLetter ?? "", id: `letter-${v.id}`, disabled: readOnly(),
-    placeholder: "LLM ещё не написала письмо. Напишите своё или одобрите без письма — расширение возьмёт шаблон." });
+    placeholder: awaitsLetter ? "LLM ещё не написала письмо. Без письма одобрить нельзя: шаблон расширения не ответит на просьбы работодателя." : "LLM ещё не написала письмо. Напишите своё или одобрите без письма — расширение возьмёт шаблон." });
   const reason = el("input", { placeholder: "Причина отказа (необязательно)", "aria-label": "Причина отказа" });
   const approve = el("button", { className: "approve", textContent: "Одобрить" });
   const decline = el("button", { className: "danger", textContent: "Отклонить" });
@@ -227,9 +278,22 @@ function reviewCard(v) {
     : null);
   const fields = () => [letter, ...answerFields.filter(Boolean)];
 
+  // Кодовое слово вставляется только по подтверждению, значения из профиля — по кнопке после его заполнения. Ссылки и контакты не выполняются
+  const resolveRequests = (button, confirmCodeWords) => run(button, () => post(`/api/vacancies/${encodeURIComponent(v.id)}/letter-requests/resolve`, { confirmCodeWords }),
+    (updated) => { node.replaceWith(reviewCard(updated)); return `«${v.title}»: письмо обновлено`; });
+  const requestRows = (v.letterRequests ?? []).map((r, i) => {
+    if (readOnly() || r.closed || r.type !== "CodeWord" || !r.value) return letterRequestLine(r);
+    const confirm = el("button", { type: "button", textContent: `Вставить слово «${r.value}»` });
+    confirm.onclick = () => resolveRequests(confirm, [i]);
+    return el("div", {}, letterRequestLine(r), el("div", { className: "actions" }, confirm));
+  });
+  const needsProfile = (v.letterRequests ?? []).some((r) => !r.closed && (r.type === "Salary" || r.type === "TestTask"));
+  const refresh = needsProfile && !readOnly() && v.letterRequestsState === "Found" ? el("button", { type: "button", textContent: "Подставить из профиля" }) : null;
+  if (refresh) refresh.onclick = () => resolveRequests(refresh, []);
+
   const node = el("article", { className: "card" },
     el("h2", {}, el("a", { href: safeUrl(v.url), target: "_blank", rel: "noopener", textContent: v.title })),
-    el("div", { className: "meta", textContent: [v.company, v.area, salary(v) ?? "зарплата не указана", v.workFormat, `балл ${v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.hasTest && "есть тест"].filter(Boolean).join(" · ") }),
+    el("div", { className: "meta", textContent: [v.company, v.area, salary(v) ?? "зарплата не указана", v.workFormat, v.workExperience && `опыт: ${v.workExperience}`, `балл ${v.score}`, v.resumeProfile && `резюме ${v.resumeProfile}`, v.hasTest && "есть тест"].filter(Boolean).join(" · ") }),
     el("div", { className: "verdict", textContent: v.statusReason ?? v.llmReason ?? "LLM сомневается" }),
     v.stack?.length ? el("div", { className: "meta", textContent: `Стек: ${v.stack.join(", ")}` }) : null,
     el("details", {}, el("summary", { textContent: "Описание вакансии" }), el("div", { className: "desc", textContent: v.description || "описания нет" })),
@@ -237,6 +301,8 @@ function reviewCard(v) {
       questions.map((q, i) => answerFields[i]
         ? el("div", { className: "reason" }, el("label", { className: "field", for: answerFields[i].id, textContent: q.question }), answerFields[i])
         : el("div", { className: "reason" }, el("b", { textContent: q.question }), el("br"), q.answer.length ? q.answer.join("; ") : "ответа нет"))) : null,
+    v.letterRequestsState === "Failed" ? letterRequestsBlock(v) : null,
+    requestRows.length ? el("details", { open: true }, el("summary", { textContent: `Просьбы к письму (${requestRows.length})` }), requestRows, refresh ? el("div", { className: "actions" }, refresh) : null) : null,
     el("label", { className: "field", for: letter.id, textContent: v.coverLetterModel ? `Письмо (${v.coverLetterModel === "manual" ? "ваше" : v.coverLetterModel})` : "Письмо" }),
     letter,
     readOnly() ? null : el("div", { className: "actions" }, approve, reason, decline, result));
@@ -362,6 +428,7 @@ function searchForm(s) {
     enabled: el("input", { type: "checkbox", checked: s?.enabled ?? true }),
     includeKeywords: el("input", { value: (r.includeKeywords ?? []).join(", ") }),
     excludeKeywords: el("input", { value: (r.excludeKeywords ?? []).join(", ") }),
+    levelKeywords: el("input", { value: (r.levelKeywords ?? []).join(", "), placeholder: "junior, младший", title: "Ищутся только в названии. Отсев — только без опыта или при стажировке, иначе решает LLM" }),
     allowedFormats: el("input", { value: (r.allowedFormats ?? []).join(", "), placeholder: "Удалённо, Гибрид" }),
     minSalaryRub: el("input", { type: "number", value: r.minSalaryRub ?? "" }),
     minScore: el("input", { type: "number", value: r.minScore ?? 0 }),
@@ -377,7 +444,7 @@ function searchForm(s) {
     el("h2", { textContent: s ? s.name : "Новый поиск" }),
     el("div", { className: "form" },
       field("Название", inputs.name), field("Запрос", inputs.query), field("Регион (area)", inputs.area), field("Доп. параметры", inputs.extraParams),
-      field("Включён", inputs.enabled), field("Нужные слова", inputs.includeKeywords), field("Исключить слова", inputs.excludeKeywords),
+      field("Включён", inputs.enabled), field("Нужные слова", inputs.includeKeywords), field("Исключить слова", inputs.excludeKeywords), field("Слова уровня (в названии)", inputs.levelKeywords),
       field("Форматы работы", inputs.allowedFormats), field("Зарплата от, ₽", inputs.minSalaryRub), field("Мин. балл", inputs.minScore),
       field("Только с зарплатой", inputs.requireSalary), field("Пропускать с тестом", inputs.skipWithTest), field("Без ручной проверки", inputs.skipReview)),
     readOnly() ? null : el("div", { className: "bar", style: "margin:12px 0 0" }, save, remove));
@@ -388,7 +455,7 @@ function searchForm(s) {
       name: inputs.name.value.trim(), query: inputs.query.value.trim(), area: inputs.area.value.trim() || null,
       extraParams: inputs.extraParams.value.trim() || null, enabled: inputs.enabled.checked,
       rules: {
-        includeKeywords: lines(inputs.includeKeywords.value), excludeKeywords: lines(inputs.excludeKeywords.value),
+        includeKeywords: lines(inputs.includeKeywords.value), excludeKeywords: lines(inputs.excludeKeywords.value), levelKeywords: lines(inputs.levelKeywords.value),
         allowedFormats: lines(inputs.allowedFormats.value), minSalaryRub: inputs.minSalaryRub.value ? Number(inputs.minSalaryRub.value) : null,
         minScore: Number(inputs.minScore.value || 0), requireSalary: inputs.requireSalary.checked,
         skipWithTest: inputs.skipWithTest.checked, skipReview: inputs.skipReview.checked,
@@ -419,6 +486,11 @@ async function resumes() {
 function candidateForm(profile) {
   const general = el("textarea", { value: profile.general ?? "", disabled: readOnly(),
     placeholder: "Уровень, стаж, формат работы, город, языки, пожелания" });
+  // Для ответов на просьбы работодателя (#72): LLM их не получает, в письмо дописывает сервер
+  const desiredSalary = el("input", { type: "number", min: "1", step: "1", value: profile.desiredSalaryRub ?? "", disabled: readOnly(), placeholder: "Например, 150000", "aria-label": "Желаемая зарплата на руки, ₽" });
+  const readyForTest = el("select", { disabled: readOnly(), "aria-label": "Готовность к тестовому заданию" },
+    el("option", { value: "", textContent: "не указано" }), el("option", { value: "true", textContent: "да" }), el("option", { value: "false", textContent: "нет" }));
+  readyForTest.value = profile.readyForTestTask == null ? "" : String(profile.readyForTestTask);
   const rows = el("div");
 
   function skillRow(s = { skill: "", facts: "" }) {
@@ -444,12 +516,17 @@ function candidateForm(profile) {
     el("h2", { textContent: "Профиль кандидата" }),
     el("p", { className: "muted", textContent: "Общий для всех резюме. В письмо, оценку, ответы анкет и разбор ответов LLM получает общую часть и факты только по навыкам вакансии. Пишите только то, что было: это уходит работодателю от вашего имени." }),
     el("label", { className: "field", textContent: "Общая часть" }), general,
+    el("label", { className: "field", textContent: "Желаемая зарплата на руки, ₽" }), desiredSalary,
+    el("label", { className: "field", textContent: "Готов к тестовому заданию" }), readyForTest,
+    el("p", { className: "muted", textContent: "Эти два поля LLM не получает: сервер дописывает их к письму, только если работодатель просит. Пусто — отклик с такой просьбой уйдёт на проверку." }),
     el("label", { className: "field", textContent: `Факты по навыкам (${profile.skills.length})` }), rows,
     readOnly() ? null : el("div", { className: "actions" }, add, save));
 
   form.onsubmit = (e) => {
     e.preventDefault();
-    run(save, () => put("/api/profile", { general: general.value.trim() || null, skills: [...rows.children].map((r) => r.read()) }),
+    run(save, () => put("/api/profile", { general: general.value.trim() || null, skills: [...rows.children].map((r) => r.read()),
+      desiredSalaryRub: desiredSalary.value ? Number(desiredSalary.value) : null,
+      readyForTestTask: readyForTest.value === "" ? null : readyForTest.value === "true" }),
       (saved) => { render(); return `Профиль кандидата сохранён: навыков ${saved.skills.length}`; });
   };
   return form;

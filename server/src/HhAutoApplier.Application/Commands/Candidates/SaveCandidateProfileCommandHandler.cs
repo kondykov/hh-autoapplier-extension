@@ -25,7 +25,8 @@ public class SaveCandidateProfileCommandHandler(
 
         try
         {
-            profile.Update(command.General, command.Skills.Select(s => new SkillFact { Skill = s.Skill ?? "", Facts = s.Facts ?? "" }));
+            profile.Update(command.General, command.Skills.Select(s => new SkillFact { Skill = s.Skill ?? "", Facts = s.Facts ?? "" }),
+                command.DesiredSalaryRub, command.ReadyForTestTask);
         }
         catch (DomainException e)
         {

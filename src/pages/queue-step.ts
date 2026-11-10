@@ -149,6 +149,13 @@ export class QueueStep implements PageStep {
     };
     panel.setStep(`Очередь: отклик на "${vacancy.title}"`);
 
+    if (await this.archived(current)) {
+      // Пока шёл запрос, очередь остановили или перезапустили с другой вакансией — её не трогаем
+      if (!state.queueRunning || state.queueCurrent?.id !== current.id) return;
+      await this.finish(current, "archived", vacancy.resume);
+      return;
+    }
+
     let result: ApplyResult;
     try {
       result = await pipeline.applyOnPage(vacancy);
@@ -183,6 +190,20 @@ export class QueueStep implements PageStep {
       }
     }
     await this.finish(current, result, vacancy.resume);
+  }
+
+  // Форма архивной вакансии открывается как обычно (проверено 2026-11-10): признак — только на странице вакансии.
+  // Архив закрывает только явный признак; ошибка проверки — отклик идёт как обычно
+  private async archived(item: QueueItem): Promise<boolean> {
+    const { logger, config } = this.ctx;
+    const check = await this.ctx.archive.check(item.id);
+    if (check.state === "unknown") {
+      logger.log(`Проверка архива "${item.title}" не удалась (${check.error}) — отклик как обычно`, "warn");
+      return false;
+    }
+    if (check.state === "open") return false;
+    logger.log(`"${item.title}": вакансия в архиве — «Отправить» не нажимается${config.queueDryRun ? ", пробный режим: статус не отправляется" : ""}`, "warn");
+    return true;
   }
 
   // «Отправить» уже нажата, и hh.ru загрузил новую страницу раньше, чем пришёл исход (#52): отклик, скорее всего, ушёл

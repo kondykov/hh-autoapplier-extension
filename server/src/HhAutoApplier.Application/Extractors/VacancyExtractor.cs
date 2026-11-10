@@ -23,9 +23,12 @@ public class VacancyExtractor : IExtractor<JobApplication, VacancyDto>
             SalaryCurrency = vacancy.SalaryCurrency,
             WorkFormat = vacancy.WorkFormat,
             Stack = vacancy.Stack,
+            WorkExperience = vacancy.WorkExperienceText,
             HasTest = vacancy.HasTest,
             PublishedAt = vacancy.PublishedAt,
             CollectedAt = vacancy.CollectedAt,
+            LastSeenAt = vacancy.LastSeenAt,
+            VacancyArchived = source.ClosedAsArchived,
             // Свой поиск, нашедший вакансию; удалён — пусто (имя чужого поиска из общей карточки не показываем)
             SearchName = source.Search?.Name ?? "",
             Status = source.Status,
@@ -43,6 +46,10 @@ public class VacancyExtractor : IExtractor<JobApplication, VacancyDto>
             CoverLetterAt = source.CoverLetterAt,
             Questions = source.Questions.Select(q => new VacancyQuestionDto(q.Text, q.Type, q.Options, q.Answer)).ToList(),
             History = source.History.Select(e => new ApplicationEventDto(e.At, e.From, e.To, e.Reason)).ToList(),
+            HiddenAt = source.HiddenAt,
+            Dismissed = source.Dismissed,
+            LetterRequestsState = source.LetterRequestsState,
+            LetterRequests = source.LetterRequests.Select(r => new LetterRequestDto(r.Type, r.Text, r.Value, r.Answer, r.Closed, r.Problem)).ToList(),
         };
     }
 }

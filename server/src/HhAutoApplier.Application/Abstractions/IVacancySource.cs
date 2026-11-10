@@ -10,8 +10,23 @@ public interface IVacancySource
 
     Task<IReadOnlyList<Vacancy>> SearchAsync(SearchProfile search, int page, CancellationToken ct);
 
-    // Дополняет вакансию описанием и навыками; false — вакансия недоступна (удалена, в архиве)
-    Task<bool> LoadDetailsAsync(Vacancy vacancy, CancellationToken ct);
+    // Дополняет вакансию описанием и навыками (и архивную: страница у неё та же).
+    // Капча, отказы и страница без данных — SourceBlockedException: о вакансии это ничего не говорит
+    Task<VacancyPageState> LoadDetailsAsync(Vacancy vacancy, CancellationToken ct);
+}
+
+public enum VacancyPageState
+{
+    Available,
+
+    // Работодатель убрал вакансию в архив: откликаться некуда, страница при этом открывается как обычно
+    Archived,
+
+    // Страницы нет: вакансия удалена
+    Unavailable,
+
+    // Ошибка сервера источника: о вакансии это ничего не говорит, проход идёт дальше, отклики ждут
+    TemporaryError,
 }
 
 // Источник перестал отдавать данные: капча, 403/429 или неожиданная страница. Сбор останавливается до следующего запуска

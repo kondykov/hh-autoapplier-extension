@@ -49,6 +49,8 @@ export const SELECTORS = {
   pageWorkFormat: '[data-qa="work-formats-text"], [data-qa="common-employment-text"]',
   pageSkills: '[data-qa="skills-element"]',
   pageDescription: '[data-qa="vacancy-description"]',
+  // Данные страницы JSON-ом, в том числе status.archived (страница вакансии, проверено 2026-11-10)
+  pageInitialState: "template#HH-Lux-InitialState",
   responseMainTitle: 'h1[data-qa="title"]',
   responseCompanyAvatar: '[aria-label][class*="magritte-avatar"]',
   taskTextarea: "textarea",

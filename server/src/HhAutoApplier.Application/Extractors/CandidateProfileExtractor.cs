@@ -7,5 +7,5 @@ namespace HhAutoApplier.Application.Extractors;
 public class CandidateProfileExtractor : IExtractor<CandidateProfile, CandidateProfileDto>
 {
     public CandidateProfileDto Extract(CandidateProfile source) =>
-        new(source.General, source.Skills.Select(s => new SkillFactDto(s.Skill, s.Facts)).ToList());
+        new(source.General, source.Skills.Select(s => new SkillFactDto(s.Skill, s.Facts)).ToList(), source.DesiredSalaryRub, source.ReadyForTestTask);
 }

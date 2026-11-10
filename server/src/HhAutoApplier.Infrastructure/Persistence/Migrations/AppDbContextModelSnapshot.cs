@@ -45,6 +45,14 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTimeOffset?>("HiddenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LetterRequestsState")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
                     b.Property<DateTimeOffset?>("LlmEvaluatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -115,9 +123,15 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("DesiredSalaryRub")
+                        .HasColumnType("integer");
+
                     b.Property<string>("General")
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
+
+                    b.Property<bool?>("ReadyForTestTask")
+                        .HasColumnType("boolean");
 
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uuid");
@@ -493,6 +507,9 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("ArchiveCheckedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Area")
                         .IsRequired()
                         .HasColumnType("text");
@@ -513,6 +530,9 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("Imported")
                         .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset>("PublishedAt")
                         .HasColumnType("timestamp with time zone");
@@ -540,6 +560,9 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Url")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("WorkExperience")
                         .HasColumnType("text");
 
                     b.Property<string>("WorkFormat")
@@ -802,6 +825,37 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                                 .HasForeignKey("JobApplicationId");
                         });
 
+                    b.OwnsMany("HhAutoApplier.Domain.Applications.LetterRequest", "LetterRequests", b1 =>
+                        {
+                            b1.Property<int>("JobApplicationId");
+
+                            b1.Property<int>("__synthesizedOrdinal")
+                                .ValueGeneratedOnAdd();
+
+                            b1.Property<string>("Answer");
+
+                            b1.Property<bool>("Closed");
+
+                            b1.Property<string>("Text")
+                                .IsRequired();
+
+                            b1.Property<string>("Type")
+                                .IsRequired();
+
+                            b1.Property<string>("Value");
+
+                            b1.HasKey("JobApplicationId", "__synthesizedOrdinal");
+
+                            b1.ToTable("JobApplications");
+
+                            b1
+                                .ToJson("LetterRequests")
+                                .HasColumnType("jsonb");
+
+                            b1.WithOwner()
+                                .HasForeignKey("JobApplicationId");
+                        });
+
                     b.OwnsMany("HhAutoApplier.Domain.Vacancies.VacancyQuestion", "Questions", b1 =>
                         {
                             b1.Property<int>("JobApplicationId");
@@ -834,6 +888,8 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                         });
 
                     b.Navigation("History");
+
+                    b.Navigation("LetterRequests");
 
                     b.Navigation("Questions");
 
@@ -929,6 +985,9 @@ namespace HhAutoApplier.Infrastructure.Persistence.Migrations
                                 .IsRequired();
 
                             b1.PrimitiveCollection<string>("IncludeKeywords")
+                                .IsRequired();
+
+                            b1.PrimitiveCollection<string>("LevelKeywords")
                                 .IsRequired();
 
                             b1.Property<int?>("MinSalaryRub");

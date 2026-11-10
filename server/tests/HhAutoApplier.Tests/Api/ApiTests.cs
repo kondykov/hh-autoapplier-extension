@@ -48,7 +48,7 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
     {
         var version = await Json(await _api.GetAsync("/api/version"));
 
-        Assert.Matches(@"^\d+\.\d+\.\d+$", version.GetProperty("version").GetString()!);
+        Assert.Matches(@"^\d+\.\d+\.\d+(-rc\.\d+)?$", version.GetProperty("version").GetString()!);
         Assert.False(string.IsNullOrWhiteSpace(version.GetProperty("commit").GetString()));
         Assert.True(version.GetProperty("commit").GetString()!.Length <= 7);
         Assert.Equal(HhAutoApplier.Application.ApiContract.Version, version.GetProperty("apiVersion").GetInt32());

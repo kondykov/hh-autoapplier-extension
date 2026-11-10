@@ -1,4 +1,5 @@
 import type { BackendClient } from "../api/client";
+import { pageArchiveChecker, type ArchiveChecker } from "../apply/archive-check";
 import { ApplyPipeline } from "../apply/pipeline";
 import { CaptchaGuard } from "../captcha/guard";
 import type { KeyValueStorage } from "../infra/storage";
@@ -31,6 +32,7 @@ interface ControllerDeps {
   backend: BackendClient;
   nav?: Navigator;
   tab?: TabInfo;
+  archive?: ArchiveChecker;
 }
 
 // Без service worker (тесты, старый фон): очередь не привязана к вкладке
@@ -75,6 +77,8 @@ export class Controller {
       nav: d.nav ?? browserNavigator,
       tab: d.tab ?? ANY_TAB,
       pipeline: this.createPipeline(),
+      // Тот же поддомен, что у формы: запрос same-origin
+      archive: d.archive ?? pageArchiveChecker(() => (d.nav ?? browserNavigator).url()),
       persist: () => this.persist(),
     };
     this.search = new SearchStep(ctx);
