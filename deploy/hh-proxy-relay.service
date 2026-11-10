@@ -1,0 +1,14 @@
+# Пара к hh-proxy-relay.socket: запускается при первом соединении. Порт Happ — HTTP-прокси 10809 из настроек Happ;
+# поменяли его в Happ — поменять и здесь.
+[Unit]
+Description=hh-autoapplier: прокси Happ для контейнеров
+Requires=hh-proxy-relay.socket
+After=hh-proxy-relay.socket
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd 127.0.0.1:10809
+DynamicUser=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
