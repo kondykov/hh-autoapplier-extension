@@ -102,6 +102,26 @@ backup_db() {
   echo "Бэкап БД: $file"
 }
 
+# COMPOSE_FILE в server/.env (читается только эта строка) должен ссылаться на файлы, которые есть в выкатываемом
+# коммите. Иначе docker compose упадёт уже после checkout: так было бы с docker-compose.vpn-happ.yml, удалённым в #84.
+# Проверяем до бэкапа, пока сервер не менялся
+check_compose_files() {
+  local sha=$1 line files f
+  local -a list
+  line=$(grep -E '^[[:space:]]*COMPOSE_FILE=' "$APP_DIR/server/.env" 2>/dev/null | tail -n 1) || return 0
+  files=${line#*=}
+  files=${files//$'\r'/}
+  files=${files//\"/}
+  files=${files//\'/}
+  IFS=':' read -ra list <<<"$files"
+  for f in "${list[@]}"; do
+    f=${f#./}
+    [[ -n "$f" ]] || continue
+    git_app cat-file -e "$sha:server/$f" 2>/dev/null \
+      || die "COMPOSE_FILE в server/.env ссылается на $f, а в выкатываемом коммите его нет: уберите его из .env (docs/DEPLOY.md)"
+  done
+}
+
 # Три успешных ответа подряд: контейнер в цикле перезапусков может ответить один раз
 wait_health() {
   local deadline=$((SECONDS + HEALTH_TIMEOUT)) ok=0 response code
@@ -124,6 +144,9 @@ roll_out() {
   local sha=$1
   git_app checkout --quiet --detach "$sha" || return 1
   after=$sha
+  # Коммит сборки для GET /api/version (#77): без него в ответе «unknown»
+  GIT_COMMIT=$(git_app rev-parse --short "$sha") || return 1
+  export GIT_COMMIT
   compose up -d --build || return 1
   wait_health
 }
@@ -146,6 +169,7 @@ resolve_target "$DEPLOY_REF"
 echo "Было: $before, выкатываем: $target ($DEPLOY_REF)"
 
 check_ci "$target"
+check_compose_files "$target"
 if [[ "$DEPLOY_BACKUP" == true ]]; then backup_db; else backup_file="отключён"; fi
 
 if roll_out "$target"; then

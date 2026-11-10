@@ -14,8 +14,9 @@ Workflow — [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml), 
 
 - выбирает коммит: только из веток и тегов этого репозитория;
 - проверяет CI именно этого коммита: нет прогона, идёт, красный — отказ, сервер не меняется;
+- проверяет, что файлы из `COMPOSE_FILE` в `server/.env` есть в выкатываемом коммите, иначе отказ до бэкапа;
 - делает `pg_dump` в `/var/backups/hh-autoapplier/hhapplier-deploy-<дата>-<коммит>.dump`;
-- выполняет checkout в `/opt/hh-autoapplier`, `docker compose up -d --build` и ждёт `/health` (до 3 минут);
+- выполняет checkout в `/opt/hh-autoapplier`, `docker compose up -d --build` с `GIT_COMMIT` выкатываемого коммита (его показывает `GET /api/version`) и ждёт `/health` (до 3 минут);
 - при сбое сохраняет логи API в `/var/backups/hh-autoapplier/deploy-failed-*.log`, возвращает предыдущий коммит, задача становится красной. GitHub присылает письмо о сбое; уведомление в Telegram — после #28.
 
 Одновременно идёт только один деплой. Логи Actions в публичном репозитории видны всем, поэтому логи приложения в них не выводятся.
@@ -38,6 +39,8 @@ docker compose start api
 ## Первоначальная настройка
 
 Секреты (`POSTGRES_PASSWORD`, ключ LLM, токен Telegram) лежат только в `server/.env` на сервере. В секреты GitHub их не добавлять.
+
+Сервер, где раньше работал контейнер xray (#84): до первого выката убрать строку `COMPOSE_FILE` из `server/.env` и удалить контейнер `docker rm -f server-xray-1`. Иначе скрипт откажется выкатывать: `docker-compose.vpn-happ.yml` в репозитории больше нет. Исходящий VPN настраивается на самой машине.
 
 ### Сервер (root)
 
