@@ -44,6 +44,10 @@ public static class StackExtractor
         map.Select(kv => (kv.Key, new Regex($@"(?<![\p{{L}}\d])(?:{kv.Value})(?![\p{{L}}\d])",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(200)))).ToArray();
 
+    // Каждое упоминание технологии с позицией: проверке письма важен контекст упоминания
+    public static IEnumerable<(string Name, int Index, int Length)> Find(string text) =>
+        Dictionary.SelectMany(d => d.Pattern.Matches(text).Select(m => (d.Name, m.Index, m.Length)));
+
     public static string[] Extract(string text, IEnumerable<string>? extra = null)
     {
         var found = Dictionary.Where(d => d.Pattern.IsMatch(text)).Select(d => d.Name).ToList();

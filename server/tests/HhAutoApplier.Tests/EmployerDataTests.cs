@@ -119,19 +119,18 @@ public class EmployerDataTests
         Assert.Contains("""{"kind": "invitation" | "question" | "rejection" | "other", "summary":""", DialogAnalysis.BuildRequest(InjectedMessage(), Resume).Messages[0].Content);
     }
 
-    // Цифры письма сверяются со всем пользовательским сообщением: блок и замена скобок сверку не меняют
+    // Цифры письма сверяются только с фактами о кандидате (#82): цифры вакансии в блоке данных их не подтверждают
     [Fact]
-    public void Figures_VacancyNumbersStayKnown_MarkersAddNone()
+    public void Figures_VacancyNumbersAreNotFacts()
     {
         var v = Vacancy.Create("1", "C# разработчик", "https://hh.ru/vacancy/1", "dotnet", Now);
         v.UpdateDetails(null, "Нагрузка <<<500>>> RPS, снижение на 30–40%, опыт от 3 лет", []);
-        var request = CoverLetterWriting.BuildRequest(v, Resume);
         var facts = CoverLetterWriting.Facts(v, Resume, null);
 
-        Assert.Empty(CoverLetterWriting.UnsupportedFigures("Работал на C# 5 лет, держал нагрузку 500 RPS, снижение на 30–40%.", request, facts));
-        Assert.Equal(["777"], CoverLetterWriting.UnsupportedFigures("Обработал 777 заявок.", request, facts));
-        // Срок из требований вакансии, как и раньше, стаж не подтверждает
-        Assert.Equal(["3 года"], CoverLetterWriting.UnsupportedFigures("Работаю 3 года.", request, facts));
+        Assert.Empty(CoverLetterWriting.UnsupportedFigures("Работал на C# 5 лет.", facts, v));
+        Assert.Equal(["500", "30-40"], CoverLetterWriting.UnsupportedFigures("Держал нагрузку 500 RPS, снижение на 30–40%.", facts, v));
+        Assert.Equal(["777"], CoverLetterWriting.UnsupportedFigures("Обработал 777 заявок.", facts, v));
+        Assert.Equal(["3"], CoverLetterWriting.UnsupportedFigures("Работаю 3 года.", facts, v));
         Assert.DoesNotContain(EmployerData.Start, facts);
     }
 
