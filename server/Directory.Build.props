@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <!-- Версия backend, своя, не связана с версией расширения. Как поднимать — AGENTS.md, «Версии» -->
-    <Version>0.2.0-rc.2</Version>
+    <Version>0.2.0-rc.3</Version>
   </PropertyGroup>
 
 </Project>
