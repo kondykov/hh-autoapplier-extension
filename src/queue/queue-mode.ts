@@ -53,6 +53,9 @@ export const QUEUE_FAIL_LIMIT = 3;
 
 export const isQueueFailure = (result: ApplyResult): boolean => result === "skipped" || result === "failed" || result === "unclear";
 
+// Та же причина, что ставит сбор на сервере (JobApplication.VacancyArchived): по ней сервер узнаёт архив
+export const VACANCY_ARCHIVED = "вакансия в архиве";
+
 // Исход конвейера → статус на сервере. null — серверу ничего не сообщаем (пробный прогон, ручное вмешательство)
 export function toStatusReport(result: ApplyResult): StatusReport | null {
   switch (result) {
@@ -67,6 +70,8 @@ export function toStatusReport(result: ApplyResult): StatusReport | null {
       return { status: "Failed", reason: "не удалось выбрать резюме или отправить отклик" };
     case "unclear":
       return { status: "Failed", reason: "отклик не подтверждён — проверить вручную" };
+    case "archived":
+      return { status: "Skipped", reason: VACANCY_ARCHIVED };
     case "disabled":
     case "dry_run":
     case "stopped":

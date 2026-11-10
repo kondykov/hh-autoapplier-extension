@@ -1,4 +1,5 @@
 import type { BackendClient } from "../api/client";
+import type { ArchiveChecker } from "../apply/archive-check";
 import type { ApplyPipeline } from "../apply/pipeline";
 import type { CaptchaGuard } from "../captcha/guard";
 import type { AppConfig } from "../core/config";
@@ -36,6 +37,8 @@ export interface StepContext {
   limit: DailyLimit;
   backend: Pick<BackendClient, "getServerVersion" | "getQueue" |"getResumes" | "reportStatus" | "submitQuestionnaire" | "reportEvent" | "importVacancies" | "importDialogs" | "reportAutoReply">;
   pipeline: Pick<ApplyPipeline, "applyOnPage">;
+  // Вакансия в архиве: форма этого не показывает (#70)
+  archive: ArchiveChecker;
   captcha: Pick<CaptchaGuard, "waitUntilClear" | "consumeHit">;
   nav: Navigator;
   // Своя вкладка: очередь ведёт только вкладка-владелец (#51)
