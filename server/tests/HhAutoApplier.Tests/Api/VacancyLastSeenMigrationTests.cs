@@ -15,14 +15,14 @@ public class VacancyLastSeenMigrationTests(ApiFactory factory)
     [Fact]
     public async Task OldRows_GetLastSeenFromCollectedAt_ArchiveCheckEmpty()
     {
-        var database = $"migration_{Guid.NewGuid():N}";
+        // Контейнер один на прогон тестов: имя базы постоянное
         var connection = await factory.WithDbAsync(async db =>
         {
-            await db.Database.ExecuteSqlRawAsync($"""CREATE DATABASE "{database}" """);
+            await db.Database.ExecuteSqlRawAsync("""CREATE DATABASE "migration_70" """);
             return db.Database.GetConnectionString()!;
         });
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(new NpgsqlConnectionStringBuilder(connection) { Database = database }.ConnectionString).Options;
+            .UseNpgsql(new NpgsqlConnectionStringBuilder(connection) { Database = "migration_70" }.ConnectionString).Options;
         await using var db = new AppDbContext(options);
         var migrator = db.GetService<IMigrator>();
 

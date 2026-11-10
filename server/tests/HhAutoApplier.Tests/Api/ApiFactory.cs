@@ -221,6 +221,8 @@ public sealed class FakeVacancySource : IVacancySource
         DetailsLoaded = 0;
     }
 
+    public void ResetCounters() => DetailsLoaded = 0;
+
     public async Task<IReadOnlyList<Vacancy>> SearchAsync(SearchProfile search, int page, CancellationToken ct)
     {
         if (Hold is { } hold)
