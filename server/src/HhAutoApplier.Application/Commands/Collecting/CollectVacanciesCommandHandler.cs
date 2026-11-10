@@ -106,7 +106,7 @@ public class CollectVacanciesCommandHandler(
                     {
                         confirmations--;
                         await PauseAsync(ct);
-                        if (await source.LoadDetailsAsync(card, ct))
+                        if (await source.LoadDetailsAsync(card, ct) == VacancyPageState.Available)
                             known[card.Id].AcceptSourceCard(card);
                         else
                             unavailable.Add(card.Id);
@@ -132,7 +132,7 @@ public class CollectVacanciesCommandHandler(
                         if (!known.TryGetValue(card.Id, out var vacancy))
                         {
                             await PauseAsync(ct);
-                            if (!await source.LoadDetailsAsync(card, ct))
+                            if (await source.LoadDetailsAsync(card, ct) != VacancyPageState.Available)
                                 continue;
 
                             vacancy = card;
@@ -241,7 +241,7 @@ public class CollectVacanciesCommandHandler(
         {
             var card = Vacancy.Create(vacancy.Id, "", "", vacancy.SearchName, clock.GetUtcNow());
             await PauseAsync(ct);
-            if (await source.LoadDetailsAsync(card, ct))
+            if (await source.LoadDetailsAsync(card, ct) == VacancyPageState.Available)
             {
                 vacancy.AcceptSourceCard(card);
                 return true;

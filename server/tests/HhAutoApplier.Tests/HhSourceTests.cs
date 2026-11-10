@@ -138,9 +138,54 @@ public class HhSourceTests
     public async Task Source_ReturnsSearchAndDetails()
     {
         Assert.Equal(2, (await Source(HttpStatusCode.OK, Page(SearchJson)).SearchAsync(Search, 0, default)).Count);
-        Assert.True(await Source(HttpStatusCode.OK, Page(VacancyJson)).LoadDetailsAsync(Card("101", "x"), default));
-        Assert.False(await Source(HttpStatusCode.NotFound).LoadDetailsAsync(Card("1", "x"), default));
+        Assert.Equal(VacancyPageState.Available, await Source(HttpStatusCode.OK, Page(VacancyJson)).LoadDetailsAsync(Card("101", "x"), default));
+        Assert.Equal(VacancyPageState.Unavailable, await Source(HttpStatusCode.NotFound).LoadDetailsAsync(Card("1", "x"), default));
     }
+
+    // Живые страницы 138137097 (в архиве) и 138922163 (открыта), 2026-11-10: status и closedForApplicants — как есть, остальное сокращено
+    private const string ArchivedJson = """
+        {"vacancyView":{"vacancyFull":{"vacancy":{
+          "vacancyId":138137097,"name":"Senior .NET-разработчик","description":"<p>ASP.NET Core</p>",
+          "status":{"archived":true,"disabled":false,"hiddenInArchive":false,"premoderationStatus":"APPROVED","approved":true,"moderatePriorityScore":0},
+          "closedForApplicants":false}}}}
+        """;
+
+    private const string OpenJson = """
+        {"vacancyView":{"vacancyFull":{"vacancy":{
+          "vacancyId":138922163,"name":"Разработчик ASP.NET","description":"<p>ASP.NET Core</p>",
+          "status":{"archived":false,"disabled":false,"hiddenInArchive":false,"premoderationStatus":"APPROVED","approved":true,"moderatePriorityScore":0},
+          "closedForApplicants":false}}}}
+        """;
+
+    [Theory]
+    [InlineData(ArchivedJson, VacancyPageState.Archived)]
+    [InlineData(OpenJson, VacancyPageState.Available)]
+    [InlineData(VacancyJson, VacancyPageState.Available)]
+    public async Task Source_ArchiveOnlyByStatusFlag(string json, VacancyPageState expected) =>
+        Assert.Equal(expected, await Source(HttpStatusCode.OK, Page(json)).LoadDetailsAsync(Card("1", "x"), default));
+
+    // Подробности разбираются и у архивной: подтверждённая карточка не должна остаться с текстом клиента
+    [Fact]
+    public async Task Source_ArchivedPage_StillFillsCard()
+    {
+        var card = Card("1", "x");
+
+        await Source(HttpStatusCode.OK, Page(ArchivedJson)).LoadDetailsAsync(card, default);
+
+        Assert.Equal(("Senior .NET-разработчик", "ASP.NET Core"), (card.Title, card.Description));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.BadGateway)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public async Task Source_ServerError_IsTemporary_NotUnavailable(HttpStatusCode status) =>
+        Assert.Equal(VacancyPageState.TemporaryError, await Source(status).LoadDetailsAsync(Card("1", "x"), default));
+
+    // Выдача — по-прежнему ошибка прохода: без неё сбору нечего делать
+    [Fact]
+    public async Task Source_ServerErrorOnSearch_StillThrows() =>
+        await Assert.ThrowsAsync<HttpRequestException>(() => Source(HttpStatusCode.BadGateway).SearchAsync(Search, 0, default));
 
     [Theory]
     [InlineData(HttpStatusCode.Forbidden, null)]
@@ -157,4 +202,16 @@ public class HhSourceTests
     [Fact]
     public async Task Source_VacancyPageWithoutState_IsBlocked_NotUnavailable() =>
         await Assert.ThrowsAsync<SourceBlockedException>(() => Source(HttpStatusCode.OK, "<html></html>").LoadDetailsAsync(Card("1", "x"), default));
+
+    // JSON есть, вакансии нет (вход, мягкий антибот): отклик закрывать нельзя
+    [Fact]
+    public async Task Source_VacancyPageWithoutVacancy_IsBlocked_NotUnavailable() =>
+        await Assert.ThrowsAsync<SourceBlockedException>(() => Source(HttpStatusCode.OK, Page("""{"other":1}""")).LoadDetailsAsync(Card("1", "x"), default));
+
+    [Theory]
+    [InlineData(HttpStatusCode.Forbidden, null)]
+    [InlineData(HttpStatusCode.TooManyRequests, null)]
+    [InlineData(HttpStatusCode.OK, "/account/captcha?backurl=x")]
+    public async Task Source_BlockedOnArchivedPage_NotArchived(HttpStatusCode status, string? finalPath) =>
+        await Assert.ThrowsAsync<SourceBlockedException>(() => Source(status, Page(ArchivedJson), finalPath).LoadDetailsAsync(Card("1", "x"), default));
 }
