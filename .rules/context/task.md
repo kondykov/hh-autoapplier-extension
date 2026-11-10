@@ -11,8 +11,9 @@
 ## Следующий шаг — по решению владельца
 1. **Выкат на home-server**, сейчас отложен:
    - бэкап базы `/var/backups/hh-autoapplier`, миграции применятся при старте: `ApplicationHiddenAt`, `LevelKeywords`, `LetterRequests`, `VacancyLastSeen`;
-   - **до выката владелец** убирает `COMPOSE_FILE` из `server/.env` и удаляет `server-xray-1`: compose-файлы xray удалены (#84), на сервере работает нативный Happ. `deploy.sh` с таким `.env` откажет до бэкапа;
-   - первый выкат 0.2.0 — вручную: кнопка Deploy появится только когда `deploy.yml` будет в `master`, то есть после выпуска;
+   - **до выката владелец** переходит с контейнера xray на relay к Happ по `docs/DEPLOY.md`, «Исходящий прокси и бэкапы» (#5): ставит службы, удаляет `server-xray-1` и только потом убирает `COMPOSE_FILE` и задаёт `HTTPS_PROXY` в `server/.env`. Просто удалить xray нельзя: контейнер API доходит до Happ только через него, LLM и Telegram пропадут;
+   - рабочая копия на сервере стоит на `develop` (`be58065`) при старых контейнерах, и `docker compose` там падает на `COMPOSE_FILE` — читать базу через `docker exec server-db-1`;
+   - первый выкат 0.2.0 — вручную (команды там же): кнопка Deploy появится только когда `deploy.yml` будет в `master`, то есть после выпуска;
    - сборка: `GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build`, новая настройка `COLLECT_MAX_ARCHIVE_CHECKS` (10); новый том `dpkeys` — сессии входа слетят один раз.
 2. **Проверки со входом после выката** (снимают Waiting):
    - «Проверить связь» показывает версию сервера (#77);

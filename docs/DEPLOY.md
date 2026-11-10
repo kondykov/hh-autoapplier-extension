@@ -40,9 +40,42 @@ docker compose start api
 
 Секреты (`POSTGRES_PASSWORD`, ключ LLM, токен Telegram) лежат только в `server/.env` на сервере. В секреты GitHub их не добавлять.
 
-Сервер, где раньше работал контейнер xray (#84): до первого выката убрать строку `COMPOSE_FILE` из `server/.env` и удалить контейнер `docker rm -f server-xray-1`. Иначе скрипт откажется выкатывать: `docker-compose.vpn-happ.yml` в репозитории больше нет. Исходящий VPN настраивается на самой машине.
+### Исходящий прокси и бэкапы (сервер, root)
 
-### Сервер (root)
+С российского IP Groq и Telegram напрямую не работают, hh.ru работает. VPN — окружение машины (#84): на home-server это Happ, его HTTP-прокси слушает только `127.0.0.1:10809`, и контейнеру он не виден. Relay `hh-proxy-relay` принимает соединения на `172.17.0.1:10810` (адрес хоста в docker0) и передаёт их в Happ. API получает `HTTPS_PROXY` из `server/.env`, hh.ru идёт напрямую через `NO_PROXY`. Ежедневный бэкап базы — `hh-backup.timer`, хранится 7 дней.
+
+Файлы — в [`deploy/`](../deploy/), ставит их [`install-host-units.sh`](../deploy/install-host-units.sh). `РЕВИЗИЯ` — ветка или тег с этими файлами:
+
+```bash
+git -C /opt/hh-autoapplier fetch origin РЕВИЗИЯ
+mkdir /root/hh-units && git -C /opt/hh-autoapplier archive FETCH_HEAD deploy | tar -x -C /root/hh-units
+bash /root/hh-units/deploy/install-host-units.sh
+rm -rf /root/hh-units
+```
+
+**Переход с контейнера xray**, если сервер настраивался по старой схеме. Сейчас работающий API уже ходит на `host.docker.internal:10810`, поэтому relay на том же адресе подхватывает его без перезапуска:
+
+1. Happ подключён: `curl -s -o /dev/null -w '%{http_code}\n' -x http://127.0.0.1:10809 https://api.telegram.org/` — не `000`.
+2. Убрать xray и включить relay: `docker rm -f server-xray-1`, затем `systemctl enable --now hh-proxy-relay.socket`.
+3. Через relay: `curl -s -o /dev/null -w '%{http_code}\n' -x http://172.17.0.1:10810 https://api.telegram.org/` — не `000`.
+4. В `server/.env`: удалить строку `COMPOSE_FILE`; добавить `HTTPS_PROXY=http://host.docker.internal:10810` и `NO_PROXY=hh.ru,.hh.ru,db,localhost,127.0.0.1`; очистить `ADMIN_PASSWORD` и `CORS_ORIGINS`. Пока `COMPOSE_FILE` указывает на удалённый файл, `deploy.sh` откажет до бэкапа, а `docker compose` в каталоге не работает.
+5. Правило ufw для relay уже есть, если его нет: `ufw allow in from 172.16.0.0/12 to 172.17.0.1 port 10810 proto tcp`.
+
+**Бэкапы:** `systemctl enable --now hh-backup.timer`, проверить сразу — `systemctl start hh-backup.service && ls -lt /var/backups/hh-autoapplier | head -3`. Журнал: `journalctl -u hh-backup.service -n 20`.
+
+**Выкат вручную**, пока `deploy.yml` нет в `master` и кнопки ещё нет. `ТЕГ` — например `backend-v0.2.0-rc.4`:
+
+```bash
+(umask 077 && docker exec server-db-1 pg_dump -U hhapplier -d hhapplier -Fc > /var/backups/hh-autoapplier/pre-deploy-$(date +%Y%m%d-%H%M).dump)
+git -C /opt/hh-autoapplier fetch --tags origin
+git -C /opt/hh-autoapplier checkout --detach ТЕГ
+cd /opt/hh-autoapplier/server && GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build
+curl -s http://127.0.0.1:8080/health
+```
+
+Relay зависит от Happ: после перезагрузки Happ сам не подключается, пока не выполнен вход в KDE, и до этого Groq и Telegram недоступны. Как это решить — `docs/specs/sprint-15.md`, В3.
+
+### Runner (сервер, root)
 
 Скрипт [`deploy/install-runner.sh`](../deploy/install-runner.sh) скачивает runner в `/opt/actions-runner`, сверяет SHA256, ставит unit и хук. Версия и хеш записаны в скрипте (значения — со [страницы релиза actions/runner](https://github.com/actions/runner/releases)). Дальше runner обновляется сам.
 

@@ -1,0 +1,14 @@
+# Прокси Happ для контейнеров (#5, #84). Happ слушает только 127.0.0.1, контейнеру он не виден: relay принимает
+# соединения на адресе хоста в docker0 и передаёт их HTTP-прокси Happ. В server/.env:
+# HTTPS_PROXY=http://host.docker.internal:10810. Из домашней сети порт закрыт ufw (разрешены только 172.16.0.0/12).
+# Ставится deploy/install-host-units.sh, порядок включения — docs/DEPLOY.md.
+[Unit]
+Description=hh-autoapplier: прокси Happ для контейнеров (172.17.0.1:10810 -> 127.0.0.1:10809)
+
+[Socket]
+ListenStream=172.17.0.1:10810
+# docker0 может подняться позже сокета: адрес занимается заранее
+FreeBind=yes
+
+[Install]
+WantedBy=sockets.target
