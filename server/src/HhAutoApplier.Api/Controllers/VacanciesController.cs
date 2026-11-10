@@ -68,6 +68,61 @@ public class VacanciesController : ApiController
     }
 
     /// <summary>
+    /// Оценить заново отсеянную вакансию (Skipped): правила и затем LLM, импортная карточка — через подтверждение при сборе.
+    /// Письмо LLM и ответы анкеты сбрасываются, письмо, поправленное человеком, остаётся.
+    /// </summary>
+    /// <response code="404">Вакансия не найдена.</response>
+    /// <response code="409">Вакансия не отсеяна: оценить заново нельзя.</response>
+    /// <response code="503">LLM не настроена, статус не меняется.</response>
+    [HttpPost("vacancies/{id}/reevaluate")]
+    [ProducesResponseType(typeof(VacancyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(NotFoundError), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ConflictError), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(LlmUnavailableError), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> Reevaluate(
+        string id,
+        [FromServices] ReevaluateVacancyCommandHandler handler,
+        CancellationToken ct
+    )
+    {
+        return FromResult((await handler.Handle(new ReevaluateVacancyCommand { VacancyId = id }, ct)).Value);
+    }
+
+    /// <summary>
+    /// Скрыть отсеянную вакансию из списка: статус, история и счётчики не меняются.
+    /// </summary>
+    /// <response code="404">Вакансия не найдена.</response>
+    /// <response code="409">Вакансия не отсеяна: скрыть нельзя.</response>
+    [HttpPost("vacancies/{id}/hide")]
+    [ProducesResponseType(typeof(VacancyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(NotFoundError), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ConflictError), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Hide(
+        string id,
+        [FromServices] SetVacancyHiddenCommandHandler handler,
+        CancellationToken ct
+    )
+    {
+        return FromResult((await handler.Handle(new SetVacancyHiddenCommand { VacancyId = id, Hidden = true }, ct)).Value);
+    }
+
+    /// <summary>
+    /// Вернуть скрытую вакансию в список.
+    /// </summary>
+    /// <response code="404">Вакансия не найдена.</response>
+    [HttpPost("vacancies/{id}/unhide")]
+    [ProducesResponseType(typeof(VacancyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(NotFoundError), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Unhide(
+        string id,
+        [FromServices] SetVacancyHiddenCommandHandler handler,
+        CancellationToken ct
+    )
+    {
+        return FromResult((await handler.Handle(new SetVacancyHiddenCommand { VacancyId = id, Hidden = false }, ct)).Value);
+    }
+
+    /// <summary>
     /// Ручная проверка вакансии в статусе Review: одобрить — в очередь (coverLetter — поправленное письмо, пусто — письмо LLM;
     /// answers — поправленные ответы анкеты, все по порядку вопросов, пусто — ответы LLM),
     /// отклонить — Skipped с причиной. Список на проверке — GET /api/vacancies?status=Review, страница — веб-интерфейс, «Проверка» (/#review).
@@ -87,6 +142,26 @@ public class VacanciesController : ApiController
     {
         var command = new ReviewVacancyCommand { VacancyId = id, Approve = request.Approve, CoverLetter = request.CoverLetter, Answers = request.Answers, Reason = request.Reason };
         return FromResult((await handler.Handle(command, ct)).Value);
+    }
+
+    /// <summary>
+    /// Отклик на проверке с просьбами работодателя к письму: подтвердить кодовые слова (confirmCodeWords — номера просьб)
+    /// и подставить значения из профиля. Блок значений в письме обновляется, статус не меняется.
+    /// </summary>
+    /// <response code="404">Вакансия не найдена.</response>
+    /// <response code="409">Вакансия не на проверке, просьб нет или такую просьбу подтвердить нельзя.</response>
+    [HttpPost("vacancies/{id}/letter-requests/resolve")]
+    [ProducesResponseType(typeof(VacancyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(NotFoundError), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ConflictError), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ResolveLetterRequests(
+        string id,
+        [FromBody] ResolveLetterRequestsRequest request,
+        [FromServices] ResolveLetterRequestsCommandHandler handler,
+        CancellationToken ct
+    )
+    {
+        return FromResult((await handler.Handle(new ResolveLetterRequestsCommand { VacancyId = id, ConfirmCodeWords = request.ConfirmCodeWords ?? [] }, ct)).Value);
     }
 
     /// <summary>
@@ -123,9 +198,9 @@ public class VacanciesController : ApiController
     }
 
     /// <summary>
-    /// Принять вакансии от клиента и оценить их правилами поиска. Уже известные пропускаются.
-    /// Вакансия, которую уже импортировал другой пользователь и источник ещё не подтвердил, ждёт (waiting): её карточка — чужие данные,
-    /// отклик оценится после подтверждения карточки при сборе.
+    /// Принять вакансии от клиента. Уже известные пропускаются.
+    /// Вакансия, которую источник ещё не подтвердил, ждёт (waiting): с выдачи приходит неполная карточка,
+    /// отклик оценится правилами поиска после подтверждения по странице вакансии при сборе.
     /// </summary>
     /// <response code="400">Поиск с таким именем не найден.</response>
     /// <response code="409">Те же вакансии одновременно добавил сбор — повторите импорт.</response>
@@ -144,6 +219,8 @@ public class VacanciesController : ApiController
 }
 
 public record SetVacancyStatusRequest(VacancyStatus Status, string? Reason, string? Resume);
+
+public record ResolveLetterRequestsRequest([MaxLength(10)] List<int>? ConfirmCodeWords = null);
 
 public record SubmitQuestionnaireRequest([Required, MinLength(1), MaxLength(50)] List<QuestionInput> Questions);
 

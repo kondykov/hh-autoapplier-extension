@@ -1,5 +1,6 @@
 using System.Net;
 using HhAutoApplier.Application.Abstractions;
+using HhAutoApplier.Application.Commands.Collecting;
 using HhAutoApplier.Infrastructure.Collecting;
 using HhAutoApplier.Infrastructure.Identity;
 using HhAutoApplier.Infrastructure.Llm;
@@ -53,7 +54,10 @@ public static class DependencyInjection
         }
 
         // LLM: OpenAI-совместимый провайдер (по умолчанию Groq); без ключа IsConfigured = false
-        services.Configure<LlmOptions>(config.GetSection(LlmOptions.Section));
+        var llm = config.GetSection(LlmOptions.Section);
+        services.Configure<LlmOptions>(llm);
+        var llmOptions = llm.Get<LlmOptions>() ?? new LlmOptions();
+        llmOptions.EnsureValid();
         services.AddSingleton(sp => new LlmBudget(sp.GetRequiredService<TimeProvider>(), day =>
         {
             using var scope = sp.CreateScope();
@@ -70,6 +74,8 @@ public static class DependencyInjection
         services.AddSingleton<ITelegramBot>(sp => sp.GetRequiredService<TelegramBot>());
         services.AddHostedService<TelegramHostedService>();
 
+        services.AddSingleton<CollectionProgress>();
+        services.AddSingleton<ICollectionBackground, CollectionBackground>();
         services.AddHostedService<CollectorHostedService>();
         services.AddHostedService<LlmPipelineHostedService>();
         return services;

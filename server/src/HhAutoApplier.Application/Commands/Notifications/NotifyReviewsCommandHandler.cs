@@ -61,7 +61,10 @@ public class NotifyReviewsCommandHandler(IAppDbContext db, ITelegramBot bot, Not
         return written;
     }
 
-    // Анкета на проверке (#58) — свой ключ: отклик, одобренный раньше как сомнительный, приходит на проверку второй раз
+    // Анкета (#58) и письмо (#67) на проверке — свои ключи: отклик, одобренный раньше как сомнительный, приходит на проверку второй раз
     private static string ReviewKey(JobApplication application) =>
-        application.Questions.Any(q => q.Answer.Count > 0) ? $"review-questionnaire:{application.Id}" : $"review:{application.Id}";
+        application.Questions.Count > 0 ? $"review-questionnaire:{application.Id}"
+        : application.LetterRejected ? $"review-letter:{application.Id}"
+        : application.AwaitsClosingLetter ? $"review-requests:{application.Id}"
+        : $"review:{application.Id}";
 }

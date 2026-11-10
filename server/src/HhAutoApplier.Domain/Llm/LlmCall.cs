@@ -3,6 +3,9 @@ namespace HhAutoApplier.Domain.Llm;
 // Журнал запросов к LLM: промпт, ответ, модель и токены — для разбора ошибок и учёта дневного лимита
 public class LlmCall
 {
+    // Причина в журнале: модель ответила, но разобрать ответ не удалось
+    public const string Unparsed = "ответ не разобран";
+
     // Для EF
     private LlmCall()
     {

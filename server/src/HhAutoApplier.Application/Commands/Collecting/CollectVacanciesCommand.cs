@@ -4,9 +4,10 @@ using OneOf;
 
 namespace HhAutoApplier.Application.Commands.Collecting;
 
-// Пройти все включённые поиски по всем источникам. Запускается по расписанию и вручную
-public record CollectVacanciesCommand;
+// Пройти все включённые поиски по всем источникам. Запускается по расписанию и вручную.
+// Reserved — запуск уже занят в CollectionProgress тем, кто запустил проход в фоне
+public record CollectVacanciesCommand(string Trigger = CollectionProgress.Schedule, bool Reserved = false);
 
-// На .NET 11: public union CollectVacanciesResult(CollectResultDto, SourceUnavailableError);
+// На .NET 11: public union CollectVacanciesResult(CollectResultDto, SourceUnavailableError, ConflictError);
 [GenerateOneOf]
-public partial class CollectVacanciesResult : OneOfBase<CollectResultDto, SourceUnavailableError>;
+public partial class CollectVacanciesResult : OneOfBase<CollectResultDto, SourceUnavailableError, ConflictError>;

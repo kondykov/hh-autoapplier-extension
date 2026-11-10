@@ -27,14 +27,40 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
         return (await Json(res)).GetProperty("id").GetInt32();
     }
 
-    private Task<HttpResponseMessage> Import(string search, params object[] vacancies) =>
-        _api.PostAsJsonAsync("/api/import", new { search, vacancies });
+    // Импорт и подтверждение карточек сбором: дальше тесты работают с уже оценёнными откликами
+    private async Task<HttpResponseMessage> Import(string search, params object[] vacancies)
+    {
+        var response = await _api.PostAsJsonAsync("/api/import", new { search, vacancies });
+        if (response.IsSuccessStatusCode)
+            await factory.ConfirmImportedAsync();
+        return response;
+    }
 
     private static object Card(string id, string title, string description = "", int? salaryFrom = null) =>
         new { id, title, company = "Acme", description, salaryFrom, salaryCurrency = "RUR", workFormat = "Удалённо" };
 
     private Task<HttpResponseMessage> SetStatus(string id, string status, string? reason = null) =>
         _api.PostAsJsonAsync($"/api/vacancies/{id}/status", new { status, reason });
+
+    // Расширение сверяет контракт API перед запуском очереди (#77)
+    [Fact]
+    public async Task Version_ReturnsBuildAndContract()
+    {
+        var version = await Json(await _api.GetAsync("/api/version"));
+
+        Assert.Matches(@"^\d+\.\d+\.\d+(-rc\.\d+)?$", version.GetProperty("version").GetString()!);
+        Assert.False(string.IsNullOrWhiteSpace(version.GetProperty("commit").GetString()));
+        Assert.True(version.GetProperty("commit").GetString()!.Length <= 7);
+        Assert.Equal(HhAutoApplier.Application.ApiContract.Version, version.GetProperty("apiVersion").GetInt32());
+    }
+
+    [Fact]
+    public async Task Version_WithoutLogin_Unauthorized()
+    {
+        var response = await factory.CreateClient().GetAsync("/api/version");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
 
     // CORS выключен по умолчанию (#20): чужой сайт не получает разрешения ни на preflight, ни на обычный запрос
     [Fact]
@@ -100,8 +126,10 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
             Card("1", "Senior C# разработчик", "ASP.NET, PostgreSQL", 300_000),
             Card("2", "Junior C# разработчик"),
             Card("3", "PHP разработчик", "Laravel")));
-        Assert.Equal((3, 3, 2, 1), (first.GetProperty("received").GetInt32(), first.GetProperty("added").GetInt32(),
-            first.GetProperty("queued").GetInt32(), first.GetProperty("skipped").GetInt32()));
+        // Ответ импорта — до подтверждения: все ждут; оценка — после него
+        Assert.Equal((3, 3, 0, 0, 3), (first.GetProperty("received").GetInt32(), first.GetProperty("added").GetInt32(),
+            first.GetProperty("queued").GetInt32(), first.GetProperty("skipped").GetInt32(), first.GetProperty("waiting").GetInt32()));
+        Assert.Equal(2, (await Json(await _api.GetAsync("/api/vacancies?status=Queued"))).GetArrayLength());
 
         var again = await Json(await Import("dotnet", Card("1", "Senior C# разработчик")));
         Assert.Equal(0, again.GetProperty("added").GetInt32());
@@ -185,6 +213,58 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
         Assert.Contains("капча", await blocked.Content.ReadAsStringAsync());
     }
 
+    // hh.ru показывает часть вакансий с задержкой: новая может лежать глубже страницы, где всё уже известно (#73)
+    [Fact]
+    public async Task Collect_FindsNewVacancyBehindPageOfKnownOnes()
+    {
+        await SaveSearch("dotnet", "junior");
+        factory.Source.Add("10", "C# разработчик", "ASP.NET Core");
+        Assert.Equal(1, (await Json(await _api.PostAsync("/api/collect", null))).GetProperty("added").GetInt32());
+
+        factory.Source.Add("20", "Senior C# разработчик", "ASP.NET Core", page: 1);
+        Assert.Equal(1, (await Json(await _api.PostAsync("/api/collect", null))).GetProperty("added").GetInt32());
+    }
+
+    // Кнопка только запускает сбор, состояние читается отдельно (#74)
+    [Fact]
+    public async Task CollectStart_RunsInBackground_OneAtATime_AndReportsState()
+    {
+        await SaveSearch("dotnet", "junior");
+        factory.Source.Add("30", "C# разработчик", "ASP.NET Core");
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        factory.Source.Hold = hold;
+
+        var started = await Json(await _api.PostAsync("/api/collect/start", null));
+        Assert.Equal("по кнопке", started.GetProperty("current").GetProperty("trigger").GetString());
+
+        Assert.Equal(HttpStatusCode.Conflict, (await _api.PostAsync("/api/collect/start", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await _api.PostAsync("/api/collect", null)).StatusCode);
+
+        hold.SetResult();
+        var state = await CollectionFinished();
+        var last = state.GetProperty("last");
+        Assert.Equal(("по кнопке", 1, 1), (last.GetProperty("trigger").GetString(), last.GetProperty("seen").GetInt32(), last.GetProperty("added").GetInt32()));
+        Assert.True(last.TryGetProperty("finishedAt", out _));
+
+        // Запуск освободился
+        Assert.Equal(HttpStatusCode.OK, (await _api.PostAsync("/api/collect/start", null)).StatusCode);
+        await CollectionFinished();
+    }
+
+    private async Task<JsonElement> CollectionFinished()
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            var state = await Json(await _api.GetAsync("/api/collect/status"));
+            if (!state.TryGetProperty("current", out var current) || current.ValueKind == JsonValueKind.Null)
+                return state;
+
+            await Task.Delay(100);
+        }
+
+        throw new TimeoutException("Сбор не завершился");
+    }
+
     [Fact]
     public async Task LlmCheck_WithoutKey_Is503_AndDoesNotCallProvider()
     {
@@ -234,7 +314,7 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await _api.PostAsJsonAsync("/api/llm/letters", new { })).StatusCode);
 
         factory.Llm.Configured = true;
-        const string letter = "Здравствуйте! Пишу на C# пять лет, ASP.NET Core знаю хорошо.\n\nС уважением, Иван";
+        const string letter = "Здравствуйте! Пишу на C#, ASP.NET Core знаю хорошо.\n\nС уважением, Иван";
         factory.Llm.Answers.Enqueue(letter);
         factory.Llm.Answers.Enqueue("Не могу.");
         var res = await Json(await _api.PostAsJsonAsync("/api/llm/letters", new { limit = 10 }));
@@ -447,5 +527,40 @@ public class ApiTests(ApiFactory factory) : IAsyncLifetime
         Assert.Equal("Вакансия;Стек;Компания;Оплата;Формат;Ссылка;Дата;Резюме", lines[0]);
         Assert.Contains("\"от 250000 RUR\"", lines[1]);
         Assert.Equal(2, lines.Length);
+    }
+
+    // Название и компания — от работодателя: формула в CSV не должна исполниться в Excel
+    [Theory]
+    [InlineData("=HYPERLINK(\"http://evil\")", "\"'=HYPERLINK(\"\"http://evil\"\")\"")]
+    [InlineData("+7 разработчик C#", "\"'+7 разработчик C#\"")]
+    [InlineData("-1 разработчик C#", "\"'-1 разработчик C#\"")]
+    [InlineData("@SUM разработчик C#", "\"'@SUM разработчик C#\"")]
+    [InlineData("C# = разработчик", "\"C# = разработчик\"")]
+    public async Task Report_Csv_NeutralizesFormulas(string title, string cell)
+    {
+        await SaveSearch();
+        var card = new { id = "1", title, company = "@Acme", description = "", salaryCurrency = "RUR", workFormat = "Удалённо" };
+        await Json(await Import("dotnet", card));
+        await Json(await SetStatus("1", "Applied"));
+
+        var bytes = await (await _api.GetAsync("/api/report?format=csv")).Content.ReadAsByteArrayAsync();
+        var cells = Encoding.UTF8.GetString(bytes[3..]).Split("\r\n")[1];
+
+        Assert.StartsWith(cell + ";", cells);
+        Assert.Contains(";\"'@Acme\";", cells);
+    }
+
+    // Не прошедший оценку отклик клиент не отметит отправленным
+    [Fact]
+    public async Task SetStatus_AppliedBeforeEvaluation_Conflict()
+    {
+        await SaveSearch();
+        factory.Llm.Configured = true;
+        await Json(await Import("dotnet", Card("1", "C# разработчик")));
+
+        Assert.Equal(HttpStatusCode.Conflict, (await SetStatus("1", "Applied")).StatusCode);
+
+        var vacancy = (await Json(await _api.GetAsync("/api/vacancies"))).EnumerateArray().Single();
+        Assert.Equal("Pending", vacancy.GetProperty("status").GetString());
     }
 }

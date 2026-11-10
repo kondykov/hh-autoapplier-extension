@@ -12,6 +12,9 @@ public record GetVacanciesQuery
 
     public string? Search { get; init; }
 
+    // Показать и скрытые карточки (#71); без него их в списке нет
+    public bool IncludeHidden { get; init; }
+
     [Range(0, int.MaxValue)]
     public int Skip { get; init; }
 

@@ -1,10 +1,13 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Application.Commands.Dialogs;
 using HhAutoApplier.Application.Commands.Telegram;
+using HhAutoApplier.Domain.Dialogs;
 using HhAutoApplier.Domain.Notifications;
 using HhAutoApplier.Domain.Vacancies;
+using HhAutoApplier.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -46,6 +49,7 @@ public class DialogsTests(ApiFactory factory) : IAsyncLifetime
         await Json(await _admin.PutAsJsonAsync("/api/searches", new { name = "dotnet", query = "C#" }));
         object Card(string id) => new { id, title = $"C# {id}", company = "Acme", description = "", salaryCurrency = "RUR", workFormat = "Удалённо" };
         await Json(await _admin.PostAsJsonAsync("/api/import", new { search = "dotnet", vacancies = new[] { Card("1"), Card("2"), Card("3") } }));
+        await factory.ConfirmImportedAsync();
         foreach (var id in new[] { "1", "2", "3" })
             await Json(await _admin.PostAsJsonAsync($"/api/vacancies/{id}/status", new { status = "Applied" }));
     }
@@ -97,6 +101,55 @@ public class DialogsTests(ApiFactory factory) : IAsyncLifetime
 
         Assert.Equal((1, 1), (result.GetProperty("recovered").GetInt32(), result.GetProperty("rejected").GetInt32()));
         Assert.Equal(VacancyStatus.Rejected, await StatusOf("4"));
+    }
+
+    // MarkApplied из Pending запрещён, но чат доказывает, что отклик уже у работодателя (#60)
+    [Fact]
+    public async Task Import_ChatFindsApplicationNotYetEvaluated_Recovered()
+    {
+        await Json(await _admin.PutAsJsonAsync("/api/searches", new { name = "dotnet", query = "C#" }));
+        factory.Llm.Configured = true;
+        await Json(await _admin.PostAsJsonAsync("/api/import", new { search = "dotnet", vacancies = new[] { new { id = "5", title = "C# 5", company = "Acme", description = "", salaryCurrency = "RUR", workFormat = "Удалённо" } } }));
+        await factory.ConfirmImportedAsync();
+        Assert.Equal(VacancyStatus.Pending, await StatusOf("5"));
+
+        var result = await Import(Chat(51, "5", "RESPONSE", 501, Old));
+
+        Assert.Equal(1, result.GetProperty("recovered").GetInt32());
+        Assert.Equal(VacancyStatus.Applied, await StatusOf("5"));
+    }
+
+    private sealed class Owner(Guid id) : ICurrentUser
+    {
+        public Guid? Id => id;
+
+        public string Name => "owner";
+
+        public string Role => "User";
+
+        public bool ViaApiKey => false;
+    }
+
+    // Две вкладки: второй запрос записывает тот же чат между чтением и сохранением первого (#60)
+    [Fact]
+    public async Task Import_SameChatConcurrently_Conflict()
+    {
+        var admin = await factory.WithDbAsync(async db => (await db.Users.SingleAsync(u => u.Email == ApiFactory.AdminEmail)).Id);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.SavingChanges += (_, _) =>
+        {
+            using var other = factory.Services.CreateScope();
+            var rival = other.ServiceProvider.GetRequiredService<AppDbContext>();
+            rival.EmployerMessages.Add(EmployerMessage.Create(admin, 41, null, "C#", "Acme", 401, "Здравствуйте!", Old, "RESPONSE", Old, false));
+            rival.SaveChanges();
+        };
+        var chat = new DialogChat { ChatId = 41, Title = "C#", Company = "Acme", State = "RESPONSE", MessageId = 401, Text = "Здравствуйте!", At = Old, FromEmployer = true };
+
+        var result = await new ImportDialogsCommandHandler(db, new Owner(admin), TimeProvider.System).Handle(new ImportDialogsCommand { Chats = [chat] });
+
+        Assert.True(result.IsT1);
+        Assert.Equal(1, await factory.WithDbAsync(d => d.EmployerMessages.CountAsync(m => m.ChatId == 41)));
     }
 
     [Fact]

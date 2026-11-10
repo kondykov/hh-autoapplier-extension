@@ -1,6 +1,6 @@
 import { DELAYS, pause, wait } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
-import type { AppState, Vacancy } from "../core/state";
+import type { Vacancy } from "../core/state";
 import { qs } from "../dom/query";
 import type { Logger } from "../infra/logger";
 import type { ResumeSelector } from "../resume/selector";
@@ -11,13 +11,13 @@ import { attachLetterAndSubmit } from "./submit";
 import { humanClick } from "../dom/input";
 
 // stopped — очередь остановили (или перезапустили с другой вакансией), пока конвейер работал: ничего не отправлено.
-// captcha — посреди отклика появилась капча: дальше без человека не идём, «Отправить» не нажата
-export type ApplyResult = "success" | "outline" | "skipped" | "disabled" | "unclear" | "failed" | "dry_run" | "stopped" | "captcha";
+// captcha — посреди отклика появилась капча: дальше без человека не идём. «Отправить» не нажата, либо капча появилась сразу после нажатия и отклик мог уйти.
+// archived — вакансия в архиве (#70): определяет очередь до конвейера, «Отправить» не нажимается
+export type ApplyResult = "success" | "outline" | "skipped" | "disabled" | "unclear" | "failed" | "dry_run" | "stopped" | "captcha" | "archived";
 
 type Halt = "stopped" | "captcha";
 
 export interface PipelineDeps {
-  state: AppState;
   logger: Logger;
   letters: LetterProvider;
   resumes: ResumeSelector;
@@ -38,12 +38,12 @@ export class ApplyPipeline {
   constructor(private deps: PipelineDeps) {}
 
   async applyOnPage(vacancy: Vacancy): Promise<ApplyResult> {
-    const outcome = await waitForApplyOutcome(vacancy);
+    const outcome = await waitForApplyOutcome();
     return this.resolve(vacancy, outcome);
   }
 
   private async resolve(vacancy: Vacancy, outcome: ApplyOutcome): Promise<ApplyResult> {
-    const { state, logger } = this.deps;
+    const { logger } = this.deps;
     logger.log(`Исход отклика: ${outcome}`);
 
     // Анкета с ответами backend заполняется ниже, после выбора резюме; без ответов — в «Аутлайн»
@@ -55,7 +55,6 @@ export class ApplyPipeline {
     }
     if (outcome === "none") {
       logger.log("Форма отклика не появилась, пропускаю", "warn");
-      state.skipped++;
       return "skipped";
     }
 
@@ -65,7 +64,6 @@ export class ApplyPipeline {
     if (chosen.failed) {
       const close = qs<HTMLElement>(SELECTORS.responseModalClose);
       if (close) await humanClick(close);
-      state.skipped++;
       return "failed";
     }
     halt = this.halt(vacancy);
@@ -74,7 +72,7 @@ export class ApplyPipeline {
       const filled = await fillQuestionnaire(vacancy.answers ?? []);
       if (!filled.ok) {
         // Анкета на странице не совпала с ответами (работодатель её поменял) — не отправляем
-        logger.log(`Анкета: нет ответа на ${filled.missing.length} вопр.: ${filled.missing.join(" | ").slice(0, 200)}`, "warn");
+        logger.log(filled.missing.length ? `Анкета: нет ответа на ${filled.missing.length} вопр.: ${filled.missing.join(" | ").slice(0, 200)}` : "Анкета: блоки вопросов не найдены — не отправляю", "warn");
         return this.saveOutline(vacancy);
       }
       logger.log("Анкета заполнена ответами с сервера", "success");
@@ -88,9 +86,11 @@ export class ApplyPipeline {
       halt = this.halt(vacancy);
       return this.deps.dryRun() || halt !== null;
     };
-    const result = await attachLetterAndSubmit(vacancy, letter, logger, dryRun, questionnaire, () => this.deps.onSubmit(vacancy));
+    const result = await attachLetterAndSubmit(letter, logger, dryRun, questionnaire, () => this.deps.onSubmit(vacancy), () => this.deps.captchaHit());
     if (result === "dry_run" && halt) return this.halted(halt);
     switch (result) {
+      case "captcha":
+        return this.captchaAfterSubmit();
       case "outline":
         return this.saveOutline(vacancy);
       case "success":
@@ -104,10 +104,8 @@ export class ApplyPipeline {
         return this.afterPageChange(vacancy);
       case "unclear":
         logger.log('Отклик не подтверждён, добавляю в "Непонятное"', "warn");
-        state.skipped++;
         return "unclear";
       default:
-        state.skipped++;
         return "failed";
     }
   }
@@ -118,6 +116,7 @@ export class ApplyPipeline {
     this.deps.logger.log("После отправки страница сменилась — жду исход без повторного нажатия");
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
+      if (this.deps.captchaHit()) return this.captchaAfterSubmit();
       if (isOutlineDetected()) return this.saveOutline(vacancy);
       if (isAlreadyRespondedOnPage()) {
         await this.deps.onApplied(vacancy);
@@ -125,9 +124,14 @@ export class ApplyPipeline {
       }
       await wait(300);
     }
+    if (this.deps.captchaHit()) return this.captchaAfterSubmit();
     this.deps.logger.log('Отклик не подтверждён, добавляю в "Непонятное"', "warn");
-    this.deps.state.skipped++;
     return "unclear";
+  }
+
+  private captchaAfterSubmit(): ApplyResult {
+    this.deps.logger.log("Капча после нажатия «Отправить» — отклик мог уйти, повторно не отправляю", "warn");
+    return "captcha";
   }
 
   private halt(vacancy: Vacancy): Halt | null {

@@ -20,7 +20,7 @@ public class WriteCoverLettersCommandHandler(
     ILogger<WriteCoverLettersCommandHandler> logger
 ) : ICommandHandler<WriteCoverLettersCommand, WriteCoverLettersResult>
 {
-    // Попыток на письмо за проход: первая и одна исправленная, если цифры не из фактов
+    // Попыток на письмо за проход: первая и одна исправленная, если письмо не прошло проверку
     private const int MaxAttempts = 2;
 
     public async Task<WriteCoverLettersResult> Handle(WriteCoverLettersCommand command, CancellationToken ct = default)
@@ -30,24 +30,27 @@ public class WriteCoverLettersCommandHandler(
 
         using var pass = await gate.EnterAsync(ct);
 
-        // Письма, которые дважды подряд вышли с цифрами не из фактов, сутки не переписываются: конвейер идёт раз в минуту,
-        // без паузы это цикл запросов к LLM. Без письма расширение возьмёт свой шаблон. Считается по отклику — вакансия
+        // Письма, которые дважды не прошли сверку с фактами (цифры, заглушки, обещания, технологии) или не разобраны (#80), сутки не переписываются:
+        // конвейер идёт раз в минуту, без паузы это цикл запросов к LLM. Сбой провайдера не считается: ответа не было, письма
+        // должны написаться после восстановления. Без письма расширение возьмёт свой шаблон. Считается по отклику — вакансия
         // и её владелец (#57): неудачи с профилем одного пользователя не лишают писем другого
         var since = clock.GetUtcNow().AddDays(-1);
         var usage = await quota.LoadAsync(ct);
         var exhausted = usage.Exhausted;
         var queued = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct))
             .Where(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter == null && !exhausted.Contains(a.UserId))
-            .Where(a => db.LlmCalls.Count(c => c.Purpose == CoverLetterWriting.Purpose && c.Error != null && c.Error.StartsWith(CoverLetterWriting.FiguresError)
+            .Where(a => db.LlmCalls.Count(c => c.Purpose == CoverLetterWriting.Purpose && c.Error != null
+                                               && (c.Error == LlmCall.Unparsed || c.Error.StartsWith(CoverLetterWriting.FiguresError) || c.Error.StartsWith(CoverLetterWriting.PlaceholdersError)
+                                                   || c.Error.StartsWith(CoverLetterWriting.PromisesError) || c.Error.StartsWith(CoverLetterWriting.TechnologiesError))
                                                && c.CreatedAt > since && c.VacancyId == a.VacancyId && c.UserId == a.UserId) < MaxAttempts)
             .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
         if (queued.Count == 0)
             return new CoverLettersResultDto(0, 0, 0, null);
 
         // Резюме ищется у владельца отклика: имена у разных пользователей совпадают
-        var resumes = await db.Resumes.AsNoTracking().ToDictionaryAsync(r => (r.UserId, r.Name), ct);
-        // Профиль кандидата (#35) — владельца отклика; пользователей немного, все профили — одним запросом
-        var profiles = await db.CandidateProfiles.AsNoTracking().ToListAsync(ct);
+        var resumes = await db.ResumesOf(queued).ToDictionaryAsync(r => (r.UserId, r.Name), ct);
+        // Профиль кандидата (#35) — владельца отклика
+        var profiles = await db.ProfilesOf(queued).ToListAsync(ct);
 
         int written = 0, failed = 0;
         string? stoppedBy = null;
@@ -58,9 +61,12 @@ public class WriteCoverLettersCommandHandler(
                 continue;
 
             var resume = application.ResumeProfile is { } name ? resumes.GetValueOrDefault((application.UserId, name)) : null;
-            var first = CoverLetterWriting.BuildRequest(application.Vacancy, resume, profiles.FirstOrDefault(p => p.UserId == application.UserId));
+            var profile = profiles.FirstOrDefault(p => p.UserId == application.UserId);
+            var first = CoverLetterWriting.BuildRequest(application.Vacancy, resume, profile);
+            var facts = CoverLetterWriting.Facts(application.Vacancy, resume, profile);
             var request = first;
             var done = false;
+            string? rejected = null;
             for (var attempt = 1; attempt <= MaxAttempts && !done; attempt++)
             {
                 if (!usage.TryTake(application.UserId))
@@ -84,26 +90,40 @@ public class WriteCoverLettersCommandHandler(
                 // Не письмо — вакансия остаётся без письма: расширение возьмёт свой шаблон, если откликнется раньше
                 if (CoverLetterWriting.Parse(result.Content) is not { } letter)
                 {
-                    db.LlmCalls.Add(LlmCall.Succeeded(CoverLetterWriting.Purpose, application.VacancyId, result.Model, prompt, result.Content,
-                        result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(application.UserId));
+                    db.LlmCalls.Add(LlmCall.Rejected(CoverLetterWriting.Purpose, application.VacancyId, result.Model, prompt, result.Content,
+                        LlmCall.Unparsed, result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(application.UserId));
+                    // С открытыми просьбами шаблон расширения не подходит: письмо пишет человек, иначе отклик завис бы вне очереди
+                    if (application.AwaitsClosingLetter)
+                        rejected = LlmCall.Unparsed;
                     break;
                 }
 
-                // Цифры сверяются с фактами первого запроса: повторный содержит само неверное письмо
-                var figures = CoverLetterWriting.UnsupportedFigures(letter, first);
-                if (figures.Count > 0)
+                // Письмо сверяется только с фактами о кандидате: ни текст вакансии, ни неверное письмо в повторном запросе фактами не считаются
+                var figures = CoverLetterWriting.UnsupportedFigures(letter, facts, application.Vacancy);
+                var placeholders = CoverLetterWriting.Placeholders(letter, facts);
+                var promises = CoverLetterClaims.Promises(letter, facts);
+                var technologies = CoverLetterClaims.Technologies(letter, facts, application.Vacancy);
+                if (figures.Count > 0 || placeholders.Count > 0 || promises.Count > 0 || technologies.Count > 0)
                 {
+                    rejected = CoverLetterWriting.Problem(figures, placeholders, promises, technologies);
                     db.LlmCalls.Add(LlmCall.Rejected(CoverLetterWriting.Purpose, application.VacancyId, result.Model, prompt, result.Content,
-                        $"{CoverLetterWriting.FiguresError}: {string.Join(", ", figures)}", result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(application.UserId));
-                    request = CoverLetterWriting.Retry(first, letter, figures);
+                        rejected, result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(application.UserId));
+                    request = CoverLetterWriting.Retry(first, letter, figures, placeholders, promises, technologies);
                     continue;
                 }
 
                 db.LlmCalls.Add(LlmCall.Succeeded(CoverLetterWriting.Purpose, application.VacancyId, result.Model, prompt, result.Content,
                     result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(application.UserId));
                 application.SetCoverLetter(letter, result.Model, clock.GetUtcNow());
+                // Просьбы к письму (#72): проверки выше видели письмо модели, значения дописывает сервер
+                application.CloseLetterRequests(profile, resume?.LetterTemplate, clock.GetUtcNow());
                 done = true;
             }
+
+            // Письмо не прошло проверку и после повтора: решает человек, черновик — в журнале LlmCalls. Письмо с заглушками
+            // не записывается: «Одобрить» в Telegram отправило бы его как есть, без письма расширение возьмёт свой шаблон
+            if (!done && rejected is not null && stoppedBy is null)
+                application.RequireLetterReview(rejected, clock.GetUtcNow());
 
             // Пока LLM писала, отклик одобрили со своим письмом или отправили — письмо LLM не записывается поверх
             if (!await db.SaveOrDiscardAsync(application, ct))

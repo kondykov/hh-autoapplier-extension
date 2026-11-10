@@ -77,7 +77,7 @@ public class SecurityTests(ApiFactory factory) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Collect_ImportedCardDetailsFail_StaysImported_OthersWait()
+    public async Task Collect_ImportedCardDetailsFail_StaysImported_ApplicationsSkipped()
     {
         var (_, a) = await CreateUser("a@test.local");
         await SaveSearch(a, "a-search");
@@ -91,15 +91,20 @@ public class SecurityTests(ApiFactory factory) : IAsyncLifetime
 
         var vacancy = await factory.WithDbAsync(db => db.Vacancies.AsNoTracking().SingleAsync(v => v.Id == "7"));
         Assert.Equal(("Текст клиента", true), (vacancy.Description, vacancy.Imported));
-        // Отклик администратора на неподтверждённую чужую карточку не оценён — ждёт
-        Assert.Equal("New", Assert.Single(await Vacancies(_admin)).GetProperty("status").GetString());
+        // Отклики на неподтверждённую карточку не оценены по ней и больше не ждут; страница запрошена один раз за проход (#59)
+        Assert.Equal(1, factory.Source.DetailsLoaded);
+        foreach (var client in new[] { _admin, a })
+        {
+            var skipped = Assert.Single(await Vacancies(client));
+            Assert.Equal(("Skipped", "вакансия недоступна"), (skipped.GetProperty("status").GetString(), skipped.GetProperty("statusReason").GetString()));
+        }
 
-        // Страница открылась — карточка целиком из источника, ждавший отклик оценён
+        // Страница открылась, выдача снова встретила вакансию — карточка целиком из источника; закрытый отклик остаётся закрытым
         factory.Source.NoDetails.Clear();
         await Json(await _admin.PostAsync("/api/collect", null));
         vacancy = await factory.WithDbAsync(db => db.Vacancies.AsNoTracking().SingleAsync(v => v.Id == "7"));
         Assert.Equal(("Описание из источника", "C# разработчик (источник)", false), (vacancy.Description, vacancy.Title, vacancy.Imported));
-        Assert.Equal("Queued", Assert.Single(await Vacancies(_admin)).GetProperty("status").GetString());
+        Assert.Equal("Skipped", Assert.Single(await Vacancies(_admin)).GetProperty("status").GetString());
     }
 
     [Fact]
@@ -222,9 +227,10 @@ public class SecurityTests(ApiFactory factory) : IAsyncLifetime
         }));
         await SaveSearch(a, "a-search");
         await SaveSearch(b, "b-search");
-        // Без LLM на импорте отклики сразу в очереди
+        // Без LLM подтверждённые отклики сразу в очереди
         await Import(a, "a-search", "1");
         await Import(b, "b-search", "2");
+        await factory.ConfirmImportedAsync();
 
         factory.Llm.Configured = true;
         factory.Llm.Answers.Enqueue("Здравствуйте! Пишу на C# несколько лет и хочу к вам в команду.\n\nС уважением");

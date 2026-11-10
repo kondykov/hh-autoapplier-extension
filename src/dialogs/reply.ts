@@ -8,6 +8,10 @@ export type SendResult = { ok: true } | { ok: false; error: string };
 
 export const chatUrl = (chatId: number, origin = location.origin) => `${origin}/chat/${chatId}`;
 
+// Открыт именно этот чат: id целиком, /chat/12 не совпадает с /chat/123
+export const isChatPage = (url: string, chatId: number) =>
+  new URL(url).pathname.match(/^\/chat\/(\d+)(?:\/|$)/)?.[1] === String(chatId);
+
 async function waitFor<T>(probe: () => T | null | undefined, timeoutMs: number, stepMs = DELAYS.small): Promise<T | null> {
   const until = Date.now() + timeoutMs;
   for (;;) {

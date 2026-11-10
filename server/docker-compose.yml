@@ -17,7 +17,10 @@ services:
       retries: 10
 
   api:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     restart: unless-stopped
     depends_on:
       db:
@@ -30,6 +33,10 @@ services:
       Telegram__BotToken: ${TELEGRAM_BOT_TOKEN:-}
       Hh__Enabled: ${HH_ENABLED:-true}
       Collector__IntervalMinutes: ${COLLECT_INTERVAL_MINUTES:-60}
+      Collector__MaxPages: ${COLLECT_MAX_PAGES:-20}
+      Collector__MaxArchiveChecks: ${COLLECT_MAX_ARCHIVE_CHECKS:-10}
+      Llm__Provider: ${LLM_PROVIDER:-openai}
+      Llm__JsonMode: ${LLM_JSON_MODE:-}
       Llm__ApiKey: ${LLM_API_KEY:-}
       Llm__BaseUrl: ${LLM_BASE_URL:-https://api.groq.com/openai/v1}
       Llm__Model: ${LLM_MODEL:-openai/gpt-oss-120b}

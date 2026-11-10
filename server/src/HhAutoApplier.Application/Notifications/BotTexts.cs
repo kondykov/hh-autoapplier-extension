@@ -74,8 +74,8 @@ public static class BotTexts
     {
         var v = application.Vacancy;
         var answered = application.Questions.Where(q => q.Answer.Count > 0).ToList();
-        // У анкеты на проверке причина — в статусе («анкета: проверить …»), пояснение оценки LLM — о другом
-        var reason = answered.Count > 0 ? application.StatusReason : application.LlmReason ?? application.StatusReason;
+        // У анкеты и письма на проверке причина — в статусе («анкета: проверить …»), пояснение оценки LLM — о другом
+        var reason = application.Questions.Count > 0 || application.LetterRejected ? application.StatusReason : application.LlmReason ?? application.StatusReason;
         var text = new StringBuilder()
             .AppendLine($"На проверке: {v.Title}{(string.IsNullOrWhiteSpace(v.Company) ? "" : $" — {v.Company}")}")
             .AppendLine(v.Url)
@@ -88,6 +88,21 @@ public static class BotTexts
             text.AppendLine().AppendLine("Анкета (поправить ответы — в веб-интерфейсе, «Проверка»):");
             foreach (var q in answered)
                 text.AppendLine($"— {q.Text}").AppendLine($"  {string.Join("; ", q.Answer)}");
+        }
+        else if (application.Questions.Count > 0)
+        {
+            text.AppendLine().AppendLine("Ответов на анкету нет: «Одобрить» вернёт отклик в очередь, расширение пришлёт анкету заново. Ответить можно и вручную на hh.ru.");
+        }
+
+        if (application.LetterRequestsState == LetterRequestsState.Failed)
+            text.AppendLine().AppendLine("Просьбы работодателя к письму разобрать не удалось: прочитайте вакансию и решите в веб-интерфейсе, «Проверка».");
+        else if (application.LetterRequests.Count > 0)
+        {
+            text.AppendLine().AppendLine("Просьбы работодателя к письму:");
+            foreach (var r in application.LetterRequests)
+                text.AppendLine($"— {r.Text}").AppendLine(r.Closed ? $"  ответ: {r.Answer ?? "решено человеком"}" : $"  не закрыта: {r.Problem ?? $"ждёт письма, значение {r.Answer}"}");
+            if (application.AwaitsClosingLetter)
+                text.AppendLine("Незакрытые просьбы решаются в веб-интерфейсе, «Проверка».");
         }
 
         text.AppendLine().AppendLine(string.IsNullOrWhiteSpace(application.CoverLetter)

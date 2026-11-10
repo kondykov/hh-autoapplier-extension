@@ -7,7 +7,7 @@ export interface QueueItem {
   title: string;
   company: string;
   resume: string | null;
-  // Подстрока названия резюме на hh.ru (match профиля с сервера) — заполняет очередь перед открытием вакансии
+  // Часть названия резюме на hh.ru (match профиля с сервера) — заполняет очередь перед открытием вакансии
   resumeMatch?: string;
   // Письмо под вакансию от LLM backend; нет — расширение берёт свой шаблон
   letter?: string;
@@ -48,19 +48,30 @@ export function isQueueOn(queueRunning: boolean, current: QueueItem | null, link
 export const pickNext = (queue: QueueItem[], tried: string[]): QueueItem | null =>
   queue.find((v) => !tried.includes(v.id)) ?? null;
 
+// Сколько неудач подряд очередь терпит, прежде чем остановиться (#75)
+export const QUEUE_FAIL_LIMIT = 3;
+
+export const isQueueFailure = (result: ApplyResult): boolean => result === "skipped" || result === "failed" || result === "unclear";
+
+// Та же причина, что ставит сбор на сервере (JobApplication.VacancyArchived): по ней сервер узнаёт архив
+export const VACANCY_ARCHIVED = "вакансия в архиве";
+
 // Исход конвейера → статус на сервере. null — серверу ничего не сообщаем (пробный прогон, ручное вмешательство)
 export function toStatusReport(result: ApplyResult): StatusReport | null {
   switch (result) {
     case "success":
       return { status: "Applied", reason: null };
     case "outline":
-      return { status: "Skipped", reason: "анкета работодателя — вопросы сохранены в расширении" };
+      // Сюда попадает только анкета, вопросы которой не удалось прочитать: остальные уходят на сервер и возвращаются с ответами
+      return { status: "Skipped", reason: "анкета работодателя — вопросы не найдены на странице" };
     case "skipped":
       return { status: "Failed", reason: "форма отклика не открылась" };
     case "failed":
       return { status: "Failed", reason: "не удалось выбрать резюме или отправить отклик" };
     case "unclear":
       return { status: "Failed", reason: "отклик не подтверждён — проверить вручную" };
+    case "archived":
+      return { status: "Skipped", reason: VACANCY_ARCHIVED };
     case "disabled":
     case "dry_run":
     case "stopped":

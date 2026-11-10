@@ -22,6 +22,9 @@ public class GetVacanciesQueryHandler(
         if (query.Status is not null)
             q = q.Where(a => a.Status == query.Status);
 
+        if (!query.IncludeHidden)
+            q = q.Where(a => a.HiddenAt == null);
+
         if (!string.IsNullOrWhiteSpace(query.Search))
             q = q.Where(a => a.Search != null && a.Search.Name == query.Search);
 

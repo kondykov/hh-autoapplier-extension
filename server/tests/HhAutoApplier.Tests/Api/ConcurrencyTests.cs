@@ -25,6 +25,7 @@ public class ConcurrencyTests(ApiFactory factory) : IAsyncLifetime
         var cards = ids.Select(id => new { id, title = "C# разработчик", company = "Acme", description = "", workFormat = "Удалённо" }).ToArray();
         factory.Llm.Configured = true;
         await Json(await _api.PostAsJsonAsync("/api/import", new { search = "dotnet", vacancies = cards }));
+        await factory.ConfirmImportedAsync();
     }
 
     private async Task<JsonElement> Vacancy(string id) =>

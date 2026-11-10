@@ -74,6 +74,7 @@ public class LlmPipelineHostedService(
                     $"{reason}. Оценка, анкеты, письма и разбор ответов продолжатся позже.", stop);
 
             await services.GetRequiredService<LlmUserQuota>().NotifyExhaustedAsync(stop);
+            await services.GetRequiredService<LlmQualityMonitor>().NotifyIfFrequentAsync(stop);
         }
 
         // После писем: в сообщении о проверке уже есть письмо

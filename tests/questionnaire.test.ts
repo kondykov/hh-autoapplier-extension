@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BackendClient } from "../src/api/client";
 import { ApplyPipeline, type ApplyResult } from "../src/apply/pipeline";
-import { AppState, type Vacancy } from "../src/core/state";
+import type { Vacancy } from "../src/core/state";
 import { getCoverLetterField } from "../src/dom/cover-letter";
 import { Logger } from "../src/infra/logger";
 import { StaticTemplateProvider } from "../src/letters/letter-provider";
@@ -53,6 +53,28 @@ describe("fillQuestionnaire", () => {
     expect(result).toEqual({ ok: false, missing: [QUESTIONS.agree, QUESTIONS.salary] });
   });
 
+  it("заранее отмеченный чекбокс вне ответа снимается, отмеченный в ответе — остаётся", async () => {
+    renderResponsePage({ questionnaire: true });
+    document.querySelector<HTMLInputElement>('input[value="21"]')!.checked = true;
+    document.querySelector<HTMLInputElement>('input[value="22"]')!.checked = true;
+
+    expect((await fill([ANSWERS[0], { question: QUESTIONS.agree, answer: ["Нет"] }, ANSWERS[2]])).ok).toBe(true);
+    expect([checked("21"), checked("22")]).toEqual([false, true]);
+  });
+
+  it("вариант ответа не найден — чекбоксы не трогает", async () => {
+    renderResponsePage({ questionnaire: true });
+    document.querySelector<HTMLInputElement>('input[value="21"]')!.checked = true;
+
+    await fill([ANSWERS[0], { question: QUESTIONS.agree, answer: ["Возможно"] }, ANSWERS[2]]);
+    expect(checked("21")).toBe(true);
+  });
+
+  it("блоков вопросов нет — не ok, даже если ответы есть", async () => {
+    document.body.innerHTML = `<div data-qa="employer-asking-for-test"></div>`;
+    expect(await fill(ANSWERS)).toEqual({ ok: false, missing: [] });
+  });
+
   it("поле ответа анкеты не принимается за поле письма", () => {
     renderResponsePage({ questionnaire: true });
     expect(getCoverLetterField()).toBeNull();
@@ -75,7 +97,6 @@ describe("ApplyPipeline: анкета с ответами backend", () => {
   function pipeline(dryRun: boolean) {
     const logger = new Logger();
     const p = new ApplyPipeline({
-      state: new AppState(),
       logger,
       letters: new StaticTemplateProvider(() => "Письмо"),
       resumes: new ResumeSelector(logger),
@@ -120,6 +141,14 @@ describe("ApplyPipeline: анкета с ответами backend", () => {
     const { p } = pipeline(false);
     expect(await run(p.applyOnPage(vacancy(ANSWERS)))).toBe("success");
     expect(submits).toBe(1);
+  });
+
+  it("анкета только по employer-asking-for-test, без блоков вопросов — старые ответы не отправляет", async () => {
+    renderResponsePage({ questionnaire: true });
+    for (const body of Array.from(document.querySelectorAll('[data-qa="task-body"]'))) body.remove();
+    const { p } = pipeline(false);
+    expect(await run(p.applyOnPage(vacancy(ANSWERS)))).toBe("outline");
+    expect(submits).toBe(0);
   });
 
   it("анкета на странице не совпала с ответами — не отправляет", async () => {

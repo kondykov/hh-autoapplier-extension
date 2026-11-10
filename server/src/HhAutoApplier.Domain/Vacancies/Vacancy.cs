@@ -32,11 +32,23 @@ public class Vacancy
 
     public string[] Stack { get; private set; } = [];
 
+    // Требуемый опыт кодом источника (noExperience, between1And3, between3And6, moreThan6) или Internship;
+    // null — неизвестен: старые и импортные карточки
+    public string? WorkExperience { get; private set; }
+
     public bool HasTest { get; private set; }
 
     public DateTimeOffset PublishedAt { get; private set; }
 
     public DateTimeOffset CollectedAt { get; private set; }
+
+    // Когда вакансия встретилась в последний раз (сбор, импорт). Сбор листает не всю выдачу всех поисков,
+    // поэтому старая дата сама по себе не значит архив (#70)
+    public DateTimeOffset LastSeenAt { get; private set; }
+
+    // Когда сбор проверял страницу на архив: отклик в ожидании статуса не меняет, без этой отметки
+    // одни и те же вакансии проверялись бы каждый проход (#70). null — ещё не проверяли
+    public DateTimeOffset? ArchiveCheckedAt { get; private set; }
 
     public string SearchName { get; private set; } = "";
 
@@ -46,6 +58,25 @@ public class Vacancy
 
     // Хранится тремя колонками, наружу — одним значением
     public Salary? Salary => Salary.From(SalaryFrom, SalaryTo, SalaryCurrency);
+
+    public const string NoExperience = "noExperience";
+
+    // На странице hh.ru стажировка — отдельный флаг; важнее указанного опыта и хранится в том же поле
+    public const string Internship = "internship";
+
+    // Явный признак начального уровня: неизвестный опыт им не считается
+    public bool EntryLevel => WorkExperience is NoExperience or Internship;
+
+    // Для причины на карточке и промпта; неизвестный код показывается как есть
+    public string? WorkExperienceText => WorkExperience switch
+    {
+        NoExperience => "без опыта",
+        Internship => "стажировка",
+        "between1And3" => "1–3 года",
+        "between3And6" => "3–6 лет",
+        "moreThan6" => "более 6 лет",
+        var other => other,
+    };
 
     public static Vacancy Create(string id, string title, string url, string searchName, DateTimeOffset collectedAt, bool imported = false)
     {
@@ -58,6 +89,7 @@ public class Vacancy
             Url = SafeUrl(id, url),
             SearchName = searchName,
             CollectedAt = collectedAt,
+            LastSeenAt = collectedAt,
             PublishedAt = collectedAt,
             Imported = imported,
         };
@@ -73,9 +105,18 @@ public class Vacancy
         (Title, Url, Company, Area, WorkFormat, HasTest, PublishedAt) =
             (card.Title, card.Url, card.Company, card.Area, card.WorkFormat, card.HasTest, card.PublishedAt);
         (SalaryFrom, SalaryTo, SalaryCurrency) = (card.SalaryFrom, card.SalaryTo, card.SalaryCurrency);
-        (Description, Stack) = (card.Description, card.Stack);
+        (Description, Stack, WorkExperience) = (card.Description, card.Stack, card.WorkExperience);
         Imported = false;
     }
+
+    // Дата не откатывается: сбор и импорт могут идти одновременно
+    public void MarkSeen(DateTimeOffset at)
+    {
+        if (at > LastSeenAt)
+            LastSeenAt = at;
+    }
+
+    public void MarkArchiveChecked(DateTimeOffset at) => ArchiveCheckedAt = at;
 
     // Ссылка открывается на страницах backend и в расширении: только https на hh.ru, иначе — стандартная страница вакансии
     // (javascript: и чужие сайты из импорта не проходят)
@@ -109,14 +150,16 @@ public class Vacancy
     }
 
     // Подробности со страницы вакансии; стек вычисляется по названию, описанию и навыкам
-    public void UpdateDetails(string? title, string description, IEnumerable<string> skills)
+    public void UpdateDetails(string? title, string description, IEnumerable<string> skills, string? workExperience = null)
     {
         if (!string.IsNullOrWhiteSpace(title))
             Title = title.Trim();
 
+        WorkExperience = string.IsNullOrWhiteSpace(workExperience) ? null : workExperience.Trim();
         Description = description.Length > MaxDescriptionLength ? description[..MaxDescriptionLength] : description;
         Stack = StackExtractor.Extract($"{Title} {Description}", skills);
     }
 
-    private const int MaxDescriptionLength = 4000;
+    // Просьба работодателя часто в самом конце описания (#72); промпты всё равно берут только начало
+    private const int MaxDescriptionLength = 20_000;
 }

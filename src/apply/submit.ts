@@ -1,6 +1,6 @@
+import { isCaptchaVisible } from "../captcha/guard";
 import { DELAYS, pause, wait } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
-import type { Vacancy } from "../core/state";
 import { ensureCoverLetterFieldVisible, fillTextarea, getCoverLetterField } from "../dom/cover-letter";
 import { detectPageType } from "../dom/page-type";
 import { normalizeText, qs, qsa } from "../dom/query";
@@ -8,8 +8,9 @@ import type { Logger } from "../infra/logger";
 import { isAlreadyRespondedOnPage, isOutlineDetected } from "./outcome-detector";
 import { humanClick } from "../dom/input";
 
-// dry_run — пробный режим: форма заполнена, кнопка «Отправить» найдена и активна, но не нажата
-export type SubmitResult = "success" | "outline" | "pending_response" | "disabled" | "unclear" | "failed" | "dry_run";
+// dry_run — пробный режим: форма заполнена, кнопка «Отправить» найдена и активна, но не нажата;
+// captcha — капча сразу после нажатия: отклик мог уйти
+export type SubmitResult = "success" | "outline" | "pending_response" | "disabled" | "unclear" | "failed" | "dry_run" | "captcha";
 
 function findButtonByText(root: ParentNode, text: string, excludeApply: boolean): HTMLElement | null {
   const isApply = (el: Element) => excludeApply && el.matches(SELECTORS.applyButton);
@@ -51,15 +52,17 @@ async function findSubmitButton(timeoutMs = 4000): Promise<HTMLElement | null> {
 // success — только по положительному признаку: «Вы откликнулись» или закрылась форма, открытая при клике.
 // Без окна и без поля письма «формы нет» с самого начала — это не признак отправки (#50)
 async function waitForSubmitResult(
-  vacancy: Vacancy | null,
   startPage: string,
   hadForm: boolean,
   timeoutMs: number,
   questionnaire: boolean,
+  captchaHit: () => boolean,
 ): Promise<SubmitResult> {
   const start = Date.now();
   let closedStreak = 0;
   while (Date.now() - start < timeoutMs) {
+    // Первой: капча вместо формы выглядит как «форма закрылась» (#78)
+    if (captchaHit()) return "captcha";
     if (!questionnaire && isOutlineDetected()) return "outline";
     if (detectPageType() !== startPage) return "pending_response";
     if (isAlreadyRespondedOnPage()) return "success";
@@ -71,11 +74,13 @@ async function waitForSubmitResult(
     }
     await wait(300);
   }
-  return "unclear";
+  return captchaHit() ? "captcha" : "unclear";
 }
 
+// Кнопка неактивна: hh.ru помечает это атрибутом disabled или aria-disabled
+const isInactive = (el: HTMLElement) => (el as HTMLButtonElement).disabled || el.getAttribute("aria-disabled") === "true";
+
 export async function attachLetterAndSubmit(
-  vacancy: Vacancy | null,
   letter: string,
   logger: Logger,
   // Пробный режим; функция — перечитывается перед самым кликом
@@ -84,6 +89,8 @@ export async function attachLetterAndSubmit(
   questionnaire = false,
   // Сразу перед нажатием «Отправить»: записать, что отклик уходит, и учесть его в лимитах
   beforeClick?: () => Promise<void>,
+  // Капча, пока ждём исход клика
+  captchaHit: () => boolean = isCaptchaVisible,
 ): Promise<SubmitResult> {
   if (!questionnaire && isOutlineDetected()) return "outline";
 
@@ -109,7 +116,7 @@ export async function attachLetterAndSubmit(
     return "failed";
   }
   const real = (submit.closest("button") as HTMLButtonElement | null) ?? submit;
-  if ((submit as HTMLButtonElement).disabled || (real as HTMLButtonElement).disabled) {
+  if (isInactive(submit) || isInactive(real)) {
     logger.log('Кнопка "Отправить" неактивна. Возможно, нужно выбрать резюме.', "warn");
     return "disabled";
   }
@@ -128,5 +135,5 @@ export async function attachLetterAndSubmit(
     return "dry_run";
   }
   logger.log('Нажата кнопка "Отправить"', "step");
-  return waitForSubmitResult(vacancy, startPage, hadForm, 8000, questionnaire);
+  return waitForSubmitResult(startPage, hadForm, 8000, questionnaire, captchaHit);
 }

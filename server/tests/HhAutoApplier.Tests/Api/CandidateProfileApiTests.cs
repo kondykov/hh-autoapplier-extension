@@ -62,6 +62,7 @@ public class CandidateProfileApiTests(ApiFactory factory) : IAsyncLifetime
             search = "dotnet",
             vacancies = new[] { new { id = "1", title = "C# разработчик", company = "Acme", description = "ASP.NET Core, EF Core", salaryCurrency = "RUR", workFormat = "Удалённо" } },
         }));
+        await factory.ConfirmImportedAsync();
         factory.Llm.Answers.Enqueue("""{"verdict": "fit", "score": 80, "resume": null, "reason": "подходит"}""");
         await Json(await _admin.PostAsJsonAsync("/api/llm/evaluate", new { limit = 10 }));
 

@@ -2,7 +2,7 @@ import type { AutoReply } from "../api/client";
 import { DELAYS, pause } from "../core/delays";
 import type { AppState } from "../core/state";
 import { ChatSource, describeWriteReason, pageFetch } from "../dialogs/chats";
-import { chatUrl, sendChatMessage, type SendResult } from "../dialogs/reply";
+import { chatUrl, isChatPage, sendChatMessage, type SendResult } from "../dialogs/reply";
 import type { PageType } from "../dom/page-type";
 import { pageOf, type PageStep, type StepContext } from "./step-context";
 
@@ -109,7 +109,7 @@ export class DialogStep implements PageStep {
 
     const label = current.title || `чат ${current.chatId}`;
     // Не тот чат (hh.ru перенаправил) — не писать в чужой
-    const result: SendResult = nav.url().includes(`/chat/${current.chatId}`)
+    const result: SendResult = isChatPage(nav.url(), current.chatId)
       ? await this.send(config.rejectionReply)
       : { ok: false, error: "чат не открылся" };
     await backend.reportAutoReply(current.chatId, result.ok, result.ok ? undefined : result.error);

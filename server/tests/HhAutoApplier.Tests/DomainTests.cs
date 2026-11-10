@@ -50,6 +50,88 @@ public class DomainTests
         Assert.Throws<DomainException>(() => a.Evaluate(VacancyEvaluator.Default, new FilterRules(), [], Now));
     }
 
+    // Отклик в заданном статусе — настоящими переходами, а не подменой поля
+    private static JobApplication InStatus(VacancyStatus status)
+    {
+        var a = New();
+        if (status == VacancyStatus.New)
+            return a;
+
+        if (status is VacancyStatus.Pending or VacancyStatus.Review)
+        {
+            a.Evaluate(VacancyEvaluator.Default, new FilterRules(), Resumes, Now, awaitLlm: true);
+            if (status == VacancyStatus.Review)
+                a.ApplyLlmEvaluation(LlmVerdict.Doubtful, 55, "не уверена", null, "m", Now, reviewDoubtful: true);
+            return a;
+        }
+
+        a.Evaluate(VacancyEvaluator.Default, new FilterRules(), Resumes, Now);
+        if (status == VacancyStatus.Skipped)
+            a.Skip("не подходит", Now);
+        else if (status == VacancyStatus.Failed)
+            a.Fail("капча", Now);
+        else if (status == VacancyStatus.Questionnaire)
+            a.RequireAnswers([VacancyQuestion.Create("Зарплатные ожидания", QuestionType.Text, [])], Now);
+        return a;
+    }
+
+    [Theory]
+    [InlineData(VacancyStatus.New)]
+    [InlineData(VacancyStatus.Pending)]
+    [InlineData(VacancyStatus.Review)]
+    [InlineData(VacancyStatus.Skipped)]
+    [InlineData(VacancyStatus.Failed)]
+    public void MarkApplied_NotFromQueueOrQuestionnaire_Rejected(VacancyStatus status)
+    {
+        var a = InStatus(status);
+
+        Assert.Throws<DomainException>(() => a.MarkApplied("PHP", Now.AddMinutes(1)));
+
+        Assert.Equal(status, a.Status);
+        Assert.Null(a.AppliedAt);
+    }
+
+    [Theory]
+    [InlineData(VacancyStatus.Queued)]
+    [InlineData(VacancyStatus.Questionnaire)]
+    public void MarkApplied_FromQueueOrQuestionnaire_Applied(VacancyStatus status)
+    {
+        var a = InStatus(status);
+
+        a.MarkApplied("PHP", Now.AddMinutes(1));
+
+        Assert.Equal((VacancyStatus.Applied, "PHP", Now.AddMinutes(1)), (a.Status, a.ResumeProfile, a.AppliedAt!.Value));
+    }
+
+    // Чат на hh.ru есть — отклик у работодателя, в каком бы статусе он ни остался на сервере
+    [Theory]
+    [InlineData(VacancyStatus.New)]
+    [InlineData(VacancyStatus.Pending)]
+    [InlineData(VacancyStatus.Review)]
+    [InlineData(VacancyStatus.Queued)]
+    [InlineData(VacancyStatus.Questionnaire)]
+    [InlineData(VacancyStatus.Skipped)]
+    [InlineData(VacancyStatus.Failed)]
+    public void RecoverApplied_FromAnyStatusBeforeSending(VacancyStatus status)
+    {
+        var a = InStatus(status);
+
+        a.RecoverApplied(Now.AddMinutes(1));
+
+        Assert.Equal((VacancyStatus.Applied, Now.AddMinutes(1)), (a.Status, a.AppliedAt!.Value));
+        Assert.Equal((status, VacancyStatus.Applied), (a.History[^1].From, a.History[^1].To));
+    }
+
+    [Fact]
+    public void RecoverApplied_AlreadySent_Rejected()
+    {
+        var a = Queued();
+        a.MarkApplied(null, Now);
+
+        Assert.Throws<DomainException>(() => a.RecoverApplied(Now.AddMinutes(1)));
+        Assert.Equal(Now, a.AppliedAt);
+    }
+
     [Fact]
     public void Application_SkippedOrFailed_CanBeRequeued()
     {
@@ -159,6 +241,142 @@ public class DomainTests
     [InlineData("https://spb.hh.ru/vacancy/1")]
     public void Vacancy_HhUrl_Kept(string url) =>
         Assert.Equal(url, Vacancy.Create("1", "C# разработчик", url, "dotnet", Now).Url);
+
+    [Fact]
+    public void MarkVacancyUnavailable_OnlyFromNew()
+    {
+        var waiting = New();
+
+        waiting.MarkVacancyUnavailable(Now);
+
+        Assert.Equal((VacancyStatus.Skipped, "вакансия недоступна"), (waiting.Status, waiting.StatusReason));
+        Assert.Throws<DomainException>(() => waiting.MarkVacancyUnavailable(Now));
+
+        var queued = Queued();
+        Assert.Throws<DomainException>(() => queued.MarkVacancyUnavailable(Now));
+        Assert.Equal(VacancyStatus.Queued, queued.Status);
+    }
+
+    // Отправленный отклик: письмо уже у работодателя (#70)
+    private static JobApplication Sent(VacancyStatus status)
+    {
+        var a = Queued();
+        a.MarkApplied(null, Now);
+        if (status == VacancyStatus.Invited)
+            a.Invite(null, Now);
+        else if (status == VacancyStatus.Rejected)
+            a.Reject(null, Now);
+        return a;
+    }
+
+    [Theory]
+    [InlineData(VacancyStatus.New)]
+    [InlineData(VacancyStatus.Pending)]
+    [InlineData(VacancyStatus.Review)]
+    [InlineData(VacancyStatus.Questionnaire)]
+    [InlineData(VacancyStatus.Queued)]
+    public void CloseVacancyArchived_FromEveryWaitingStatus_WithReasonAndHistory(VacancyStatus status)
+    {
+        var a = InStatus(status);
+
+        a.CloseVacancyArchived(Now);
+
+        Assert.Equal((VacancyStatus.Skipped, "вакансия в архиве"), (a.Status, a.StatusReason));
+        Assert.True(a.ClosedAsArchived);
+        var last = a.History[^1];
+        Assert.Equal((status, VacancyStatus.Skipped, "вакансия в архиве"), (last.From!.Value, last.To, last.Reason));
+    }
+
+    [Theory]
+    [InlineData(VacancyStatus.Pending)]
+    [InlineData(VacancyStatus.Review)]
+    [InlineData(VacancyStatus.Questionnaire)]
+    [InlineData(VacancyStatus.Queued)]
+    public void CloseVacancyUnavailable_FromEveryWaitingStatus(VacancyStatus status)
+    {
+        var a = InStatus(status);
+
+        a.CloseVacancyUnavailable(Now);
+
+        Assert.Equal((VacancyStatus.Skipped, "вакансия недоступна"), (a.Status, a.StatusReason));
+        Assert.False(a.ClosedAsArchived);
+    }
+
+    [Theory]
+    [InlineData(VacancyStatus.Applied)]
+    [InlineData(VacancyStatus.Invited)]
+    [InlineData(VacancyStatus.Rejected)]
+    public void CloseVacancy_SentApplications_NotTouched(VacancyStatus status)
+    {
+        var a = Sent(status);
+        var reason = a.StatusReason;
+
+        Assert.Throws<DomainException>(() => a.CloseVacancyArchived(Now));
+        Assert.Throws<DomainException>(() => a.CloseVacancyUnavailable(Now));
+
+        Assert.Equal((status, reason), (a.Status, a.StatusReason));
+    }
+
+    // Уже решённый отклик остаётся со своей причиной
+    [Theory]
+    [InlineData(VacancyStatus.Skipped)]
+    [InlineData(VacancyStatus.Failed)]
+    public void CloseVacancy_DecidedApplications_NotTouched(VacancyStatus status)
+    {
+        var a = InStatus(status);
+        var reason = a.StatusReason;
+
+        Assert.Throws<DomainException>(() => a.CloseVacancyArchived(Now));
+
+        Assert.Equal((status, reason), (a.Status, a.StatusReason));
+    }
+
+    [Fact]
+    public void ArchivedApplication_CanBeRequeued()
+    {
+        var a = Queued();
+        a.CloseVacancyArchived(Now);
+
+        a.Requeue(Now);
+
+        Assert.Equal((VacancyStatus.Queued, false), (a.Status, a.ClosedAsArchived));
+    }
+
+    // Причина от расширения приходит обычным статусом: признак тот же
+    [Fact]
+    public void ArchivedReasonFromExtension_SetsFlag()
+    {
+        var a = Queued();
+
+        a.Skip("вакансия в архиве", Now);
+
+        Assert.True(a.ClosedAsArchived);
+    }
+
+    [Fact]
+    public void Vacancy_LastSeen_StartsAtCollected_AndOnlyMovesForward()
+    {
+        var v = Vacancy.Create("1", "x", "", "dotnet", Now);
+        Assert.Equal(Now, v.LastSeenAt);
+        Assert.Null(v.ArchiveCheckedAt);
+
+        v.MarkSeen(Now.AddHours(2));
+        v.MarkSeen(Now.AddHours(1));
+
+        Assert.Equal(Now.AddHours(2), v.LastSeenAt);
+        Assert.Equal(Now, v.CollectedAt);
+    }
+
+    [Fact]
+    public void Vacancy_AcceptSourceCard_KeepsLastSeen()
+    {
+        var v = Vacancy.Create("1", "x", "", "dotnet", Now, imported: true);
+        v.MarkSeen(Now.AddHours(3));
+
+        v.AcceptSourceCard(Vacancy.Create("1", "y", "", "dotnet", Now.AddHours(9)));
+
+        Assert.Equal(Now.AddHours(3), v.LastSeenAt);
+    }
 
     [Fact]
     public void Vacancy_AcceptSourceCard_ReplacesClientCard()

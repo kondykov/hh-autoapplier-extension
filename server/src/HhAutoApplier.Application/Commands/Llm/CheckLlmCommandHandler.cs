@@ -19,6 +19,14 @@ public class CheckLlmCommandHandler(ILlmClient llm, IAppDbContext db, TimeProvid
         try
         {
             var result = await llm.CompleteAsync(request, ct);
+            // Модель ответила без текста (#81): запрос считается, но проверка не пройдена — пустой успех был бы ложным
+            if (string.IsNullOrWhiteSpace(result.Content))
+            {
+                db.LlmCalls.Add(LlmCall.Rejected(Purpose, null, result.Model, prompt, result.Content, LlmCall.Unparsed, result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()));
+                await db.SaveChangesAsync(ct);
+                return new LlmUnavailableError("LLM недоступна: в ответе провайдера нет текста");
+            }
+
             db.LlmCalls.Add(LlmCall.Succeeded(Purpose, null, result.Model, prompt, result.Content, result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()));
             await db.SaveChangesAsync(ct);
             return new LlmCheckDto(result.Model, result.Content.Trim(), (int)timer.ElapsedMilliseconds, result.PromptTokens + result.CompletionTokens);

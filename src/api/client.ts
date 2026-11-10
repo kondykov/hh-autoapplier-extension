@@ -3,6 +3,7 @@ import type { QuestionAnswer, ServerQuestion } from "../questions/fill";
 import type { ImportCard } from "../search/vacancy-collector";
 import type { QueueItem, StatusReport } from "../queue/queue-mode";
 import type { ApiRequest, ApiResponse } from "./transport";
+import { API_VERSION, describeServer, incompatibleMessage, UNKNOWN_VERSION_MESSAGE, type ServerVersion, type ServerVersionResult } from "./version";
 
 export type ApiSender = (request: ApiRequest) => Promise<ApiResponse>;
 
@@ -84,7 +85,30 @@ export class BackendClient {
     const counts = parse<Record<string, number>>(stats);
     if (!counts) return { ok: false, message: notJson(stats) };
     const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
-    return { ok: true, message: `Связь есть: вакансий на сервере ${total}, в очереди ${counts.Queued ?? 0}` };
+    const summary = `Связь есть: вакансий на сервере ${total}, в очереди ${counts.Queued ?? 0}`;
+
+    const version = await this.getServerVersion();
+    switch (version.state) {
+      case "compatible":
+        return { ok: true, message: `${summary}. Сервер ${describeServer(version.server)}` };
+      case "unknown":
+        return { ok: true, message: `${summary}. ${UNKNOWN_VERSION_MESSAGE}` };
+      case "incompatible":
+        return { ok: false, message: incompatibleMessage(version.server) };
+      case "error":
+        return { ok: false, message: `Сервер доступен, но версию получить не удалось: ${version.error}` };
+    }
+  }
+
+  // Версия backend и контракт API (#77): 404 — сборка старше этой проверки
+  async getServerVersion(): Promise<ServerVersionResult> {
+    const res = await this.call({ type: "hh-api", path: "/api/version" });
+    if (res.status === 404) return { state: "unknown" };
+    if (res.status !== 200) return { state: "error", error: describe(res) };
+
+    const server = parse<ServerVersion>(res);
+    if (typeof server?.apiVersion !== "number") return { state: "error", error: notJson(res) };
+    return { state: server.apiVersion === API_VERSION ? "compatible" : "incompatible", server };
   }
 
   // Лучшие одобренные вакансии; берём с запасом, чтобы пропускать уже опробованные в пробном режиме

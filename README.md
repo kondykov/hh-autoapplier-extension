@@ -1,7 +1,7 @@
 <img src="docs/assets/banner.svg" width="100%" alt="hh-autoapplier: полуавтоматический поиск работы. Конвейер: сбор с публичных страниц hh.ru, отбор по правилам и LLM, письмо и ответы на анкету, ручная проверка, отклик из очереди в браузере." />
 
 <p align="center">
-  <a href="https://github.com/kondykov/hh-autoapplier-extension/actions/workflows/ci.yml"><img src="https://github.com/kondykov/hh-autoapplier-extension/actions/workflows/ci.yml/badge.svg?branch=develop" alt="CI" /></a>
+  <a href="https://github.com/kondykov/hh-autoapplier-extension/actions/workflows/ci.yml"><img src="https://github.com/kondykov/hh-autoapplier-extension/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI" /></a>
 </p>
 
 <p align="center">

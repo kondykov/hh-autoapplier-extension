@@ -77,11 +77,15 @@ public class AnalyzeDialogsCommandHandler(
                 break;
             }
 
-            db.LlmCalls.Add(LlmCall.Succeeded(DialogAnalysis.Purpose, subject, result.Model, prompt, result.Content,
-                result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(message.UserId));
+            var parsed = DialogAnalysis.Parse(result.Content);
+            db.LlmCalls.Add((parsed is null
+                ? LlmCall.Rejected(DialogAnalysis.Purpose, subject, result.Model, prompt, result.Content,
+                    LlmCall.Unparsed, result.PromptTokens, result.CompletionTokens, clock.GetUtcNow())
+                : LlmCall.Succeeded(DialogAnalysis.Purpose, subject, result.Model, prompt, result.Content,
+                    result.PromptTokens, result.CompletionTokens, clock.GetUtcNow())).For(message.UserId));
 
             // Не разобрано — «прочее» без черновика: иначе сообщение разбиралось бы каждый проход и тратило лимит
-            if (DialogAnalysis.Parse(result.Content) is { } analysis)
+            if (parsed is { } analysis)
             {
                 message.ApplyAnalysis(analysis.Kind, analysis.Summary, analysis.Reply, result.Model, clock.GetUtcNow());
                 analyzed++;

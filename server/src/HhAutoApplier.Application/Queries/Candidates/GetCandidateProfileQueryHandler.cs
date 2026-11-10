@@ -20,6 +20,6 @@ public class GetCandidateProfileQueryHandler(
 
         var owner = scope.AsT0;
         var profile = await db.CandidateProfiles.AsNoTracking().FirstOrDefaultAsync(p => p.UserId == owner, ct);
-        return profile is null ? new CandidateProfileDto(null, []) : extractor.Extract(profile);
+        return profile is null ? new CandidateProfileDto(null, [], null, null) : extractor.Extract(profile);
     }
 }

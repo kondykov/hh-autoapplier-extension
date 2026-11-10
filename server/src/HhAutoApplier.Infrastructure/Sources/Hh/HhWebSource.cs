@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using HhAutoApplier.Application.Abstractions;
 using HhAutoApplier.Domain.Searches;
 using HhAutoApplier.Domain.Vacancies;
@@ -46,14 +47,34 @@ public class HhWebSource : IVacancySource
         return HhPageParser.ParseSearch(state.RootElement, search.Name, _clock.GetUtcNow()) ?? throw Blocked("на странице поиска нет выдачи");
     }
 
-    public async Task<bool> LoadDetailsAsync(Vacancy vacancy, CancellationToken ct)
+    public async Task<VacancyPageState> LoadDetailsAsync(Vacancy vacancy, CancellationToken ct)
     {
-        using var state = await LoadStateAsync($"vacancy/{vacancy.Id}", ct);
-        return state is not null && HhPageParser.ParseVacancy(state.RootElement, vacancy);
+        JsonDocument? state;
+        try
+        {
+            state = await LoadStateAsync($"vacancy/{vacancy.Id}", ct);
+        }
+        catch (HttpRequestException e) when (e.StatusCode >= HttpStatusCode.InternalServerError)
+        {
+            return VacancyPageState.TemporaryError;
+        }
+
+        if (state is null)
+            return VacancyPageState.Unavailable;
+
+        using (state)
+        {
+            // Чужая страница с тем же JSON (вход, мягкий антибот) — не повод закрывать отклики
+            if (!HhPageParser.ParseVacancy(state.RootElement, vacancy))
+                throw Blocked("на странице нет вакансии");
+
+            return HhPageParser.IsArchived(state.RootElement) ? VacancyPageState.Archived : VacancyPageState.Available;
+        }
     }
 
-    // null — 404 или страница без данных; капча и отказы — SourceBlockedException
-    private async Task<System.Text.Json.JsonDocument?> LoadStateAsync(string url, CancellationToken ct)
+    // null — 404. Капча, отказы и страница без данных (мягкий антибот, смена вёрстки) — SourceBlockedException:
+    // такой ответ ничего не говорит о вакансии, по нему нельзя закрывать отклики как «вакансия недоступна»
+    private async Task<JsonDocument?> LoadStateAsync(string url, CancellationToken ct)
     {
         using var response = await _http.GetAsync(url, ct);
         switch (response.StatusCode)
@@ -67,7 +88,7 @@ public class HhWebSource : IVacancySource
         if (response.RequestMessage?.RequestUri?.AbsolutePath.Contains("captcha", StringComparison.OrdinalIgnoreCase) == true)
             throw Blocked("капча");
         response.EnsureSuccessStatusCode();
-        return HhPageParser.ExtractState(await response.Content.ReadAsStringAsync(ct));
+        return HhPageParser.ExtractState(await response.Content.ReadAsStringAsync(ct)) ?? throw Blocked("на странице нет данных");
     }
 
     private SourceBlockedException Blocked(string reason) => new(Name, reason);

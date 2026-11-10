@@ -3,7 +3,7 @@ import { extractStack, extractWorkFormat } from "../report/extractors";
 import { isAlreadyResponded, normalizeText, qs, qsa } from "../dom/query";
 
 // Карточка выдачи для POST /api/import. Отбор и оценка — на backend (#27): здесь только то, что видно на странице.
-// Зарплату и описание целиком сервер берёт со страницы вакансии, когда подтверждает импортную карточку
+// Зарплату и описание целиком сервер берёт со страницы вакансии при сборе: до подтверждения карточки отклик ждёт и не оценивается
 export interface ImportCard {
   id: string;
   title: string;

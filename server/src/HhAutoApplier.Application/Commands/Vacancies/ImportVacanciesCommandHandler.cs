@@ -31,26 +31,30 @@ public class ImportVacanciesCommandHandler(
             .Select(a => a.VacancyId).ToListAsync(ct)).ToHashSet();
 
         var now = clock.GetUtcNow();
+        // Вакансия встретилась и тогда, когда отклик на неё уже есть
+        foreach (var vacancy in known.Values)
+            vacancy.MarkSeen(now);
+
         int added = 0, queued = 0, waiting = 0;
         foreach (var item in command.Vacancies.DistinctBy(v => v.Id).Where(v => !applied.Contains(v.Id)))
         {
-            if (known.TryGetValue(item.Id, out var vacancy) && vacancy.Imported)
-            {
-                // Карточку создал импорт другого пользователя, источник её ещё не подтвердил: оценивать по ней — пускать
-                // чужие данные в свои правила и промпты. Отклик ждёт в New, сбор подтвердит карточку и оценит его
-                db.JobApplications.Add(JobApplication.Create(vacancy, current.Id, now, search.Id));
-                added++;
-                waiting++;
-                continue;
-            }
-
-            if (vacancy is null)
+            if (!known.TryGetValue(item.Id, out var vacancy))
             {
                 vacancy = Vacancy.Create(item.Id, item.Title, item.Url ?? "", search.Name, now, imported: true);
                 vacancy.UpdateCard(item.Company, item.Area, Salary.From(item.SalaryFrom, item.SalaryTo, item.SalaryCurrency),
                     item.WorkFormat, item.HasTest, item.PublishedAt?.ToUniversalTime());
                 vacancy.UpdateDetails(null, item.Description ?? "", item.Stack ?? []);
                 db.Vacancies.Add(vacancy);
+            }
+
+            if (vacancy.Imported)
+            {
+                // Карточка от клиента, источник её ещё не подтвердил: с выдачи приходит обрывок описания без зарплаты, а данные
+                // чужого импорта нельзя пускать в свои правила и промпты. Отклик ждёт в New, сбор подтвердит карточку и оценит его
+                db.JobApplications.Add(JobApplication.Create(vacancy, current.Id, now, search.Id));
+                added++;
+                waiting++;
+                continue;
             }
 
             var application = JobApplication.Create(vacancy, current.Id, now, search.Id);

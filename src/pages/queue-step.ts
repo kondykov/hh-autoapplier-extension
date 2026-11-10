@@ -1,10 +1,11 @@
+import { describeServer, incompatibleMessage, UNKNOWN_VERSION_MESSAGE } from "../api/version";
 import type { ApplyResult } from "../apply/pipeline";
 import { isAlreadyRespondedOnPage } from "../apply/outcome-detector";
 import { pauseBetween, RANGES, wait } from "../core/delays";
 import type { AppState, Vacancy } from "../core/state";
 import type { PageType } from "../dom/page-type";
 import { toServerQuestions } from "../questions/fill";
-import { isPageOf, pickNext, responseUrl, toStatusReport, type QueueItem } from "../queue/queue-mode";
+import { isPageOf, isQueueFailure, pickNext, QUEUE_FAIL_LIMIT, responseUrl, toStatusReport, type QueueItem } from "../queue/queue-mode";
 import { extractVacancyInfo } from "./vacancy-info";
 import { reportDailyLimit, stopQueue, type PageStep, type StepContext } from "./step-context";
 
@@ -54,7 +55,7 @@ export class QueueStep implements PageStep {
   }
 
   private async doToggle(): Promise<void> {
-    const { state, panel, logger, config } = this.ctx;
+    const { state, panel, logger, config, captcha } = this.ctx;
     if (state.queueRunning) {
       stopQueue(this.ctx, this.owns(state) ? "Режим «из очереди» остановлен" : "Очередь в другой вкладке остановлена");
       await this.ctx.persist();
@@ -68,30 +69,56 @@ export class QueueStep implements PageStep {
     state.queueSubmitted = null;
     state.queueTried = [];
     state.queueRunApplied = 0;
+    state.queueFailStreak = 0;
+    // Старая отметка уже решённой капчи не должна остановить новый запуск; капчу на странице consumeHit увидит и потом
+    captcha.consumeHit();
     panel.setQueueActive(true);
     logger.log(
       config.queueDryRun ? "Очередь: пробный режим — «Отправить» не нажимается, статусы на сервер не уходят" : "Очередь: отклики отправляются",
       config.queueDryRun ? "warn" : "step",
     );
     await this.ctx.persist();
-    await this.openNext();
+    if (await this.serverCompatible()) await this.openNext();
+  }
+
+  // Несовместимый backend мог бы принять статусы иначе, чем думает расширение (#77): откликаться с ним нельзя.
+  // Сборка без версии — только предупреждение: проверить нечем, а обновляется backend отдельно
+  private async serverCompatible(): Promise<boolean> {
+    const { state, backend, logger } = this.ctx;
+    const version = await backend.getServerVersion();
+    if (!state.queueRunning) return false;
+
+    switch (version.state) {
+      case "compatible":
+        logger.log(`Сервер ${describeServer(version.server)}`, "step");
+        return true;
+      case "unknown":
+        logger.log(UNKNOWN_VERSION_MESSAGE, "warn");
+        return true;
+      case "incompatible":
+        stopQueue(this.ctx, incompatibleMessage(version.server));
+        break;
+      case "error":
+        stopQueue(this.ctx, `Версия сервера недоступна: ${version.error}`);
+        break;
+    }
+    await this.ctx.persist();
+    return false;
   }
 
   private async doResume(): Promise<void> {
     const { state, logger, panel, captcha, pipeline, nav } = this.ctx;
+    // Раньше ожидания капчи: решённая капча сама перезагружает страницу, и исход стал бы «не подтверждён» (#78)
+    if (state.queueCurrent && state.queueSubmitted === state.queueCurrent.id) {
+      await this.resumeSubmitted(state.queueCurrent);
+      return;
+    }
     await captcha.waitUntilClear();
     // Капча до начала отклика уже дождалась человека — конвейер следит только за новой
     captcha.consumeHit();
     const current = state.queueCurrent;
     if (!current) {
       await this.openNext();
-      return;
-    }
-    if (state.queueSubmitted === current.id) {
-      // «Отправить» уже нажата, и hh.ru загрузил новую страницу раньше, чем пришёл исход (#52): отклик, скорее всего, ушёл
-      const result = (await waitResponded()) ? "success" : "unclear";
-      logger.log(`После «Отправить» загрузилась новая страница: "${current.title}" — ${result === "success" ? "отклик подтверждён" : "не подтверждён, проверить вручную"}`, "warn");
-      await this.finish(current, result);
       return;
     }
     if (!isPageOf(nav.url(), current.id) && !state.queueOpened) {
@@ -102,9 +129,10 @@ export class QueueStep implements PageStep {
       return;
     }
     if (!isPageOf(nav.url(), current.id)) {
-      // hh.ru не открыл форму отклика (вакансия в архиве, перенаправил на другую страницу) — идём дальше
-      logger.log(`Форма отклика для "${current.title}" не открылась`, "warn");
-      await this.finish(current, "skipped");
+      // Слетел вход (hh.ru ведёт на регистрацию), блокировка или другой сбой: о вакансии это ничего не говорит, а следующие
+      // получили бы то же самое (#75). Статус не трогаем — отклик остаётся в очереди
+      stopQueue(this.ctx, `Вместо формы отклика "${current.title}" открылась страница ${new URL(nav.url()).pathname} — очередь остановлена, статус не менялся. Проверьте вход на hh.ru`);
+      await this.ctx.persist();
       return;
     }
 
@@ -121,6 +149,13 @@ export class QueueStep implements PageStep {
     };
     panel.setStep(`Очередь: отклик на "${vacancy.title}"`);
 
+    if (await this.archived(current)) {
+      // Пока шёл запрос, очередь остановили или перезапустили с другой вакансией — её не трогаем
+      if (!state.queueRunning || state.queueCurrent?.id !== current.id) return;
+      await this.finish(current, "archived", vacancy.resume);
+      return;
+    }
+
     let result: ApplyResult;
     try {
       result = await pipeline.applyOnPage(vacancy);
@@ -133,7 +168,8 @@ export class QueueStep implements PageStep {
     // Остановку уже записал stopQueue; при перезапуске в работе другая вакансия — её не трогаем
     if (result === "stopped") return;
     if (result === "captcha") {
-      stopQueue(this.ctx, "Капча посреди отклика: «Отправить» не нажата — решите капчу и запустите очередь снова");
+      // Отметка ставится до клика: по ней видно, нажата ли «Отправить»
+      stopQueue(this.ctx, state.queueSubmitted === current.id ? captchaAfterSubmit(current) : "Капча посреди отклика: «Отправить» не нажата — решите капчу и запустите очередь снова");
       await this.ctx.persist();
       return;
     }
@@ -148,11 +184,38 @@ export class QueueStep implements PageStep {
       const sent = await this.sendQuestionnaire(current);
       if (sent === "stopped") return;
       if (sent === "sent") {
+        state.queueFailStreak = 0;
         await this.advance();
         return;
       }
     }
     await this.finish(current, result, vacancy.resume);
+  }
+
+  // Форма архивной вакансии открывается как обычно (проверено 2026-11-10): признак — только на странице вакансии.
+  // Архив закрывает только явный признак; ошибка проверки — отклик идёт как обычно
+  private async archived(item: QueueItem): Promise<boolean> {
+    const { logger, config } = this.ctx;
+    const check = await this.ctx.archive.check(item.id);
+    if (check.state === "unknown") {
+      logger.log(`Проверка архива "${item.title}" не удалась (${check.error}) — отклик как обычно`, "warn");
+      return false;
+    }
+    if (check.state === "open") return false;
+    logger.log(`"${item.title}": вакансия в архиве — «Отправить» не нажимается${config.queueDryRun ? ", пробный режим: статус не отправляется" : ""}`, "warn");
+    return true;
+  }
+
+  // «Отправить» уже нажата, и hh.ru загрузил новую страницу раньше, чем пришёл исход (#52): отклик, скорее всего, ушёл
+  private async resumeSubmitted(current: QueueItem): Promise<void> {
+    const result = await waitSubmitted(() => this.ctx.captcha.consumeHit());
+    if (result === "captcha") {
+      stopQueue(this.ctx, captchaAfterSubmit(current));
+      await this.ctx.persist();
+      return;
+    }
+    this.ctx.logger.log(`После «Отправить» загрузилась новая страница: "${current.title}" — ${result === "success" ? "отклик подтверждён" : "не подтверждён, проверить вручную"}`, "warn");
+    await this.finish(current, result);
   }
 
   // Анкета без ответов (или поменялась): вопросы на сервер — LLM ответит, вакансия вернётся в очередь.
@@ -174,6 +237,7 @@ export class QueueStep implements PageStep {
 
   private async openNext(): Promise<void> {
     const { state, panel, logger, backend, limit, nav, config } = this.ctx;
+    if (await this.stoppedByCaptcha()) return;
     if (config.queueRunLimit > 0 && state.queueRunApplied >= config.queueRunLimit) {
       stopQueue(this.ctx, `Лимит запуска: отправлено ${state.queueRunApplied} из ${config.queueRunLimit}`);
       await this.ctx.persist();
@@ -220,12 +284,19 @@ export class QueueStep implements PageStep {
     panel.setStep(`Очередь: "${next.title}"`);
     logger.log(`Очередь: открываю "${next.title}" (${next.company})`, "step");
     await pauseBetween(RANGES.nextVacancy);
-    // Пока ждали, режим могли остановить кнопкой
-    if (state.queueRunning) {
-      state.queueOpened = true;
-      await this.ctx.persist();
-      nav.go(responseUrl(next.id));
-    }
+    // Пока ждали, режим могли остановить кнопкой или могла появиться капча
+    if (!state.queueRunning || (await this.stoppedByCaptcha())) return;
+    state.queueOpened = true;
+    await this.ctx.persist();
+    nav.go(responseUrl(next.id));
+  }
+
+  // Переход увёл бы со страницы капчи, а решить её должен человек (#78): следующая вакансия не открывается, статусы не меняются
+  private async stoppedByCaptcha(): Promise<boolean> {
+    if (!this.ctx.captcha.consumeHit()) return false;
+    stopQueue(this.ctx, "Капча: очередь остановлена, следующая вакансия не открыта — решите капчу и запустите очередь снова");
+    await this.ctx.persist();
+    return true;
   }
 
   // Сообщить исход на сервер (кроме пробного режима) и перейти к следующей вакансии.
@@ -244,6 +315,13 @@ export class QueueStep implements PageStep {
       }
       logger.log(`Сервер: "${item.title}" → ${report.status}`, report.status === "Applied" ? "success" : "warn");
     }
+    // Неудачи подряд — скорее сбой на стороне hh.ru (страница блокировки на адресе формы), чем плохие вакансии (#75)
+    state.queueFailStreak = isQueueFailure(result) ? state.queueFailStreak + 1 : 0;
+    if (state.queueRunning && state.queueFailStreak >= QUEUE_FAIL_LIMIT) {
+      stopQueue(this.ctx, `Очередь остановлена: ${state.queueFailStreak} неудачи подряд — проверьте вход на hh.ru и страницу вакансии`);
+      await this.ctx.persist();
+      return;
+    }
     await this.advance();
   }
 
@@ -257,12 +335,16 @@ export class QueueStep implements PageStep {
   }
 }
 
-// «Вы откликнулись» на только что загруженной странице: hh.ru дорисовывает её не сразу
-async function waitResponded(timeoutMs = 3000): Promise<boolean> {
+const captchaAfterSubmit = (item: QueueItem) =>
+  `Капча после нажатия «Отправить»: отклик на "${item.title}" мог уйти, статус не менялся — решите капчу, проверьте отклик на hh.ru и запустите очередь снова`;
+
+// Исход на только что загруженной странице: hh.ru дорисовывает её не сразу
+async function waitSubmitted(captchaHit: () => boolean, timeoutMs = 3000): Promise<"success" | "unclear" | "captcha"> {
   const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (isAlreadyRespondedOnPage()) return true;
+  do {
+    if (captchaHit()) return "captcha";
+    if (isAlreadyRespondedOnPage()) return "success";
+    if (Date.now() - start >= timeoutMs) return "unclear";
     await wait(300);
-  }
-  return isAlreadyRespondedOnPage();
+  } while (true);
 }

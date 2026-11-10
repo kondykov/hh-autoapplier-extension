@@ -1,4 +1,5 @@
 import type { BackendClient } from "../api/client";
+import type { ArchiveChecker } from "../apply/archive-check";
 import type { ApplyPipeline } from "../apply/pipeline";
 import type { CaptchaGuard } from "../captcha/guard";
 import type { AppConfig } from "../core/config";
@@ -14,7 +15,6 @@ import type { Panel } from "../ui/panel";
 export interface Navigator {
   url(): string;
   go(url: string): void;
-  reload(): void;
 }
 
 export const browserNavigator: Navigator = {
@@ -22,7 +22,6 @@ export const browserNavigator: Navigator = {
   go: (url) => {
     location.href = url;
   },
-  reload: () => location.reload(),
 };
 
 // То, что шагам нужно от панели; полная панель — в ui/panel.ts
@@ -36,8 +35,10 @@ export interface StepContext {
   panel: StepPanel;
   logger: Logger;
   limit: DailyLimit;
-  backend: Pick<BackendClient, "getQueue" | "getResumes" | "reportStatus" | "submitQuestionnaire" | "reportEvent" | "importVacancies" | "importDialogs" | "reportAutoReply">;
+  backend: Pick<BackendClient, "getServerVersion" | "getQueue" |"getResumes" | "reportStatus" | "submitQuestionnaire" | "reportEvent" | "importVacancies" | "importDialogs" | "reportAutoReply">;
   pipeline: Pick<ApplyPipeline, "applyOnPage">;
+  // Вакансия в архиве: форма этого не показывает (#70)
+  archive: ArchiveChecker;
   captcha: Pick<CaptchaGuard, "waitUntilClear" | "consumeHit">;
   nav: Navigator;
   // Своя вкладка: очередь ведёт только вкладка-владелец (#51)

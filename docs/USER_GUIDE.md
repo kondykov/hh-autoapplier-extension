@@ -36,6 +36,7 @@ copy .env.example .env
 | `LLM_USER_DAILY_LIMIT` | доля одного пользователя в этом лимите (по умолчанию 150, 0 — без доли); сверх неё его вакансии ждут следующих суток |
 | `TELEGRAM_BOT_TOKEN` | токен бота от [@BotFather](https://t.me/BotFather); пусто — без Telegram |
 | `COLLECT_INTERVAL_MINUTES` | как часто собирать вакансии (по умолчанию 60) |
+| `COLLECT_MAX_PAGES` | сколько страниц выдачи листать на поиск за проход, по 50 вакансий (по умолчанию 20) |
 
 ```powershell
 docker compose up -d --build

@@ -15,7 +15,10 @@ public class GetQueueQueryHandler(
 {
     public async Task<IReadOnlyList<VacancyDto>> Handle(GetQueueQuery query, CancellationToken ct = default)
     {
-        var q = db.Applications(current.Id).AsNoTracking().Where(a => a.Status == VacancyStatus.Queued);
+        // С незакрытыми просьбами (#72) не выдаётся: при письме null расширение возьмёт шаблон, и просьба останется без ответа
+        var q = db.Applications(current.Id).AsNoTracking().Where(a => a.Status == VacancyStatus.Queued
+            && (a.LetterRequestsState == LetterRequestsState.NotExtracted || a.LetterRequestsState == LetterRequestsState.None
+                || (a.LetterRequestsState == LetterRequestsState.Closed && a.CoverLetter != null)));
         if (!string.IsNullOrWhiteSpace(query.Search))
             q = q.Where(a => a.Search != null && a.Search.Name == query.Search);
 

@@ -7,7 +7,7 @@
 ## Commands
 ```powershell
 npm run typecheck                 # tsc --noEmit
-npm test                          # vitest (130 тестов)
+npm test                          # vitest
 npm run build                     # dist/content.js + dist/background.js (esbuild)
 node scripts/dev-browser.mjs      # Chromium с расширением, профиль .profile, CDP :9222
 node scripts/cdp-queue-dry-run.mjs # пробный проход очереди в запущенном dev-браузере: журнал и снимок формы, без отправки
@@ -15,10 +15,21 @@ node scripts/cdp-inspect.mjs [--form] # read-only: вкладки dev-брауз
 node scripts/db-query.mjs "select ..." # read-only запрос к базе docker compose
 node scripts/server.mjs inspect   # read-only снимок сервера backend по SSH (Debian 13; хост — псевдоним home-server-root из ~/.ssh/config)
 node scripts/server.mjs ps "..."  # pwsh на сервере по SSH (UTF-8); --windows — Windows PowerShell; изменения на сервере — только по решению владельца
-cd server; dotnet test            # xunit (161 тест; нужен запущенный Docker — Postgres для тестов API в Testcontainers)
+node scripts/real-check.mjs --env server/.env --query "..." --ids 1,2 --report <файл>  # живой прогон на настоящих hh.ru и LLM: одноразовая Postgres, API на :8093, отчёт; тратит запросы, откликов не отправляет
+cd server; dotnet test            # xunit (нужен запущенный Docker — Postgres для тестов API в Testcontainers)
 cd server; docker compose up -d --build   # postgres:17 + api на 127.0.0.1:8080
 ```
 Расширение читается только при старте браузера: после `build` браузер перезапускать (спросить, если у владельца открыта страница).
+
+## Версии
+У расширения и backend версии свои, совместимость между ними — номер контракта API (#77). Мажорная версия обеих частей — 0, пока сервис в альфа- и бета-тестировании (решение владельца 2026-11-09): не поднимать без его слова.
+- Версии не поднимаются по задачам: только в ветке `release` — `-rc.N` на время сбора, итоговая при слиянии в `master` (см. «Релиз»)
+- Расширение: `manifest.json`, `package.json`, `package-lock.json` — вместе, если в релизе есть изменения `src/`
+- Backend: `server/Directory.Build.props` — если в релизе есть изменения `server/src` (SemVer); `GET /api/version` отдаёт версию, коммит и контракт
+- Контракт: `ApiContract.Version` и `API_VERSION` в `src/api/version.ts` — поднимать в задаче, а не при релизе, вместе и только при несовместимом изменении (удалили или переименовали поле или эндпоинт, поменяли смысл статуса); новое необязательное поле контракт не меняет. Расхождение ловит `npm test`
+- Известное расхождение контракта не даёт запустить очередь; сборка без `/api/version` — предупреждение
+- Сборка образа с коммитом: `GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up -d --build`
+- Релиз: ветки задач → `develop` → `release` → `master`. Перед сбором — issue о релизе: какие задачи включить, какие оставить и почему, версия расширения и backend; состав и версию согласовать с владельцем. По просьбе владельца `develop` сливается в `release`, там релиз собирается и проверяется. Два отдельных релиза одновременно — каждый в своей ветке с предполагаемой версией: `release-0.7.0`, `release-0.8.0` (не `release/0.7.0`: git не создаст её рядом с веткой `release`). Пока идёт сбор, версия — с суффиксом `-rc.N`: `0.7.0-rc.1` в `package.json`, `package-lock.json`, `server/Directory.Build.props`, теги `ext-v0.7.0-rc.1` и `backend-v0.7.0-rc.1`, GitHub Release с отметкой pre-release. В `manifest.json` поле `version` без суффикса (Chrome принимает только цифры с точками), метка — в `version_name`; при выпуске `version_name` убрать. В момент слияния `release` в `master` — версии (отдельным коммитом в `release`, затем слияние), на merge-коммит — аннотированный тег `ext-v<версия>` и, если менялся backend, `backend-v<версия>`; GitHub Release — по одному на каждую выпущенную часть: «Расширение X» на `ext-v…` с отметкой Latest и «Backend Y» на `backend-v…` без неё (Latest у GitHub один); в описании — список изменений, совместимая версия другой части и контракт API. Релиз только backend — один релиз backend, Latest остаётся у расширения. Общей версии проекта нет, релиз называется по версии расширения. Разрывы в номерах допустимы: важен только рост, Chrome обновляет расширение лишь при большем `version` в `manifest.json`. Невыпущенный pre-release не удалять, а дописать в описание, в какой релиз он вошёл
 
 ## Testing
 - Чистая логика — тесты в `tests/` (vitest + happy-dom), без живого hh.ru; разметка формы отклика hh.ru — `tests/fixtures/response-form.ts` (по живой странице), её же брать для новых тестов конвейера
@@ -47,9 +58,12 @@ qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
 Новое поле конфига — и в дефолты, и в слияние `loadConfig`.
 
 ## Git Workflow
-- Коммит в текущую ветку; в конце сообщения трейлер `Co-authored-by:` агента, который делал изменения
-- Рабочая ветка `develop` (до 2026-10-25 — `kondykov-new-hh-autoapplier-repo`): коммит и `git push` в неё — без отдельного вопроса, после локальных typecheck/test/build (или `dotnet test`)
+- Новая задача — новая ветка `№№-task_name` от `develop`, №№ — номер issue (например, `78-queue_captcha`). Цепочка взаимосвязанных задач, находящихся в работе, — в ветке родительской задачи; если родитель уже в Done — в новой ветке
+- Коммит в ветку задачи; в конце сообщения трейлер `Co-authored-by:` агента, который делал изменения
+- Рабочая ветка `develop` (до 2026-10-25 — `kondykov-new-hh-autoapplier-repo`): push ветки задачи и слияние её в `develop` — без отдельного вопроса, после локальных typecheck/test/build (или `dotnet test`)
+- `develop` — актуальная ветка, `master` (релизная) в разработке не участвует: новые ветки, worktree и субагенты ответвляются только от `develop`. Worktree мог создаться от `master` — проверить базу перед началом работы
 - После push дождаться CI; красный CI — чинить сразу, это часть задачи
+- Спецификация спринта — `docs/specs/sprint-NN.md`: цель, состав задач, решения владельца, что меняется (миграции, контракт API, настройки), критерии приёмки и что проверяется только вживую, оценка версии (минорная или патч, ориентир вроде `~0.7`; точный номер — в issue о релизе). Issues не дублировать, а ссылаться на нужный раздел. После спринта файл не поддерживается, долгоживущие решения — в `docs/ROADMAP.md`. Для мелких правок и багфиксов достаточно issue
 - Задачи — GitHub Issues, карта и порядок — `docs/ROADMAP.md`; в коммите `refs #N`; заводить issues под найденные задачи — можно, с метками
 - Статус задачи — поле Status в Project #5 (https://github.com/users/kondykov/projects/5), его ведёт агент:
   - **Backlog** — пул всех задач вне спринта в работе: новые issues кладутся сюда
@@ -59,6 +73,7 @@ qs<HTMLElement>(SELECTORS.responseModalClose)?.click();
   - → **Done** — всё проверено и ничего не ждёт: issue закрыть с комментарием о коммите и о том, что проверено и что нет; поставить «Начало»/«Срок»
   - Варианты поля Status не менять через API: замена списка вариантов стирает статусы всех задач
 - PR, merge в `master` (до 2026-10-25 — `main`), удаление веток и issues — только по просьбе
+- PR от посторонних авторов (не владелец, в том числе из форков) не сливать ни в какую ветку без отдельного подтверждения владельца: сначала показать автора, что меняет PR и что из этого попадёт в код. Общая просьба вроде «закрой PR» подтверждением не считается
 
 ## Boundaries
 - ✅ Править `src/`, `server/`, `tests/`, `docs/`; запускать тесты/сборку; локальный docker compose

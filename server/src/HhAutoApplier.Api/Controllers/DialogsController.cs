@@ -30,7 +30,7 @@ public class DialogsController : ApiController
     /// Чаты откликов от расширения: последнее сообщение и состояние отклика hh.ru. Отказ → Rejected, приглашение → Invited;
     /// сообщения работодателей (кроме отказов) разбирает LLM в фоне. В ответе — чаты, где ждёт автоответ на отказ.
     /// </summary>
-    /// <response code="409">Запрос без пользователя.</response>
+    /// <response code="409">Запрос без пользователя, или те же чаты одновременно записал другой запрос.</response>
     [HttpPost]
     [ProducesResponseType(typeof(ImportDialogsResultDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ConflictError), StatusCodes.Status409Conflict)]

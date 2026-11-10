@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApplyPipeline, type ApplyResult, type PipelineDeps } from "../src/apply/pipeline";
 import { attachLetterAndSubmit } from "../src/apply/submit";
-import { AppState, type Vacancy } from "../src/core/state";
+import { CaptchaGuard } from "../src/captcha/guard";
+import type { Vacancy } from "../src/core/state";
 import { Logger } from "../src/infra/logger";
 import { StaticTemplateProvider } from "../src/letters/letter-provider";
 import { isDryRun, isQueueOn, type QueueItem } from "../src/queue/queue-mode";
@@ -13,6 +14,7 @@ import {
   renderResponsePage,
   resetSubmits,
   resumeTitle,
+  showCaptcha,
   submits,
 } from "./fixtures/response-form";
 
@@ -23,7 +25,6 @@ const RESPONSE_URL = "https://hh.ru/applicant/vacancy_response?vacancyId=1";
 function setup(overrides: Partial<PipelineDeps> = {}) {
   const logger = new Logger();
   const deps: PipelineDeps = {
-    state: new AppState(),
     logger,
     letters: new StaticTemplateProvider(() => "Здравствуйте, {{company}}! Интересна вакансия {{title}}"),
     resumes: new ResumeSelector(logger),
@@ -153,7 +154,35 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
 
     expect(await run(pipeline.applyOnPage(vacancy()))).toBe("failed");
     expect(submits).toBe(0);
-    expect(deps.state.skipped).toBe(1);
+    expect(deps.onApplied).not.toHaveBeenCalled();
+  });
+
+  it("match подходит к нескольким резюме — отклик не отправляется", async () => {
+    renderResponsePage({ resumes: [PHP, DOTNET, "Senior C# .NET"] });
+    const { pipeline } = setup();
+
+    expect(await run(pipeline.applyOnPage(vacancy()))).toBe("failed");
+    expect(submits).toBe(0);
+    expect(resumeTitle()).toBe(PHP);
+  });
+
+  it("кнопка «Отправить» с aria-disabled — неактивна, клика нет", async () => {
+    renderResponsePage();
+    document.getElementById("submit")!.setAttribute("aria-disabled", "true");
+    const { deps, pipeline } = setup();
+
+    expect(await run(pipeline.applyOnPage(vacancy()))).toBe("disabled");
+    expect(submits).toBe(0);
+    expect(deps.onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("aria-disabled=false — кнопка активна", async () => {
+    renderResponsePage();
+    document.getElementById("submit")!.setAttribute("aria-disabled", "false");
+    const { pipeline } = setup();
+
+    expect(await run(pipeline.applyOnPage(vacancy()))).toBe("success");
+    expect(submits).toBe(1);
   });
 
   it("после нажатия ничего не изменилось — «Непонятное»", async () => {
@@ -256,6 +285,61 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
     });
   });
 
+  // #78: капчу после клика ожидание исхода не видело — «не подтверждён» и Failed на сервере
+  describe("капча после нажатия «Отправить»", () => {
+    // Настоящий CaptchaGuard: те же consumeHit и разметка, что в Controller
+    function setupWithGuard() {
+      const guard = new CaptchaGuard(() => {});
+      const env = setup({ captchaHit: () => guard.consumeHit() });
+      const messages: string[] = [];
+      env.deps.logger.addSink({ write: (m) => messages.push(m) });
+      return { ...env, messages };
+    }
+
+    const afterClick = (ms: number, action: () => void) =>
+      document.getElementById("submit")!.addEventListener("click", () => setTimeout(action, ms));
+
+    it("капча вместо формы — не «форма закрылась, отклик ушёл», второго нажатия нет", async () => {
+      renderResponsePage({ afterSubmit: "captcha" });
+      const { deps, pipeline, messages } = setupWithGuard();
+
+      expect(await run(pipeline.applyOnPage(vacancy()))).toBe("captcha");
+      expect(submits).toBe(1);
+      expect(deps.onSubmit).toHaveBeenCalledTimes(1);
+      expect(deps.onApplied).not.toHaveBeenCalled();
+      expect(messages.at(-1)).toContain("мог уйти");
+      expect(messages.at(-1)).not.toContain("не нажата");
+    });
+
+    it("капча поверх формы во время ожидания исхода — не «Непонятное»", async () => {
+      renderResponsePage({ afterSubmit: "nothing" });
+      const { deps, pipeline } = setupWithGuard();
+      afterClick(2000, showCaptcha);
+
+      expect(await run(pipeline.applyOnPage(vacancy()))).toBe("captcha");
+      expect(submits).toBe(1);
+      expect(deps.onApplied).not.toHaveBeenCalled();
+    });
+
+    it("hh.ru перешёл на страницу капчи без перезагрузки", async () => {
+      renderResponsePage({ afterSubmit: "navigate-captcha" });
+      const { pipeline } = setupWithGuard();
+
+      expect(await run(pipeline.applyOnPage(vacancy()))).toBe("captcha");
+      expect(submits).toBe(1);
+    });
+
+    it("капча после смены страницы, пока ждём её исход", async () => {
+      renderResponsePage({ afterSubmit: "navigate" });
+      const { deps, pipeline } = setupWithGuard();
+      afterClick(2000, showCaptcha);
+
+      expect(await run(pipeline.applyOnPage(vacancy()))).toBe("captcha");
+      expect(submits).toBe(1);
+      expect(deps.onApplied).not.toHaveBeenCalled();
+    });
+  });
+
   // #49: «Стоп очередь» посреди вакансии снимал пробный режим и «Отправить» нажималась по-настоящему
   describe("остановка очереди посреди вакансии", () => {
     // Те же формулы, что в Controller: состояние очереди перечитывается на каждом шаге
@@ -315,7 +399,6 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
 
     expect(await run(pipeline.applyOnPage(vacancy()))).toBe("failed");
     expect(deps.onApplied).not.toHaveBeenCalled();
-    expect(deps.state.skipped).toBe(1);
   });
 });
 
@@ -324,7 +407,7 @@ describe("attachLetterAndSubmit", () => {
 
   it("нет кнопки «Отправить» — failed, письмо всё равно вставлено", async () => {
     document.body.innerHTML = `<textarea data-qa="vacancy-response-popup-form-letter-input"></textarea>`;
-    const result = attachLetterAndSubmit(null, "Письмо", new Logger());
+    const result = attachLetterAndSubmit("Письмо", new Logger());
     await vi.runAllTimersAsync();
     expect(await result).toBe("failed");
     expect(letterValue()).toBe("Письмо");
@@ -338,7 +421,7 @@ describe("attachLetterAndSubmit", () => {
       clicked = true;
       document.querySelector('[data-qa="vacancy-response-popup"]')!.remove();
     };
-    const result = attachLetterAndSubmit(null, "Письмо", new Logger());
+    const result = attachLetterAndSubmit("Письмо", new Logger());
     await vi.runAllTimersAsync();
     expect(await result).toBe("success");
     expect(clicked).toBe(true);

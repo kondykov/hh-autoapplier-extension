@@ -14,7 +14,7 @@ export interface VacancyItem {
 }
 
 export interface Vacancy extends VacancyItem {
-  // Подстрока названия резюме на hh.ru (match профиля с сервера): по ней резюме выбирается в форме отклика
+  // Часть названия резюме на hh.ru (match профиля с сервера): по ней резюме выбирается в форме отклика
   resumeMatch?: string;
   // Готовое письмо с backend
   letter?: string;
@@ -24,11 +24,11 @@ export interface Vacancy extends VacancyItem {
 
 interface PersistedState {
   applied: number;
-  skipped: number;
   queueRunning: boolean;
   queueCurrent: QueueItem | null;
   queueTried: string[];
   queueRunApplied: number;
+  queueFailStreak: number;
   queueOpened: boolean;
   queueSubmitted: string | null;
   queueTab: number | null;
@@ -38,7 +38,6 @@ interface PersistedState {
 
 export class AppState {
   applied = 0;
-  skipped = 0;
   // Режим «из очереди» переживает переходы между страницами отклика
   queueRunning = false;
   queueCurrent: QueueItem | null = null;
@@ -46,6 +45,8 @@ export class AppState {
   queueTried: string[] = [];
   // Откликов, ушедших на hh.ru в этом запуске очереди: для лимита за запуск
   queueRunApplied = 0;
+  // Неудачных вакансий подряд в этом запуске: при QUEUE_FAIL_LIMIT очередь останавливается (#75)
+  queueFailStreak = 0;
   // Переход к форме queueCurrent уже начат. hh.ru после «Отправить» сам загружает новую страницу — она может прийти
   // раньше нашего перехода и не должна считать, что форма следующей вакансии не открылась
   queueOpened = false;
@@ -62,11 +63,11 @@ export class AppState {
   toJSON(): PersistedState {
     return {
       applied: this.applied,
-      skipped: this.skipped,
       queueRunning: this.queueRunning,
       queueCurrent: this.queueCurrent,
       queueTried: this.queueTried,
       queueRunApplied: this.queueRunApplied,
+      queueFailStreak: this.queueFailStreak,
       queueOpened: this.queueOpened,
       queueSubmitted: this.queueSubmitted,
       queueTab: this.queueTab,
@@ -99,11 +100,11 @@ export class StateRepository {
 function fromSaved(saved: Partial<PersistedState>): AppState {
   const state = new AppState();
   state.applied = saved.applied ?? 0;
-  state.skipped = saved.skipped ?? 0;
   state.queueRunning = saved.queueRunning ?? false;
   state.queueCurrent = saved.queueCurrent ?? null;
   state.queueTried = saved.queueTried ?? [];
   state.queueRunApplied = saved.queueRunApplied ?? 0;
+  state.queueFailStreak = saved.queueFailStreak ?? 0;
   state.queueOpened = saved.queueOpened ?? false;
   state.queueSubmitted = saved.queueSubmitted ?? null;
   state.queueTab = saved.queueTab ?? null;
