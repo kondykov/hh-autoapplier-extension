@@ -1,0 +1,2 @@
+# Скрипты и unit выполняются на Linux: CRLF с Windows их ломает
+deploy/** text eol=lf
