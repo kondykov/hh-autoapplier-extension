@@ -13,7 +13,8 @@ import { parseArgs } from "node:util";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DB_NAME = "hh-real-db";
-const DB_PORT = 55432;
+// Вне динамического диапазона 49152+: Windows резервирует там блоки портов под Hyper-V
+const DB_PORT = 15433;
 const API_PORT = 8093;
 const API = `127.0.0.1:${API_PORT}`;
 const SEARCH = "real-check";
