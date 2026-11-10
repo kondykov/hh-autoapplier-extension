@@ -20,7 +20,7 @@ public class WriteCoverLettersCommandHandler(
     ILogger<WriteCoverLettersCommandHandler> logger
 ) : ICommandHandler<WriteCoverLettersCommand, WriteCoverLettersResult>
 {
-    // Попыток на письмо за проход: первая и одна исправленная, если цифры не из фактов
+    // Попыток на письмо за проход: первая и одна исправленная, если письмо не прошло проверку
     private const int MaxAttempts = 2;
 
     public async Task<WriteCoverLettersResult> Handle(WriteCoverLettersCommand command, CancellationToken ct = default)
@@ -30,7 +30,7 @@ public class WriteCoverLettersCommandHandler(
 
         using var pass = await gate.EnterAsync(ct);
 
-        // Письма, которые дважды вышли с цифрами не из фактов, с заглушками или не разобраны (#80), сутки не переписываются:
+        // Письма, которые дважды не прошли сверку с фактами (цифры, заглушки, обещания, технологии) или не разобраны (#80), сутки не переписываются:
         // конвейер идёт раз в минуту, без паузы это цикл запросов к LLM. Сбой провайдера не считается: ответа не было, письма
         // должны написаться после восстановления. Без письма расширение возьмёт свой шаблон. Считается по отклику — вакансия
         // и её владелец (#57): неудачи с профилем одного пользователя не лишают писем другого
@@ -40,7 +40,8 @@ public class WriteCoverLettersCommandHandler(
         var queued = await db.ActiveApplications(await users.GetBlockedIdsAsync(ct))
             .Where(a => (a.Status == VacancyStatus.Queued || a.Status == VacancyStatus.Review) && a.CoverLetter == null && !exhausted.Contains(a.UserId))
             .Where(a => db.LlmCalls.Count(c => c.Purpose == CoverLetterWriting.Purpose && c.Error != null
-                                               && (c.Error == LlmCall.Unparsed || c.Error.StartsWith(CoverLetterWriting.FiguresError) || c.Error.StartsWith(CoverLetterWriting.PlaceholdersError))
+                                               && (c.Error == LlmCall.Unparsed || c.Error.StartsWith(CoverLetterWriting.FiguresError) || c.Error.StartsWith(CoverLetterWriting.PlaceholdersError)
+                                                   || c.Error.StartsWith(CoverLetterWriting.PromisesError) || c.Error.StartsWith(CoverLetterWriting.TechnologiesError))
                                                && c.CreatedAt > since && c.VacancyId == a.VacancyId && c.UserId == a.UserId) < MaxAttempts)
             .OrderByDescending(a => a.Score).ThenByDescending(a => a.Vacancy.PublishedAt).Take(command.Limit).ToListAsync(ct);
         if (queued.Count == 0)
@@ -94,15 +95,17 @@ public class WriteCoverLettersCommandHandler(
                     break;
                 }
 
-                // Цифры и заглушки сверяются с фактами первого запроса: повторный содержит само неверное письмо
-                var figures = CoverLetterWriting.UnsupportedFigures(letter, first, facts);
+                // Письмо сверяется только с фактами о кандидате: ни текст вакансии, ни неверное письмо в повторном запросе фактами не считаются
+                var figures = CoverLetterWriting.UnsupportedFigures(letter, facts, application.Vacancy);
                 var placeholders = CoverLetterWriting.Placeholders(letter, facts);
-                if (figures.Count > 0 || placeholders.Count > 0)
+                var promises = CoverLetterClaims.Promises(letter, facts);
+                var technologies = CoverLetterClaims.Technologies(letter, facts, application.Vacancy);
+                if (figures.Count > 0 || placeholders.Count > 0 || promises.Count > 0 || technologies.Count > 0)
                 {
-                    rejected = CoverLetterWriting.Problem(figures, placeholders);
+                    rejected = CoverLetterWriting.Problem(figures, placeholders, promises, technologies);
                     db.LlmCalls.Add(LlmCall.Rejected(CoverLetterWriting.Purpose, application.VacancyId, result.Model, prompt, result.Content,
                         rejected, result.PromptTokens, result.CompletionTokens, clock.GetUtcNow()).For(application.UserId));
-                    request = CoverLetterWriting.Retry(first, letter, figures, placeholders);
+                    request = CoverLetterWriting.Retry(first, letter, figures, placeholders, promises, technologies);
                     continue;
                 }
 

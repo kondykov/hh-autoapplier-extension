@@ -72,16 +72,17 @@ public class CoverLetterTests
         var resume = ResumeProfile.Create(".NET", "C#", ["c#"],
             "3+ года, .NET 8–10; нагрузка на master-БД снизилась на 30–40%; ~80% публичного API; latency с 300+ мс до 15–70 мс, в 4–8 раз; " +
             "8 000+ пользователей, 1.5M+ SKU; gRPC: latency −40%");
-        var request = CoverLetterWriting.BuildRequest(Card(), resume);
+        var card = Card();
+        var facts = CoverLetterWriting.Facts(card, resume, null);
 
         Assert.Empty(CoverLetterWriting.UnsupportedFigures(
             "Более 3 лет на .NET 8–10: снизил нагрузку на master на 30 – 40 %, перенёс около 80 % API, с 300+ мс до 15‑70 мс (в 4–8 раз), " +
-            "более 8 000 пользователей, 1.5M SKU, latency −40%.", request));
-        Assert.Equal(["30", "до 30"], CoverLetterWriting.UnsupportedFigures("Снизил нагрузку на мастер‑БД до 30 %.", request));
+            "более 8 000 пользователей, 1.5M SKU, latency −40%.", facts, card));
+        Assert.Equal(["30", "до 30"], CoverLetterWriting.UnsupportedFigures("Снизил нагрузку на мастер‑БД до 30 %.", facts, card));
         // «40» в фактах есть, но про latency gRPC: «до 40» — не факт
-        Assert.Equal(["до 40"], CoverLetterWriting.UnsupportedFigures("Снизил нагрузку на master до 40 %.", request));
-        Assert.Equal(["более 80"], CoverLetterWriting.UnsupportedFigures("Перенёс более 80 % API.", request));
-        Assert.Equal(["5", "70"], CoverLetterWriting.UnsupportedFigures("5 лет опыта, ответы за 70 мс.", request));
+        Assert.Equal(["до 40"], CoverLetterWriting.UnsupportedFigures("Снизил нагрузку на master до 40 %.", facts, card));
+        Assert.Equal(["более 80"], CoverLetterWriting.UnsupportedFigures("Перенёс более 80 % API.", facts, card));
+        Assert.Equal(["5", "70"], CoverLetterWriting.UnsupportedFigures("5 лет опыта, ответы за 70 мс.", facts, card));
     }
 
     [Fact]
