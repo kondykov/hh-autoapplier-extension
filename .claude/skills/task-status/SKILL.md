@@ -7,20 +7,32 @@ description: Перевод задачи по полю Status в GitHub Project 
 
 Правила статусов — в `AGENTS.md` (Git Workflow). Здесь — как их выполнять.
 
-## gh
+## Инструмент
 
-`gh` — сборка из Copilot desktop, не в PATH: найти `Get-ChildItem $env:LOCALAPPDATA -Filter gh.exe -Recurse` и звать по полному пути (удобнее из PowerShell). Репозиторий `kondykov/hh-autoapplier-extension`, проект — `--owner kondykov` номер `5`.
+`node scripts/gh-task.mjs` — обёртка над `gh` (системный GitHub CLI в PATH, вход `kondykov` со scope `project`). Сам находит элемент проекта, берёт свежие id поля и вариантов, добавляет issue в проект, если его там нет, и перечитывает результат с повтором: часть изменений GitHub молча не применяет. Справка — без аргументов.
+
+```powershell
+node scripts/gh-task.mjs show 86                       # issue и его поля в проекте
+node scripts/gh-task.mjs board                         # Todo / In Progress / Waiting
+node scripts/gh-task.mjs status 86 "In Progress"       # взял задачу — до первой правки
+node scripts/gh-task.mjs ci --wait                     # CI по HEAD: ждёт, при падении — хвост лога
+node scripts/gh-task.mjs status 86 Waiting --comment "..."
+node scripts/gh-task.mjs done 86 --comment-file -      # текст из stdin; закрыть, Done, даты
+```
+
+Длинный комментарий с кавычками — через `--comment-file путь` или stdin, а не `--comment`.
 
 ## Шаги
 
-1. **Item и поля.** `gh project item-list 5 --owner kondykov --format json -L 200` → id элемента по номеру issue; `gh project field-list 5 --owner kondykov --format json` → id поля Status и id вариантов. Id вариантов брать свежими каждый раз.
-2. **Смена статуса.** `gh project item-edit --project-id <PVT_...> --id <item> --field-id <status> --single-select-option-id <option>`. После — перечитать item: часть вызовов молча не срабатывает.
-3. **CI.** После push: `gh run list -L 5 --json headSha,status,conclusion,databaseId` и брать только запуск с `headSha` == запушенный коммит. Нет запуска за ~3 минуты — пустой коммит. Красный — чинить сразу.
-4. **Waiting.** Код запушен, CI зелёный, но ждёт живой проверки или другой задачи: issue открыт, комментарий — коммит, что проверено, чего ждёт.
-5. **Done.** `gh issue close <N> --comment "..."` (коммит, что проверено и что нет), затем даты «Начало»/«Срок» через `item-edit --date`.
+1. **Взял задачу:** `status N "In Progress"`.
+2. **CI после push:** `ci --wait` (по умолчанию HEAD; можно sha). Учитывается только запуск с `headSha` этого коммита. Код 2 «запусков нет» спустя ~3 минуты — пустой коммит. Код 1 — красный, чинить сразу.
+3. **Waiting:** код запушен, CI зелёный, но ждёт живой проверки или другой задачи — `status N Waiting --comment` (коммит, что проверено, чего ждёт). Issue открыт.
+4. **Done:** `done N --comment` — комментарий (коммит, что проверено и что нет), закрытие, Status Done, «Начало» (уже стоящее, иначе дата первого коммита с `#N`, или `--start`) и «Срок» (сегодня или `--end`).
+
+Проверять доработки скрипта — на временном проекте и не закреплённом репозитории: `--project N --repo owner/name`, не на Project #5.
 
 ## Нельзя
 
-- Менять варианты поля Status (`updateProjectV2Field` с `singleSelectOptions`): стирает статусы всех задач.
+- Менять варианты поля Status в Project #5 (`updateProjectV2Field` с `singleSelectOptions`): стирает статусы всех задач.
 - Трогать другие проекты владельца (Roadmap #1, OrderFlow).
 - Удалять issues, делать PR и merge в `master` без просьбы.
