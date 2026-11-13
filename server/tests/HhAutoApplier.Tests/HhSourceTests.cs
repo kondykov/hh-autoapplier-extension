@@ -214,4 +214,56 @@ public class HhSourceTests
     [InlineData(HttpStatusCode.OK, "/account/captcha?backurl=x")]
     public async Task Source_BlockedOnArchivedPage_NotArchived(HttpStatusCode status, string? finalPath) =>
         await Assert.ThrowsAsync<SourceBlockedException>(() => Source(status, Page(ArchivedJson), finalPath).LoadDetailsAsync(Card("1", "x"), default));
+
+    // Страница вакансии и главная отвечают по-разному: главная — контрольный запрос после 403 (#99)
+    private sealed class RouteHandler(HttpStatusCode vacancy, HttpStatusCode home, string? homePath = null) : HttpMessageHandler
+    {
+        public int HomeRequests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var isHome = request.RequestUri!.AbsolutePath == "/";
+            if (isHome)
+            {
+                HomeRequests++;
+                if (homePath is not null) request.RequestUri = new Uri(request.RequestUri, homePath);
+            }
+            var status = isHome ? home : vacancy;
+            return Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(Page("""{"x":1}""")), RequestMessage = request });
+        }
+    }
+
+    // Закрытая вакансия отдаёт 403 всем, а главная открывается: вакансия недоступна, сбор идёт дальше
+    [Fact]
+    public async Task Source_ForbiddenVacancy_HomeOpens_IsUnavailable()
+    {
+        var handler = new RouteHandler(HttpStatusCode.Forbidden, HttpStatusCode.OK);
+        var source = new HhWebSource(new HttpClient(handler), Options.Create(new HhOptions()), TimeProvider.System);
+
+        Assert.Equal(VacancyPageState.Unavailable, await source.LoadDetailsAsync(Card("139119374", "x"), default));
+        Assert.Equal(1, handler.HomeRequests);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Forbidden, null)]
+    [InlineData(HttpStatusCode.TooManyRequests, null)]
+    [InlineData(HttpStatusCode.OK, "/account/captcha?backurl=x")]
+    public async Task Source_ForbiddenVacancy_HomeBlocked_StopsCollection(HttpStatusCode home, string? homePath)
+    {
+        var handler = new RouteHandler(HttpStatusCode.Forbidden, home, homePath);
+        var source = new HhWebSource(new HttpClient(handler), Options.Create(new HhOptions()), TimeProvider.System);
+
+        await Assert.ThrowsAsync<SourceBlockedException>(() => source.LoadDetailsAsync(Card("1", "x"), default));
+    }
+
+    // 403 на выдаче — по-прежнему блокировка, без контрольного запроса
+    [Fact]
+    public async Task Source_ForbiddenSearch_NoHomeCheck()
+    {
+        var handler = new RouteHandler(HttpStatusCode.Forbidden, HttpStatusCode.OK);
+        var source = new HhWebSource(new HttpClient(handler), Options.Create(new HhOptions()), TimeProvider.System);
+
+        await Assert.ThrowsAsync<SourceBlockedException>(() => source.SearchAsync(Search, 0, default));
+        Assert.Equal(0, handler.HomeRequests);
+    }
 }
