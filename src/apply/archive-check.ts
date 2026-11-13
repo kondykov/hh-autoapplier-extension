@@ -3,7 +3,8 @@ import { SELECTORS } from "../core/selectors";
 // Признак архива со страницы вакансии (#70). Форма отклика архивной вакансии открывается как обычно — с резюме,
 // письмом и кнопкой отправки, признака там нет (проверено 2026-11-10). Страница /vacancy/{id} отдаётся с кодом 200
 // и со входом, и без; признак — status.archived в JSON HH-Lux-InitialState, closedForApplicants у архивных false
-export type ArchiveCheck = { state: "archived" } | { state: "open" } | { state: "unknown"; error: string };
+// unavailable — вакансию закрыл hh.ru: страница отдаёт 403, а главная открывается (#99)
+export type ArchiveCheck = { state: "archived" } | { state: "open" } | { state: "unavailable" } | { state: "unknown"; error: string };
 
 export interface ArchiveChecker {
   check(id: string): Promise<ArchiveCheck>;
@@ -40,6 +41,12 @@ export function pageArchiveChecker(origin: () => string, fetchFn: typeof fetch =
       const timer = setTimeout(() => abort.abort(), timeoutMs);
       try {
         const res = await fetchFn(new URL(`/vacancy/${encodeURIComponent(id)}`, origin()).toString(), { credentials: "omit", signal: abort.signal });
+        // Закрытая вакансия (скрыта, снята модерацией) отдаёт 403 всем, со входом и без (139119374, 2026-11-13).
+        // Отказ всем запросам — тоже 403: главная открылась — закрыта именно эта вакансия, «Отправить» дала бы ошибку
+        if (res.status === 403) {
+          const home = await fetchFn(new URL("/", origin()).toString(), { credentials: "omit", signal: abort.signal });
+          return home.ok ? { state: "unavailable" } : { state: "unknown", error: "ответ 403" };
+        }
         if (!res.ok) return { state: "unknown", error: `ответ ${res.status}` };
         return parseArchiveState(await res.text(), id);
       } catch (e) {

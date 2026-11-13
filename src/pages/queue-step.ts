@@ -149,10 +149,11 @@ export class QueueStep implements PageStep {
     };
     panel.setStep(`Очередь: отклик на "${vacancy.title}"`);
 
-    if (await this.archived(current)) {
+    const closed = await this.closedOnHh(current);
+    if (closed) {
       // Пока шёл запрос, очередь остановили или перезапустили с другой вакансией — её не трогаем
       if (!state.queueRunning || state.queueCurrent?.id !== current.id) return;
-      await this.finish(current, "archived", vacancy.resume);
+      await this.finish(current, closed, vacancy.resume);
       return;
     }
 
@@ -193,17 +194,19 @@ export class QueueStep implements PageStep {
   }
 
   // Форма архивной вакансии открывается как обычно (проверено 2026-11-10): признак — только на странице вакансии.
-  // Архив закрывает только явный признак; ошибка проверки — отклик идёт как обычно
-  private async archived(item: QueueItem): Promise<boolean> {
+  // Архив закрывает только явный признак; ошибка проверки — отклик идёт как обычно.
+  // Закрытая hh.ru вакансия (403 при открытой главной, #99) — тоже без «Отправить»: hh.ru ответил бы ошибкой
+  private async closedOnHh(item: QueueItem): Promise<"archived" | "unavailable" | null> {
     const { logger, config } = this.ctx;
     const check = await this.ctx.archive.check(item.id);
     if (check.state === "unknown") {
       logger.log(`Проверка архива "${item.title}" не удалась (${check.error}) — отклик как обычно`, "warn");
-      return false;
+      return null;
     }
-    if (check.state === "open") return false;
-    logger.log(`"${item.title}": вакансия в архиве — «Отправить» не нажимается${config.queueDryRun ? ", пробный режим: статус не отправляется" : ""}`, "warn");
-    return true;
+    if (check.state === "open") return null;
+    const what = check.state === "archived" ? "вакансия в архиве" : "вакансия недоступна на hh.ru";
+    logger.log(`"${item.title}": ${what} — «Отправить» не нажимается${config.queueDryRun ? ", пробный режим: статус не отправляется" : ""}`, "warn");
+    return check.state;
   }
 
   // «Отправить» уже нажата, и hh.ru загрузил новую страницу раньше, чем пришёл исход (#52): отклик, скорее всего, ушёл
