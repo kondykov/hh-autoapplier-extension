@@ -65,5 +65,6 @@ public class NotifyReviewsCommandHandler(IAppDbContext db, ITelegramBot bot, Not
     private static string ReviewKey(JobApplication application) =>
         application.Questions.Count > 0 ? $"review-questionnaire:{application.Id}"
         : application.LetterRejected ? $"review-letter:{application.Id}"
+        : application.AwaitsClosingLetter ? $"review-requests:{application.Id}"
         : $"review:{application.Id}";
 }

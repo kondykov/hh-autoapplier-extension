@@ -12,6 +12,11 @@ public record SaveCandidateProfileCommand
     public string? General { get; init; }
 
     public List<SkillFactDto> Skills { get; init; } = [];
+
+    // Желаемая зарплата на руки, ₽, и готовность к тестовому (#72); null — не указано, тогда отклик с такой просьбой идёт на проверку
+    public int? DesiredSalaryRub { get; init; }
+
+    public bool? ReadyForTestTask { get; init; }
 }
 
 // На .NET 11: public union SaveCandidateProfileResult(CandidateProfileDto, ValidationError);

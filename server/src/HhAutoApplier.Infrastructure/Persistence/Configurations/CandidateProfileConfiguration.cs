@@ -15,6 +15,8 @@ public class CandidateProfileConfiguration : IEntityTypeConfiguration<CandidateP
         builder.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         builder.Property(x => x.General).HasMaxLength(CandidateProfile.MaxGeneral);
         builder.Ignore(x => x.IsEmpty);
+        builder.Ignore(x => x.DesiredSalaryText);
+        builder.Ignore(x => x.TestTaskText);
         // Факты по навыкам — колонкой jsonb
         builder.OwnsMany(x => x.Skills, o => o.ToJson());
     }

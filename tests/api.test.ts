@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { BackendClient, type ApiSender } from "../src/api/client";
 import { executeApiRequest, isApiRequest, type ApiResponse } from "../src/api/transport";
+import { API_VERSION } from "../src/api/version";
 import { DEFAULT_SERVER, loadConfig } from "../src/core/config";
 import { MemoryStorage } from "../src/infra/storage";
 
@@ -77,8 +78,9 @@ describe("BackendClient.check", () => {
     const client = new BackendClient(sender({
       "/health": { status: 200, body: '{"status":"ok"}' },
       "/api/stats": { status: 200, body: '{"Queued":5,"Skipped":2}' },
+      "/api/version": { status: 200, body: `{"version":"0.1.0","commit":"abc1234","apiVersion":${API_VERSION}}` },
     }));
-    expect(await client.check()).toEqual({ ok: true, message: "Связь есть: вакансий на сервере 7, в очереди 5" });
+    expect(await client.check()).toEqual({ ok: true, message: `Связь есть: вакансий на сервере 7, в очереди 5. Сервер 0.1.0 (abc1234), контракт API ${API_VERSION}` });
   });
 
   it("различает недоступный сервер и неверный ключ", async () => {

@@ -29,6 +29,7 @@ async function tab(storage: MemoryStorage, self: number, opts: { open?: (id: num
   await panel.mount();
   const visited: string[] = [];
   const backend = {
+    getServerVersion: vi.fn(async () => ({ state: "unknown" as const })),
     getQueue: vi.fn(async () => ({ ok: true as const, items: [item("1"), item("2")] })),
     getResumes: vi.fn(async () => ({ ok: true as const, resumes: [] })),
     reportStatus: vi.fn(async () => ({ ok: true as const })),

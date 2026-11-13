@@ -13,8 +13,8 @@ export interface FormOptions {
   noLetter?: boolean;
   submitDisabled?: boolean;
   // Что делает hh.ru после нажатия «Отправить»; navigate — уходит на страницу вакансии, форма остаётся,
-  // navigate-responded — на страницу вакансии с «Вы откликнулись»
-  afterSubmit?: "responded" | "close" | "nothing" | "navigate" | "navigate-responded";
+  // navigate-responded — на страницу вакансии с «Вы откликнулись», captcha — капча вместо формы, navigate-captcha — переход на /account/captcha
+  afterSubmit?: "responded" | "close" | "nothing" | "navigate" | "navigate-responded" | "captcha" | "navigate-captcha";
   // Подзаголовок «Для отклика необходимо ответить на несколько вопросов»: на странице отклика он есть и без анкеты,
   // во всплывающем окне — признак анкеты
   outline?: boolean;
@@ -101,6 +101,11 @@ function wire(o: FormOptions, close: () => void): void {
   submit.onclick = () => {
     submits++;
     if (o.afterSubmit === "nothing") return;
+    if (o.afterSubmit === "captcha" || o.afterSubmit === "navigate-captcha") {
+      if (o.afterSubmit === "navigate-captcha") (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL("https://hh.ru/account/captcha");
+      document.body.innerHTML = `<main>${CAPTCHA}</main>`;
+      return;
+    }
     if (o.afterSubmit === "navigate" || o.afterSubmit === "navigate-responded") {
       (window as unknown as { happyDOM: { setURL(url: string): void } }).happyDOM.setURL("https://hh.ru/vacancy/1");
       if (o.afterSubmit === "navigate-responded") document.body.innerHTML = "<main><div>Вы откликнулись</div></main>";
@@ -109,6 +114,14 @@ function wire(o: FormOptions, close: () => void): void {
     if (o.afterSubmit === "close") close();
     else document.body.innerHTML = "<main><div>Вы откликнулись</div></main>";
   };
+}
+
+// Капча hh.ru (/account/captcha, проверено 2026-10-24)
+const CAPTCHA = `<img data-qa="account-captcha-picture" /><input data-qa="account-captcha-input" />`;
+
+// Капча поверх текущей страницы
+export function showCaptcha(): void {
+  document.body.insertAdjacentHTML("beforeend", CAPTCHA);
 }
 
 export let submits = 0;

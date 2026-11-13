@@ -1,0 +1,11 @@
+# Ежедневный бэкап базы (#5), запускается hh-backup.timer. Ручной запуск: systemctl start hh-backup.service
+[Unit]
+Description=hh-autoapplier: бэкап базы
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/hh-autoapplier/backup.sh
+Nice=10
+IOSchedulingClass=idle

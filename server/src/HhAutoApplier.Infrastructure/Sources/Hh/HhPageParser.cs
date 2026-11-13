@@ -63,9 +63,7 @@ public static partial class HhPageParser
     // false — на странице нет вакансии
     public static bool ParseVacancy(JsonElement state, Vacancy vacancy)
     {
-        if (!state.TryGetProperty("vacancyView", out var view)
-            || !view.TryGetProperty("vacancyFull", out var full)
-            || !full.TryGetProperty("vacancy", out var v))
+        if (!TryVacancy(state, out var v))
             return false;
 
         UpdateCard(vacancy, v, null, Date(v, "publicationTimeIso"));
@@ -74,8 +72,24 @@ public static partial class HhPageParser
             ? ks.EnumerateArray().Select(k => k.ValueKind == JsonValueKind.String ? k.GetString() ?? "" : Str(k, "name"))
                 .Where(s => s != "").ToList()
             : [];
-        vacancy.UpdateDetails(Str(v, "name"), HtmlToText(Str(v, "description")), skills);
+        var internship = v.TryGetProperty("internship", out var i) && i.ValueKind == JsonValueKind.True;
+        vacancy.UpdateDetails(Str(v, "name"), HtmlToText(Str(v, "description")), skills, internship ? Vacancy.Internship : Str(v, "workExperience"));
         return true;
+    }
+
+    // Страница архивной вакансии отдаётся с кодом 200 и теми же данными, что и обычная. closedForApplicants у неё false,
+    // признак — только status.archived (проверено вживую 2026-11-10)
+    public static bool IsArchived(JsonElement state) =>
+        TryVacancy(state, out var v)
+        && v.TryGetProperty("status", out var status) && status.ValueKind == JsonValueKind.Object
+        && status.TryGetProperty("archived", out var archived) && archived.ValueKind == JsonValueKind.True;
+
+    private static bool TryVacancy(JsonElement state, out JsonElement vacancy)
+    {
+        vacancy = default;
+        return state.TryGetProperty("vacancyView", out var view)
+               && view.TryGetProperty("vacancyFull", out var full)
+               && full.TryGetProperty("vacancy", out vacancy);
     }
 
     // Поля, одинаковые в выдаче и на странице вакансии

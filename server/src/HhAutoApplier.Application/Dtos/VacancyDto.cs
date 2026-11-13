@@ -1,3 +1,4 @@
+using HhAutoApplier.Domain.Applications;
 using HhAutoApplier.Domain.Vacancies;
 
 namespace HhAutoApplier.Application.Dtos;
@@ -27,11 +28,19 @@ public record VacancyDto
 
     public required string[] Stack { get; init; }
 
+    // Требуемый опыт текстом (#72); новое поле — прежние клиенты его не читают
+    public string? WorkExperience { get; init; }
+
     public bool HasTest { get; init; }
 
     public DateTimeOffset PublishedAt { get; init; }
 
     public DateTimeOffset CollectedAt { get; init; }
+
+    // Когда вакансия встретилась в последний раз (#70); новые поля — прежние клиенты их не читают
+    public DateTimeOffset LastSeenAt { get; init; }
+
+    public bool VacancyArchived { get; init; }
 
     public required string SearchName { get; init; }
 
@@ -65,4 +74,18 @@ public record VacancyDto
 
     // История статусов отклика (#8); новое поле — прежние клиенты его не читают
     public List<ApplicationEventDto> History { get; init; } = [];
+
+    // Скрыта из списка (#71)
+    public DateTimeOffset? HiddenAt { get; init; }
+
+    // Отсеяна человеком, LLM или правилами: можно оценить заново и скрыть (#71)
+    public bool Dismissed { get; init; }
+
+    // Просьбы работодателя к письму (#72); новые поля — прежние клиенты их не читают
+    public LetterRequestsState LetterRequestsState { get; init; }
+
+    public List<LetterRequestDto> LetterRequests { get; init; } = [];
 }
+
+// Text — цитата работодателя для показа; Value — выражение или кодовое слово; Answer — проверенное значение; Problem — почему не закрывается сама
+public record LetterRequestDto(LetterRequestType Type, string Text, string? Value, string? Answer, bool Closed, string? Problem);

@@ -1,4 +1,5 @@
 import type { BackendClient } from "../api/client";
+import { pageArchiveChecker, type ArchiveChecker } from "../apply/archive-check";
 import { ApplyPipeline } from "../apply/pipeline";
 import { CaptchaGuard } from "../captcha/guard";
 import type { KeyValueStorage } from "../infra/storage";
@@ -31,6 +32,7 @@ interface ControllerDeps {
   backend: BackendClient;
   nav?: Navigator;
   tab?: TabInfo;
+  archive?: ArchiveChecker;
 }
 
 // Без service worker (тесты, старый фон): очередь не привязана к вкладке
@@ -56,7 +58,7 @@ export class Controller {
   constructor(private d: ControllerDeps) {
     this.captcha = new CaptchaGuard((shown) => {
       d.panel.setCaptcha(shown);
-      d.logger.log(shown ? "Капча: работа на паузе" : "Капча решена, продолжаю", shown ? "warn" : "success");
+      d.logger.log(shown ? "Капча: работа на паузе" : d.state.queueRunning ? "Капча решена, продолжаю" : "Капча решена", shown ? "warn" : "success");
       // Работа встала и ждёт человека — сообщить в Telegram (#28); при ручном просмотре hh.ru капча — не новость
       if (shown && d.state.queueRunning)
         void d.backend.reportEvent("Captcha", location.href);
@@ -75,6 +77,8 @@ export class Controller {
       nav: d.nav ?? browserNavigator,
       tab: d.tab ?? ANY_TAB,
       pipeline: this.createPipeline(),
+      // Тот же поддомен, что у формы: запрос same-origin
+      archive: d.archive ?? pageArchiveChecker(() => (d.nav ?? browserNavigator).url()),
       persist: () => this.persist(),
     };
     this.search = new SearchStep(ctx);

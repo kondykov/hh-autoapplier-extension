@@ -103,6 +103,99 @@ public class LlmChecksApiTests(ApiFactory factory) : IAsyncLifetime
         Assert.Equal(2, factory.Llm.Calls);
     }
 
+    // #80: неразобранный ответ не запрашивается на каждом проходе конвейера
+    [Fact]
+    public async Task Letter_UnparsedTwice_IsNotRequestedForADay()
+    {
+        await WriteLetters("не письмо");
+        await WriteLetters("{}");
+        Assert.Equal(2, factory.Llm.Calls);
+
+        var result = await WriteLetters(Good);
+
+        Assert.Equal(2, factory.Llm.Calls);
+        Assert.Equal(0, result.GetProperty("written").GetInt32());
+        Assert.Single(factory.Llm.Answers);
+        Assert.Equal(JsonValueKind.Null, (await Single("Queued")).GetProperty("coverLetter").ValueKind);
+    }
+
+    // Один неразобранный ответ — ещё не повод отказаться от письма
+    [Fact]
+    public async Task Letter_UnparsedOnce_IsRequestedAgain()
+    {
+        await WriteLetters("не письмо");
+
+        Assert.Equal(1, (await WriteLetters(Good)).GetProperty("written").GetInt32());
+    }
+
+    // Сбой провайдера: ответа не было, письмо пишется после восстановления
+    [Fact]
+    public async Task Letter_ProviderFailures_DoNotBlock()
+    {
+        for (var i = 0; i < 3; i++)
+            Assert.Equal(JsonValueKind.String, (await WriteLetters()).GetProperty("stoppedBy").ValueKind);
+
+        Assert.Equal(3, await factory.WithDbAsync(db => db.LlmCalls.CountAsync(c => c.Model == "" && c.Error != null)));
+        Assert.Equal(1, (await WriteLetters(Good)).GetProperty("written").GetInt32());
+    }
+
+    // Обещания и чужие технологии (#82): один повтор с замечаниями, затем ручная проверка без письма, сутки не переписывается
+    [Theory]
+    [InlineData("Здравствуйте! Есть опыт на C#, готов выполнить тестовое задание в удобное время.", CoverLetterWriting.PromisesError, "тестовому заданию")]
+    [InlineData("Здравствуйте! Есть опыт на C#, уверенно владею Docker и Kafka в продакшене.", CoverLetterWriting.TechnologiesError, "Docker, Kafka")]
+    public async Task Letter_PromiseOrForeignTechnology_RetriedThenReview(string bad, string error, string remark)
+    {
+        var result = await WriteLetters(bad, bad);
+
+        Assert.Equal((0, 1), (result.GetProperty("written").GetInt32(), result.GetProperty("failed").GetInt32()));
+        var retry = factory.Llm.Requests[1].Messages;
+        Assert.Equal("assistant", retry[^2].Role);
+        Assert.Contains(remark, retry[^1].Content);
+
+        var review = await Single("Review");
+        Assert.Contains(error, review.GetProperty("statusReason").GetString());
+        Assert.Equal(JsonValueKind.Null, review.GetProperty("coverLetter").ValueKind);
+
+        var errors = await factory.WithDbAsync(db => db.LlmCalls.Where(c => c.Error != null).Select(c => c.Error!).ToListAsync());
+        Assert.Equal(2, errors.Count);
+        Assert.All(errors, e => Assert.StartsWith(error, e));
+
+        // Следующий проход конвейера: письмо ждёт сутки, запросов к LLM нет
+        var calls = factory.Llm.Calls;
+        await WriteLetters();
+        Assert.Equal(calls, factory.Llm.Calls);
+    }
+
+    [Fact]
+    public async Task Letter_Promise_FixedOnRetry_IsWritten()
+    {
+        var result = await WriteLetters("Здравствуйте! Есть опыт на C#, хочу обсудить желаемую зарплату на встрече.", Good);
+
+        Assert.Equal(1, result.GetProperty("written").GetInt32());
+        Assert.Equal(Good, (await Single("Queued")).GetProperty("coverLetter").GetString());
+    }
+
+    [Theory]
+    [InlineData(CoverLetterWriting.PromisesError)]
+    [InlineData(CoverLetterWriting.TechnologiesError)]
+    public async Task Letter_RejectedTwiceForNewReason_NotRequestedForADay(string error)
+    {
+        await factory.WithDbAsync(async db =>
+        {
+            for (var i = 0; i < 2; i++)
+                db.LlmCalls.Add(LlmCall.Rejected(CoverLetterWriting.Purpose, "1", "fake-model", "промпт", "письмо", $"{error}: детали", 100, 20, DateTimeOffset.UtcNow).For(await AdminId()));
+            return await db.SaveChangesAsync();
+        });
+
+        var calls = factory.Llm.Calls;
+        var result = await WriteLetters();
+
+        Assert.Equal(calls, factory.Llm.Calls);
+        Assert.Equal(0, result.GetProperty("written").GetInt32());
+    }
+
+    private Task<Guid?> AdminId() => factory.WithDbAsync(db => db.JobApplications.Select(a => a.UserId).FirstAsync());
+
     [Fact]
     public async Task Letter_InventedYearsInWords_GoesToReview_EvenIfVacancyAsksForThem()
     {

@@ -1,3 +1,4 @@
+import { isCaptchaVisible } from "../captcha/guard";
 import { DELAYS, pause, wait } from "../core/delays";
 import { SELECTORS } from "../core/selectors";
 import { ensureCoverLetterFieldVisible, fillTextarea, getCoverLetterField } from "../dom/cover-letter";
@@ -7,8 +8,9 @@ import type { Logger } from "../infra/logger";
 import { isAlreadyRespondedOnPage, isOutlineDetected } from "./outcome-detector";
 import { humanClick } from "../dom/input";
 
-// dry_run — пробный режим: форма заполнена, кнопка «Отправить» найдена и активна, но не нажата
-export type SubmitResult = "success" | "outline" | "pending_response" | "disabled" | "unclear" | "failed" | "dry_run";
+// dry_run — пробный режим: форма заполнена, кнопка «Отправить» найдена и активна, но не нажата;
+// captcha — капча сразу после нажатия: отклик мог уйти
+export type SubmitResult = "success" | "outline" | "pending_response" | "disabled" | "unclear" | "failed" | "dry_run" | "captcha";
 
 function findButtonByText(root: ParentNode, text: string, excludeApply: boolean): HTMLElement | null {
   const isApply = (el: Element) => excludeApply && el.matches(SELECTORS.applyButton);
@@ -54,10 +56,13 @@ async function waitForSubmitResult(
   hadForm: boolean,
   timeoutMs: number,
   questionnaire: boolean,
+  captchaHit: () => boolean,
 ): Promise<SubmitResult> {
   const start = Date.now();
   let closedStreak = 0;
   while (Date.now() - start < timeoutMs) {
+    // Первой: капча вместо формы выглядит как «форма закрылась» (#78)
+    if (captchaHit()) return "captcha";
     if (!questionnaire && isOutlineDetected()) return "outline";
     if (detectPageType() !== startPage) return "pending_response";
     if (isAlreadyRespondedOnPage()) return "success";
@@ -69,7 +74,7 @@ async function waitForSubmitResult(
     }
     await wait(300);
   }
-  return "unclear";
+  return captchaHit() ? "captcha" : "unclear";
 }
 
 // Кнопка неактивна: hh.ru помечает это атрибутом disabled или aria-disabled
@@ -84,6 +89,8 @@ export async function attachLetterAndSubmit(
   questionnaire = false,
   // Сразу перед нажатием «Отправить»: записать, что отклик уходит, и учесть его в лимитах
   beforeClick?: () => Promise<void>,
+  // Капча, пока ждём исход клика
+  captchaHit: () => boolean = isCaptchaVisible,
 ): Promise<SubmitResult> {
   if (!questionnaire && isOutlineDetected()) return "outline";
 
@@ -128,5 +135,5 @@ export async function attachLetterAndSubmit(
     return "dry_run";
   }
   logger.log('Нажата кнопка "Отправить"', "step");
-  return waitForSubmitResult(startPage, hadForm, 8000, questionnaire);
+  return waitForSubmitResult(startPage, hadForm, 8000, questionnaire, captchaHit);
 }

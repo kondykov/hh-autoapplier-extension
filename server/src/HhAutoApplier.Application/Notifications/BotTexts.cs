@@ -94,6 +94,17 @@ public static class BotTexts
             text.AppendLine().AppendLine("Ответов на анкету нет: «Одобрить» вернёт отклик в очередь, расширение пришлёт анкету заново. Ответить можно и вручную на hh.ru.");
         }
 
+        if (application.LetterRequestsState == LetterRequestsState.Failed)
+            text.AppendLine().AppendLine("Просьбы работодателя к письму разобрать не удалось: прочитайте вакансию и решите в веб-интерфейсе, «Проверка».");
+        else if (application.LetterRequests.Count > 0)
+        {
+            text.AppendLine().AppendLine("Просьбы работодателя к письму:");
+            foreach (var r in application.LetterRequests)
+                text.AppendLine($"— {r.Text}").AppendLine(r.Closed ? $"  ответ: {r.Answer ?? "решено человеком"}" : $"  не закрыта: {r.Problem ?? $"ждёт письма, значение {r.Answer}"}");
+            if (application.AwaitsClosingLetter)
+                text.AppendLine("Незакрытые просьбы решаются в веб-интерфейсе, «Проверка».");
+        }
+
         text.AppendLine().AppendLine(string.IsNullOrWhiteSpace(application.CoverLetter)
             ? "Письма пока нет — расширение возьмёт свой шаблон. Поправить письмо — в веб-интерфейсе, раздел «Проверка»."
             : $"Письмо (поправить — в веб-интерфейсе, «Проверка»):\n{application.CoverLetter}");

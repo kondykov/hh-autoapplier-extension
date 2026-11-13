@@ -3,6 +3,7 @@ using HhAutoApplier.Application.Cqrs;
 using HhAutoApplier.Application.Dtos;
 using HhAutoApplier.Application.Notifications;
 using HhAutoApplier.Domain;
+using HhAutoApplier.Domain.Vacancies;
 using Microsoft.EntityFrameworkCore;
 
 namespace HhAutoApplier.Application.Commands.Telegram;
@@ -55,6 +56,10 @@ public class HandleTelegramCallbackCommandHandler(
         var application = await db.FindApplicationAsync(userId, vacancyId, ct);
         if (application is null)
             return new BotCallbackResult("Вакансия не найдена", "Вакансия не найдена");
+
+        // В Telegram письмо не поправить и кодовое слово не подтвердить: незакрытые просьбы (#72) — только в «Проверке»
+        if (approve && application.AwaitsClosingLetter && application.Status == VacancyStatus.Review)
+            return new BotCallbackResult("Просьбы не закрыты", "Есть незакрытые просьбы работодателя к письму: решите в веб-интерфейсе, раздел «Проверка»");
 
         try
         {

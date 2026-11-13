@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApplyPipeline, type ApplyResult, type PipelineDeps } from "../src/apply/pipeline";
 import { attachLetterAndSubmit } from "../src/apply/submit";
+import { CaptchaGuard } from "../src/captcha/guard";
 import type { Vacancy } from "../src/core/state";
 import { Logger } from "../src/infra/logger";
 import { StaticTemplateProvider } from "../src/letters/letter-provider";
@@ -13,6 +14,7 @@ import {
   renderResponsePage,
   resetSubmits,
   resumeTitle,
+  showCaptcha,
   submits,
 } from "./fixtures/response-form";
 
@@ -280,6 +282,61 @@ describe("ApplyPipeline.applyOnPage — страница отклика", () => 
       expect(await run(pipeline.applyOnPage(vacancy()))).toBe("captcha");
       expect(submits).toBe(0);
       expect(deps.onSubmit).not.toHaveBeenCalled();
+    });
+  });
+
+  // #78: капчу после клика ожидание исхода не видело — «не подтверждён» и Failed на сервере
+  describe("капча после нажатия «Отправить»", () => {
+    // Настоящий CaptchaGuard: те же consumeHit и разметка, что в Controller
+    function setupWithGuard() {
+      const guard = new CaptchaGuard(() => {});
+      const env = setup({ captchaHit: () => guard.consumeHit() });
+      const messages: string[] = [];
+      env.deps.logger.addSink({ write: (m) => messages.push(m) });
+      return { ...env, messages };
+    }
+
+    const afterClick = (ms: number, action: () => void) =>
+      document.getElementById("submit")!.addEventListener("click", () => setTimeout(action, ms));
+
+    it("капча вместо формы — не «форма закрылась, отклик ушёл», второго нажатия нет", async () => {
+      renderResponsePage({ afterSubmit: "captcha" });
+      const { deps, pipeline, messages } = setupWithGuard();
+
+      expect(await run(pipeline.applyOnPage(vacancy()))).toBe("captcha");
+      expect(submits).toBe(1);
+      expect(deps.onSubmit).toHaveBeenCalledTimes(1);
+      expect(deps.onApplied).not.toHaveBeenCalled();
+      expect(messages.at(-1)).toContain("мог уйти");
+      expect(messages.at(-1)).not.toContain("не нажата");
+    });
+
+    it("капча поверх формы во время ожидания исхода — не «Непонятное»", async () => {
+      renderResponsePage({ afterSubmit: "nothing" });
+      const { deps, pipeline } = setupWithGuard();
+      afterClick(2000, showCaptcha);
+
+      expect(await run(pipeline.applyOnPage(vacancy()))).toBe("captcha");
+      expect(submits).toBe(1);
+      expect(deps.onApplied).not.toHaveBeenCalled();
+    });
+
+    it("hh.ru перешёл на страницу капчи без перезагрузки", async () => {
+      renderResponsePage({ afterSubmit: "navigate-captcha" });
+      const { pipeline } = setupWithGuard();
+
+      expect(await run(pipeline.applyOnPage(vacancy()))).toBe("captcha");
+      expect(submits).toBe(1);
+    });
+
+    it("капча после смены страницы, пока ждём её исход", async () => {
+      renderResponsePage({ afterSubmit: "navigate" });
+      const { deps, pipeline } = setupWithGuard();
+      afterClick(2000, showCaptcha);
+
+      expect(await run(pipeline.applyOnPage(vacancy()))).toBe("captcha");
+      expect(submits).toBe(1);
+      expect(deps.onApplied).not.toHaveBeenCalled();
     });
   });
 

@@ -1,0 +1,11 @@
+# Бэкап раз в сутки (#5). Persistent: если сервер в это время выключен, бэкап делается сразу после загрузки.
+[Unit]
+Description=hh-autoapplier: ежедневный бэкап базы
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target
