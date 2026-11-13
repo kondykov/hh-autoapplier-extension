@@ -52,11 +52,19 @@ public class HhWebSource : IVacancySource
         JsonDocument? state;
         try
         {
-            state = await LoadStateAsync($"vacancy/{vacancy.Id}", ct);
+            state = await LoadStateAsync($"vacancy/{vacancy.Id}", ct, vacancyPage: true);
         }
         catch (HttpRequestException e) when (e.StatusCode >= HttpStatusCode.InternalServerError)
         {
             return VacancyPageState.TemporaryError;
+        }
+        catch (ForbiddenVacancyException)
+        {
+            // Закрытая вакансия (скрыта, снята модерацией) отдаёт 403 всем, со входом и без (139119374, 2026-11-13, #99).
+            // Отказ всему сбору — тоже 403: открылась главная — закрыта именно эта вакансия, иначе блокировка
+            if (!await HomeOpensAsync(ct))
+                throw Blocked("ответ 403");
+            return VacancyPageState.Unavailable;
         }
 
         if (state is null)
@@ -74,22 +82,42 @@ public class HhWebSource : IVacancySource
 
     // null — 404. Капча, отказы и страница без данных (мягкий антибот, смена вёрстки) — SourceBlockedException:
     // такой ответ ничего не говорит о вакансии, по нему нельзя закрывать отклики как «вакансия недоступна»
-    private async Task<JsonDocument?> LoadStateAsync(string url, CancellationToken ct)
+    private async Task<JsonDocument?> LoadStateAsync(string url, CancellationToken ct, bool vacancyPage = false)
     {
         using var response = await _http.GetAsync(url, ct);
         switch (response.StatusCode)
         {
             case HttpStatusCode.NotFound:
                 return null;
-            case HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests:
+            case HttpStatusCode.Forbidden when vacancyPage:
+                throw new ForbiddenVacancyException();
+            case HttpStatusCode.Forbidden:
+            case HttpStatusCode.TooManyRequests:
                 throw Blocked($"ответ {(int)response.StatusCode}");
         }
 
-        if (response.RequestMessage?.RequestUri?.AbsolutePath.Contains("captcha", StringComparison.OrdinalIgnoreCase) == true)
+        if (IsCaptcha(response))
             throw Blocked("капча");
         response.EnsureSuccessStatusCode();
         return HhPageParser.ExtractState(await response.Content.ReadAsStringAsync(ct)) ?? throw Blocked("на странице нет данных");
     }
 
+    // Контрольный запрос после 403 на странице вакансии: главная с данными страницы, без капчи
+    private async Task<bool> HomeOpensAsync(CancellationToken ct)
+    {
+        using var response = await _http.GetAsync("", ct);
+        if (response.StatusCode != HttpStatusCode.OK || IsCaptcha(response))
+            return false;
+
+        using var state = HhPageParser.ExtractState(await response.Content.ReadAsStringAsync(ct));
+        return state is not null;
+    }
+
+    private static bool IsCaptcha(HttpResponseMessage response) =>
+        response.RequestMessage?.RequestUri?.AbsolutePath.Contains("captcha", StringComparison.OrdinalIgnoreCase) == true;
+
     private SourceBlockedException Blocked(string reason) => new(Name, reason);
+
+    // 403 на странице вакансии: блокировка или закрытая вакансия — решает контрольный запрос в LoadDetailsAsync
+    private sealed class ForbiddenVacancyException : Exception;
 }

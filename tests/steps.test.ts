@@ -577,6 +577,21 @@ describe("QueueStep", () => {
       expect(messages.some((m) => m.includes("в архиве") && m.includes("пробный режим"))).toBe(true);
     });
 
+    it("вакансию закрыл hh.ru — Skipped «вакансия недоступна», «Отправить» не нажимается (#99)", async () => {
+      const { ctx, step, visited, messages } = queueRun([], { queueDryRun: false });
+      ctx.archive.check.mockResolvedValue({ state: "unavailable" });
+      ctx.state.queueFailStreak = 2;
+
+      await run(step.resume());
+
+      expect(ctx.pipeline.applyOnPage).not.toHaveBeenCalled();
+      expect(ctx.backend.reportStatus).toHaveBeenCalledWith("1", { status: "Skipped", reason: "вакансия недоступна" }, ".NET");
+      expect(ctx.state.queueFailStreak).toBe(0);
+      expect(ctx.state.queueRunning).toBe(true);
+      expect(visited).toEqual([RESPONSE("2")]);
+      expect(messages.some((m) => m.includes("недоступна на hh.ru"))).toBe(true);
+    });
+
     it("проверка не удалась — отклик как обычно, причина в журнале", async () => {
       const { ctx, step, messages } = queueRun(["success"]);
       ctx.archive.check.mockResolvedValue({ state: "unknown", error: "ответ 500" });

@@ -46,4 +46,19 @@ describe("pageArchiveChecker", () => {
 
     expect(await checker.check("1")).toEqual({ state: "unknown", error });
   });
+
+  // Закрытая вакансия отдаёт 403 всем; отказ всем запросам — тоже 403 (#99)
+  it("403 на вакансии, главная открылась — unavailable", async () => {
+    const fetchFn = vi.fn(async (url: string | URL | Request) => (String(url).endsWith("/vacancy/1") ? response("", 403) : response("<html></html>")));
+    const checker = pageArchiveChecker(() => "https://tver.hh.ru/applicant/vacancy_response?vacancyId=1", fetchFn);
+
+    expect(await checker.check("1")).toEqual({ state: "unavailable" });
+    expect(fetchFn).toHaveBeenLastCalledWith("https://tver.hh.ru/", expect.objectContaining({ credentials: "omit" }));
+  });
+
+  it("403 и на главной — unknown, отклик как обычно", async () => {
+    const checker = pageArchiveChecker(() => "https://hh.ru/", vi.fn(async () => response("", 403)));
+
+    expect(await checker.check("1")).toEqual({ state: "unknown", error: "ответ 403" });
+  });
 });
